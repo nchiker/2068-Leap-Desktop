@@ -43,4 +43,14 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
     - cross-emulator runners.
   - **Haiku:** running test suites and emulator runs, and reporting the results (give the exact commands and what to report).
   - **Main model only:** design, contracts, Z80 drawing / ISR / banking code, debugging, and judging results. Check a subagent's result (re-run its tests) before telling the owner it is done.
+  - **Fable (owner, 2026-11-11):** bounded hard problems that can run beside the main work, each in its own git worktree with a
+    measurable result:
+    - closing a missed or tight speed bound (first: `G_FILL` 32x16 XOR, 3,390 against 3,300);
+    - an independent review of the S4 pointer ISR, given the code and the contract, not the main model's reasoning.
+
+    Fable costs twice Opus per token: not for routine work.
+  - **Worktrees come from the LeapG repo,** not from the Agent tool's `isolation: "worktree"`: that one branches `~/Projects`,
+    a different repo. Before spawning, from `~/Projects/LeapG`:
+    `git worktree add .claude/worktrees/<name> -b <name>`, then in it `rmdir tsrun && ln -s ../../../tsrun tsrun`
+    (`tsrun` is a submodule). Give the agent that path. Remove it with `git worktree remove --force` and `git branch -D`.
 - Commit only when the owner asks.
