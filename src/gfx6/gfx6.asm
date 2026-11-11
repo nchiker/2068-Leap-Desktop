@@ -1,13 +1,14 @@
-; gfx6.asm -- mode 6 (512 x 192) graphics core, slice S1 of docs/GRAPHICS_SPIKE.md: addressing, clip, draw op, rectangle fill,
-; horizontal / vertical lines, frame, whole-screen clear.  Interface: GRAPHICS_SPIKE.md section 12 (binding).
+; gfx6.asm -- mode 6 (512 x 192) graphics core of docs/GRAPHICS_SPIKE.md.  S1: addressing, clip, draw op, rectangle fill,
+; horizontal / vertical lines, frame, whole-screen clear (interface: section 12).  S2: 8x8 text, proportional text and its width
+; (interface: section 14).  Both binding.
 ;
 ; Mode 6 (section 3): byte column c = x >> 3 lives in file c AND 1 ($4000 / $6000) at offset c >> 1 of the Spectrum row address.
 ; So inside a row the byte columns alternate files: f1 offset k, f2 offset k, f1 offset k + 1, ...  The row-major code keeps HL on
 ; file 1 and DE on file 2 at the same offset, so E = L at the start of every row (one register, C, restores both).
 ;
 ; Every routine preserves IX, IY and the alternate set, never executes DI or EI, and uses at most 32 bytes of stack.
-; Needs ROWTAB (src/gfx6/tables.inc) on a 512-byte boundary and LMASKP / RMASKP (src/gfx6/tables4.inc) on a page boundary,
-; RMASKP directly after LMASKP.
+; Needs ROWTAB (src/gfx6/tables.inc) on a 512-byte boundary and the page-aligned tables of src/gfx6/tables4.inc: RMASKP directly
+; after LMASKP, PROP6_I directly after PROP6_W, SHL 8 pages after SHR.
 
 ; ---------------------------------------------------------------------------------------------------------------------
 ; Variables ($E000-$E03F, section 12.1)
@@ -17,6 +18,7 @@ GA_Y        EQU GA+2
 GA_W        EQU GA+4
 GA_H        EQU GA+6
 GOP         EQU $E010               ; draw op
+GLH         EQU $E011               ; line height (G_TEXTP code 13)
 GCLIP       EQU $E012               ; clip: x0, x1, y0, y1 (words, half-open, inside the screen)
 GCX0        EQU GCLIP+0
 GCX1        EQU GCLIP+2
@@ -32,6 +34,26 @@ G_FR        EQU $E024               ; 8 bytes: G_FRAME's copy of x, y, w, h
 G_LM        EQU $E02C               ; byte: left edge mask
 G_RM        EQU $E02D               ; byte: right edge mask
 G_FILLB     EQU $E02E               ; byte: the fill byte of the whole-byte blocks ($FF SET, 0 CLR)
+; S2 scratch (G_TEXTP / G_TEXTW; reuses S1's scratch bytes: no routine calls another that uses them)
+G_PX        EQU $E01A               ; word: pen x
+G_PY        EQU $E01C               ; word: pen y
+G_X0        EQU $E01E               ; word: the start x (code 13 returns to it)
+G_RB        EQU $E020               ; word: ROWTAB of the line's first drawn row
+G_COL       EQU $E022               ; word: byte column of the glyph (slow path)
+G_COLB      EQU $E024               ; word: byte column being drawn (slow path)
+G_TWM       EQU $E026               ; word: G_TEXTW's widest line
+G_D0        EQU $E028               ; byte: (spare)
+G_N         EQU $E029               ; byte: rows drawn on this line (0 = none)
+G_S         EQU $E02A               ; byte: rows before the character-row crossing (= G_N when none)
+G_KF        EQU $E02B               ; byte (signed): the last pen byte column of the fast region
+G_RS        EQU $E02C               ; byte: row size of the op's pass block
+G_CH        EQU $E02D               ; byte: code (slow path)
+G_P         EQU $E02E               ; byte: x AND 7 (slow path)
+G_ONE       EQU $E02F               ; byte: $FF when the glyph fits one byte (slow path)
+G_TBL       EQU $E030               ; byte: shift table page (slow path)
+G_M         EQU $E031               ; byte: clip mask (slow path)
+G_MN        EQU $E032               ; byte: rows left (masked pass)
+G_MS        EQU $E033               ; byte: rows to the crossing (masked pass)
 GFX6_VARS_END EQU $E040
 
 OP_SET      EQU 0
@@ -41,8 +63,10 @@ OP_XOR      EQU 2
 GFX6_CODE:
 
 ; ---------------------------------------------------------------------------------------------------------------------
-; G_INIT: GOP = SET, clip = whole screen.  Clobbers AF, HL.
+; G_INIT: GOP = SET, GLH = 8, clip = whole screen.  Clobbers AF, HL.
 G_INIT:
+    ld a,8
+    ld (GLH),a
     xor a
     ld (GOP),a
     ld hl,0
@@ -178,7 +202,7 @@ G_HLINE:
     ld (GA_W),bc
     ld hl,1
     ld (GA_H),hl
-    jp G_FILL
+    jr G_FILL
 
 G_VLINE:
     ld (GA_X),hl
@@ -186,7 +210,7 @@ G_VLINE:
     ld (GA_H),bc
     ld hl,1
     ld (GA_W),hl
-    jp G_FILL
+    jr G_FILL
 
 ; ---------------------------------------------------------------------------------------------------------------------
 ; G_FRAME: GA = x, y, w, h -> the outline in the draw op, each pixel once: top row, bottom row (h >= 2), then the left and right
@@ -241,7 +265,7 @@ G_FRAME:
     ld de,(G_FR+0)
     add hl,de
     ld (GA_X),hl            ; x + w - 1
-    jp G_FILL               ; right: (x + w - 1, y + 1, 1, h - 2)
+    jr G_FILL               ; right: (x + w - 1, y + 1, 1, h - 2)
 
 ; ---------------------------------------------------------------------------------------------------------------------
 ; G_FILL: GA = x, y, w, h -> the draw op on every pixel of the rectangle inside the clip.  GA is kept.  Clobbers AF, BC, DE, HL.
@@ -338,9 +362,9 @@ G_FILL:
     ld c,a
     ld a,b
     sub c                   ; n - 1
-    jp z,.one
+    jr z,.one
     cp 8
-    jp nc,.wide
+    jr nc,.wide
     ; --- n = 2..8: IY = SB_TAB[op][n - 1]; C = left mask, IXl = right mask (complemented for CLR), IXh = P's low byte
     ld e,a
     ld a,(GOP)
@@ -471,23 +495,16 @@ G_FILL:
 .weven:
     ld a,(GOP)
     ld c,$FF
-    ld hl,FAST_S_END        ; ends in file 2
-    ld de,FAST_S2_END
+    ld hl,FAST_S_END        ; file 1 / file 2 elements, ending in file 2 (HL, DE swapped below when the run ends in file 1)
     or a
     jr z,.wop
     ld c,0
     dec a
     jr z,.wop
     ld hl,FASTX_S_END
-    ld de,FASTX_S2_END
 .wop:
     ld a,c
     ld (G_FILLB),a
-    ld a,(G_BC1)
-    rra
-    jr c,.wend              ; bc1 odd: the run ends in file 2
-    ex de,hl
-.wend:
     ld a,(G_BC0)
     ld c,a
     ld a,(G_BC1)
@@ -523,7 +540,11 @@ G_FILL:
     ld a,h
     or $20
     ld d,a
-
+    ld a,(G_BC1)
+    rra
+    jr c,.wend              ; bc1 odd: the run ends in file 2, as the block does
+    ex de,hl                ; bc1 even: HL on file 2, DE on file 1, so the block's last element (DE) is in file 1.  The row
+.wend:                      ; tail and G_SEGW treat HL and DE alike.
     ld c,l
     ld a,(G_Y0)
     or $F8
@@ -797,11 +818,32 @@ SBI = SBI - 1
     SBODY 2, 7, SB_X7
     SBODY 2, 8, SB_X8
 
-    ALIGN 64
+    IF ($ & $FF) > 256 - 48
+        ALIGN 256           ; SB_TAB must not cross a page (indexed by its low byte)
+    ENDIF
 SB_TAB:                     ; [op * 8 + n - 1]
     DW 0, SB_S2, SB_S3, SB_S4, SB_S5, SB_S6, SB_S7, SB_S8
     DW 0, SB_C2, SB_C3, SB_C4, SB_C5, SB_C6, SB_C7, SB_C8
     DW 0, SB_X2, SB_X3, SB_X4, SB_X5, SB_X6, SB_X7, SB_X8
+
+; G_TEXTP's pass-block table (text.asm), placed here where it fits in a page with no padding.
+    MACRO TPENT h1, h2, rs
+        DW h1, h2
+        DB 0, rs, 2*rs, 3*rs, 4*rs, 5*rs, 6*rs, 7*rs, 8*rs
+    ENDM
+    IF ($ & $FF) > 256 - 117
+        ALIGN 256           ; the offsets tables must not cross a page
+    ENDIF
+TP_OPS:                     ; [op][S, E, O]: first-half end, second-half end, r x row size for r = 0..8 (13 bytes)
+    TPENT TP_SS1, TP_SS2, 7
+    TPENT TP_SE1, TP_SE2, 16
+    TPENT TP_SO1, TP_SO2, 18
+    TPENT TP_CS1, TP_CS2, 8
+    TPENT TP_CE1, TP_CE2, 18
+    TPENT TP_CO1, TP_CO2, 20
+    TPENT TP_XS1, TP_XS2, 7
+    TPENT TP_XE1, TP_XE2, 16
+    TPENT TP_XO1, TP_XO2, 18
 
 ; ---------------------------------------------------------------------------------------------------------------------
 ; Whole-byte blocks for n >= 9: 64 elements of alternating file 1 / file 2.  _S ends with a file 2 element, _S2 with a file 1
@@ -844,23 +886,11 @@ rlab:
 FAST_S_END:
     FTAIL FAST_S_R
     REPT 32
-        ST_F2
-        ST_F1
-    ENDR
-FAST_S2_END:
-    FTAIL FAST_S2_R
-    REPT 32
         XO_F1
         XO_F2
     ENDR
 FASTX_S_END:
     FTAIL FASTX_S_R
-    REPT 32
-        XO_F2
-        XO_F1
-    ENDR
-FASTX_S2_END:
-    FTAIL FASTX_S2_R
 
 ; ---------------------------------------------------------------------------------------------------------------------
 ; vwalk: one byte column.  HL = its byte in row y0, C = mask (complemented for CLR), D = y0 AND 7, E = rows (>= 1),
@@ -964,5 +994,7 @@ G_CLS:
     ENDR
     djnz .lo
     ret
+
+    INCLUDE "gfx6/text.asm"
 
 GFX6_CODE_END:

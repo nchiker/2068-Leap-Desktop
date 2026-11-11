@@ -1,10 +1,11 @@
 "use strict";
 // gen-tables.mjs -- generate src/gfx6/tables.inc (sjasmplus source: labels and data only) for the mode 6 graphics code.
 // See docs/GRAPHICS_SPIKE.md sections 6 and 12.3. S1 tables: ROWTAB, LMASK, RMASK; later slices add more (one function each).
-// Also src/gfx6/tables4.inc (page-aligned tables for chunk 4-5: LMASKP, RMASKP).
+// Also src/gfx6/tables4.inc (page-aligned tables for chunk 4-5: LMASKP, RMASKP; S2 (section 14.2): PROP6_W, PROP6_I, the font
+// planes FONTP (PROP6 at byte c, the 8x8 font at byte 128 + c = GLYPH8 + c), SHR, SHL).  Fonts: src/font.inc, fonts/prop6.txt.
 //   node tools/gen-tables.mjs       write src/gfx6/tables.inc and tables4.inc, print each path and size
 //   import { genTables, genTables4 } from './gen-tables.mjs'   each returns the file text
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -84,12 +85,118 @@ export function genRmaskp() {
   return `RMASKP:\n${dbLines(v)}`;
 }
 
+/** The 8x8 font of src/font.inc: code -> 8 row bytes for codes 32..127 (96 glyphs, 8 bytes each, in order). */
+export function readFont8(path = join(ROOT, 'src', 'font.inc')) {
+  const bytes = [];
+  for (const line of readFileSync(path, 'utf8').split('\n')) {
+    const m = line.match(/^\s*DB\s+([^;]*)/);
+    if (m) for (const v of m[1].split(',')) bytes.push(parseInt(v.trim().replace('$', ''), 16));
+  }
+  if (bytes.length !== 96 * 8 || bytes.some((b) => !(b >= 0 && b <= 255))) throw new Error(`src/font.inc: ${bytes.length} bytes, expected 768`);
+  const font = new Map();
+  for (let c = 32; c < 128; c++) font.set(c, bytes.slice((c - 32) * 8, (c - 32) * 8 + 8));
+  return font;
+}
+
+/**
+ * fonts/prop6.txt (section 14.3) -> Map code -> { adv, ink, rows[8] }.  Throws, naming the line, on any format error:
+ * header "= NN [char]", 8 rows of '.'/'#' of one length 1..16 (the advance), ink only in columns 0..7, codes 32..126 once each.
+ */
+export function readProp6(path = join(ROOT, 'fonts', 'prop6.txt')) {
+  const lines = readFileSync(path, 'utf8').split('\n');
+  const font = new Map();
+  const bad = (i, m) => { throw new Error(`${path}:${i + 1}: ${m}`); };
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].replace(/\r$/, '');
+    if (line.trim() === '' || line.startsWith(';')) continue;
+    const h = line.match(/^= (\d+)(?: .?)?$/);
+    if (!h) bad(i, `expected a glyph header "= NN", got "${line}"`);
+    const code = Number(h[1]);
+    if (code < 32 || code > 126) bad(i, `code ${code} outside 32..126`);
+    if (font.has(code)) bad(i, `code ${code} defined twice`);
+    const rows = [];
+    let len = -1, ink = 0;
+    for (let k = 0; k < 8; k++) {
+      const r = (lines[i + 1 + k] ?? '').replace(/\r$/, '');
+      if (!/^[.#]+$/.test(r)) bad(i + 1 + k, `glyph ${code} row ${k}: "${r}" is not a row of . and #`);
+      if (len < 0) len = r.length; else if (r.length !== len) bad(i + 1 + k, `glyph ${code} row ${k}: length ${r.length}, row 0 has ${len}`);
+      if (r.indexOf('#', 8) >= 0) bad(i + 1 + k, `glyph ${code} row ${k}: ink past column 7`);
+      let b = 0;
+      for (let j = 0; j < 8 && j < r.length; j++) if (r[j] === '#') { b |= 0x80 >> j; ink = Math.max(ink, j + 1); }
+      rows.push(b);
+    }
+    if (len < 1 || len > 16) bad(i, `glyph ${code}: advance ${len} outside 1..16`);
+    font.set(code, { adv: len, ink, rows });
+    i += 8;
+  }
+  for (let c = 32; c <= 126; c++) if (!font.has(c)) throw new Error(`${path}: code ${c} (${String.fromCharCode(c)}) missing`);
+  return font;
+}
+
+/** PROP6_W, PROP6_I (256 bytes each, by code). */
+export function genProp6Widths(p6) {
+  const w = Array(256).fill(0), ink = Array(256).fill(0);
+  for (const [c, g] of p6) { w[c] = g.adv; ink[c] = g.ink; }
+  check256('PROP6_W', w, [[0, 0], [13, 0], [127, 0], [255, 0], [65, p6.get(65).adv]]);
+  check256('PROP6_I', ink, [[32, 0], [13, 0], [65, p6.get(65).ink]]);
+  return `PROP6_W:\n${dbLines(w)}\nPROP6_I:\n${dbLines(ink)}`;
+}
+
+/** FONTP: 8 planes; plane k byte c = PROP6 row k of code c (c < 128), byte 128 + c = 8x8 row k of code c.  GLYPH8 = FONTP + 128. */
+export function genFontPlanes(p6, f8) {
+  const out = ['FONTP:'];
+  for (let k = 0; k < 8; k++) {
+    const v = Array(256).fill(0);
+    for (const [c, g] of p6) v[c] = g.rows[k];
+    for (const [c, g] of f8) if (c !== 127) v[128 + c] = g[k];
+    check256(`FONTP plane ${k}`, v, [[0, 0], [31, 0], [127, 0], [128, 0], [255, 0], [128 + 65, f8.get(65)[k]]]);
+    out.push(`\t; plane ${k}: PROP6 row ${k} (codes 0..127), then the 8x8 row ${k} (GLYPH8 + code)`);
+    out.push(dbLines(v));
+  }
+  out.push('GLYPH8 EQU FONTP+128');
+  return out.join('\n');
+}
+
+/** The first and last+1 rows with ink in any PROP6 glyph (rows outside them are blank in every glyph). */
+export function prop6Rows(p6) {
+  let r0 = 8, r1 = 0;
+  for (const g of p6.values()) g.rows.forEach((b, k) => { if (b) { r0 = Math.min(r0, k); r1 = Math.max(r1, k + 1); } });
+  return r1 > r0 ? [r0, r1] : [0, 1];
+}
+
+/** SHR / SHL interleaved, 16 pages: SHR + 512 p + v = v >> p; SHL = SHR + 256: (v << (8 - p)) AND $FF (0 for p = 0). */
+export function genShifts() {
+  const out = ['SHR:'];
+  for (let p = 0; p < 8; p++) {
+    const r = Array.from({ length: 256 }, (_, i) => i >> p);
+    const l = Array.from({ length: 256 }, (_, i) => p ? (i << (8 - p)) & 0xFF : 0);
+    check256(`SHR ${p}`, r, [[0xFF, 0xFF >> p], [0x80, 0x80 >> p], [1, p ? 0 : 1]]);
+    check256(`SHL ${p}`, l, [[0xFF, p ? (0xFF << (8 - p)) & 0xFF : 0], [1, p ? (1 << (8 - p)) & 0xFF : 0]]);
+    out.push(`\t; SHR p = ${p}`, dbLines(r));
+    if (p === 0) out.push('SHL:');
+    out.push(`\t; SHL p = ${p}`, dbLines(l));
+  }
+  return out.join('\n');
+}
+
+/** PROP6_A2 (2 x advance) and PROP6_K (2 x ink width, + $80 when the glyph has ink in the font's last row r1 - 1): internal to G_TEXTP. */
+export function genProp6Internal(p6, r1) {
+  const a2 = Array(256).fill(0), k = Array(256).fill(0);
+  for (const [c, g] of p6) { a2[c] = 2 * g.adv; k[c] = g.ink ? 2 * g.ink + (g.rows[r1 - 1] ? 0x80 : 0) : 0; }
+  check256('PROP6_A2', a2, [[13, 0], [65, 2 * p6.get(65).adv]]);
+  return `PROP6_A2:\n${dbLines(a2)}\nPROP6_K:\n${dbLines(k)}`;
+}
+
 /** The full text of src/gfx6/tables4.inc. */
 export function genTables4() {
-  const head = '; src/gfx6/tables4.inc -- GENERATED by tools/gen-tables.mjs. Do not edit by hand.\n' +
-    '; Labels and data only. Every table is 256 bytes and must start on a page boundary: the including source\n' +
+  const head = '; src/gfx6/tables4.inc -- GENERATED by tools/gen-tables.mjs from src/font.inc and fonts/prop6.txt. Do not edit by hand.\n' +
+    '; Labels and data only. Every table is a whole number of pages and must start on a page boundary: the including source\n' +
     '; puts this file at a page boundary (chunk 4-5) and the tables follow each other with no padding needed.\n';
-  return [head, genLmaskp(), genRmaskp()].join('\n') + '\n';
+  const p6 = readProp6(), f8 = readFont8();
+  const [r0, r1] = prop6Rows(p6);
+  const rows = `PROP6_R0 EQU ${r0}\t; first PROP6 row with ink in any glyph\nPROP6_R1 EQU ${r1}\t; last PROP6 row with ink + 1`;
+  return [head, genLmaskp(), genRmaskp(), genProp6Widths(p6), genProp6Internal(p6, r1), genFontPlanes(p6, f8), genShifts(), rows]
+    .join('\n') + '\n';
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

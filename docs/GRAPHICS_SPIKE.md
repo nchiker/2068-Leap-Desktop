@@ -328,3 +328,206 @@ The tests were written by a separate agent from the contract, without reading th
 - `G_CLS` ignores the clip and the draw op (section 12.2).
 - Every ISR is limited to 32 bytes of stack (section 12.2; binding on S4).
 - The 32 x 16 bound is measured as the worst over x in {1, 3, 9, 101, 255, 477} and y in {0, 5} (section 12.5).
+
+### 13.2 Slice S2 (2026-11-11)
+
+**Result: every S2 bound passes. Three figures are reported:**
+- code size, now over its 4 KB target;
+- characters per line, more than section 6 expected;
+- `CLR` and `XOR` text, which have no bounds.
+
+The S1 miss (13.1) is unchanged. Interface: section 14, including its amendments to 12.1 (memory) and section 6 (`PROP6`
+format and place).
+
+| Measure (14.6) | Measured | Bound | Result |
+|---|---|---|---|
+| `G_TEXT8` per character, `SET` (64-character line) | 232.3 | <= 260 | pass |
+| `G_TEXT8` per character, `XOR` | 288.3 | <= 340 | pass |
+| `G_TEXT8` per character, `CLR` | 264.3 | report | reported |
+| `G_TEXTP` per glyph, `SET` (sample paragraph: 5 lines, 388 codes, spaces included) | 668.0 | <= 700 | pass |
+| `G_TEXTP` per glyph, `XOR` / `CLR` | 668.0 / 699.5 | report | reported |
+| `G_TEXTP` one-code calls, by ink width 0 / 2 / 3 / 4 / 5 / 6 / 7 / 8 | 3,447 / 3,823 / 3,895 / 3,942 / 3,962 / 4,006 / 4,057 / 4,090 | report | reported: a one-code call is mostly the line setup (about 2,760 T) |
+| `G_TEXTW` per code (255 codes) | 98.8 | none | reported |
+| Characters per 512-pixel line (512 / mean advance 5.80 over the paragraph) | 88.2 | report (section 6 expected 75-80) | reported |
+| Longest `DI` | 0 | <= 1,500 | pass |
+| Code size of `gfx6` | 6,266 bytes after the shrink pass below (6,739 before it) | target <= 4 KB, report | **over the target** (the owner accepted the increase) |
+
+#### How `G_TEXTP` reaches 668
+
+The first version, which was correct, cost 749 T a glyph.
+
+**Where the time went (sample paragraph):**
+- 45% of the codes needed two byte columns, and each paid a second pass.
+- Passes drew all 7 font rows, while the glyphs average 5.3 rows with ink.
+
+| Change | T a glyph |
+|---|---|
+| First version: one pass per byte column, downward, entries in IX / IY | 749 |
+| Two byte columns drawn in one pass (blocks E and O); passes upward, so a glyph without ink in the bottom font row (87% of the paragraph's glyphs) skips that row; entries through `JP nn` trampolines in RAM, written once per line | 708 |
+| Line setup: entry offsets from per-block tables, not a multiply loop | 693 |
+| Trampolines written with direct stores | 682 |
+| Pass blocks end with `JP tpf_adv`, entered by `JP` (no `CALL` / `RET` per glyph) | 668 |
+
+#### How S2 is built
+
+- **Fonts** share 8 planes in chunk 4 (14.2): one `INC D` / `DEC D` steps a glyph row in either font.
+- **`G_TEXT8`** walks a pair of cells as a serpentine:
+  - the even cell top to bottom, `SET 5,H`, then the odd cell bottom to top;
+  - so no pointer is reset between cells, and a cell costs 8 row moves and one file switch.
+- **`G_TEXTP`** has two loops.
+  - **Fast loop:** for glyphs wholly inside the clip. All its state is in registers (main set: string, count, column budget, pen
+    screen byte; alternate B' = the pen's shift page), and the passes run in the alternate set.
+  - **General loop:** handles code 13, invisible lines, glyphs cut by the clip (each byte column masked, `tp_mbyte` /
+    `tp_mpass`) and glyphs outside it. It re-enters the fast loop as soon as the pen is in the fast region.
+  - **Pass blocks:** 9 of them (S, E, O for each op), 1,808 bytes in all. They are the main reason the code is over its target.
+  - **Trampolines** take `$E040-$E069`; the remaining S2 variables are in `$E06A-$E078`.
+- **Shift tables** are interleaved (`SHL = SHR + 256`), so the second byte column of a row is one `INC B` away.
+- **`fonts/prop6.txt`**, first version, drawn by the main model:
+  - 2-pixel vertical strokes, capitals in rows 1-6, x-height rows 2-6, descenders in row 7, row 0 blank;
+  - **for the owner to review by eye** (S5's demo, or any `G_TEXTP` screen).
+
+#### Shrink pass (2026-11-11, owner approved)
+
+A size pass (`shrink-z80`) measured its candidates in a disposable worktree, then three of them were applied here. Together
+they save 473 bytes, with no speed cost.
+
+| Change | Bytes |
+|---|---|
+| `G_FILL`'s whole-byte blocks: one copy per op instead of two. A run that ends in file 1 swaps HL and DE, since the row tail and `G_SEGW` treat them alike | -357 |
+| Alignment padding removed: `SB_TAB` and `T8_TAB` only need to stay inside a page (conditional `ALIGN 256` guards), and `TP_OPS` moved after `SB_TAB`, where it fits | about -111 |
+| Five setup jumps changed to `jr` (not the per-row `jp nz,.bwd`, which would cost 2 T a row) | -5 |
+
+S1 figures after it (13.1 records the originals):
+- `G_FILL` 512x192 SET: 146,422 T.
+- 32x16 at odd x: SET 2,974 T; XOR 3,390 T (still over the 3,300 bound).
+- `G_HLINE`: 2,160 T.
+- `G_VLINE`: 6,647 T.
+
+S2 figures are unchanged.
+
+Measured and not applied: drop the O pass blocks and draw those glyphs in two S passes. It saves 891 bytes more (5,375 total)
+but costs 668 -> 680.9 T a glyph, and `CLR` 699.5 -> 712.5.
+
+#### Options if the code size matters more than the margin
+
+Each option was estimated, not measured.
+
+| Option | Saves | Costs |
+|---|---|---|
+| Two passes for odd-parity two-byte glyphs (drop the O blocks) | 891 bytes (measured) | +12.9 T a glyph (measured: 680.9) |
+| Pass blocks moved to chunk 5 | no bytes; frees chunk 0-1 space | Chunk 5 is mapped all the time (section 3) |
+
+#### Tests
+
+- **`tests/gfx6-model.mjs`:**
+  - S2 model: own parsers for `fonts/prop6.txt` and `src/font.inc`, the expected tables, `text8`, `textp`, `textw`, GLH;
+  - self-test of 95 checks.
+- **`tests/gfx6-s2.mjs`:** 37 checks.
+  - Every generated table byte against the model.
+  - 600 random calls of each routine: whole-screen compare, poisoned RAM, preserved registers, returned pen and width.
+  - Edge cases: section 8.3 positions, every glyph at every shift, screen and clip edges, CR, empty clip, 255-code strings.
+  - Longest `DI`.
+  - Passes on seeds 1-4.
+- **`tests/gfx6-perf.mjs`:** the S2 bounds and reports above.
+- The model and tests were written by a separate agent from sections 12 and 14, without reading the code. About 40 blind
+  mutations of `text.asm` were tried: every one that changed behaviour was caught; the ones that survived were equivalent.
+- S1's tests (`gfx6-s1`, `gfx6-cls`) still pass.
+
+#### Interpretations made in S2
+
+- **`G_TEXT8` `SET` and `CLR` are opaque.**
+  - They write the whole cell byte (`CLR` gives inverse video); `XOR` inverts the glyph's ink.
+  - Section 7's `SET` / `XOR` figures match this, and a cell-based routine normally overwrites its cell.
+- **`G_TEXT8` clips by whole cells:** a cell partly outside the clip is not drawn.
+- **Code 13** is a new line in `G_TEXTP`: back to the start x, down `GLH`. This is what the line-height setting is for.
+  `G_TEXTW` returns the widest line.
+- **Strings** are 0..255 codes with a length, no terminator. Codes with no glyph draw nothing and do not advance.
+- **The paragraph's per-glyph mean** counts the 388 codes actually sent. The 4 spaces at line breaks are not drawn, as with
+  any word-wrapped text.
+- **Viewing a screen in TSRun:** right after a test has stepped the CPU directly, the first `runFrame` can show a partial frame;
+  the second one is complete. This is a harness note for S5, not a code issue.
+
+## 14. S2 interface (designed 2026-11-11, binding for the S2 code and tests)
+
+Section 14 fills in what sections 3-6 leave open for slice S2 (8x8 text, proportional text, shift tables, the `PROP6` font). It
+adds to section 12; nothing in section 12 changes except where 14.1 says so. The tests are written from sections 3-7, 12 and this
+section, never from the code.
+
+### 14.1 Memory and settings
+
+| Address | Name | What |
+|---|---|---|
+| `$E011` | `GLH` | Line height in pixel rows (byte, 1..255), used by `G_TEXTP` for code 13. A setting like `GOP`: written only by `G_INIT` (to 8) and by the caller |
+| `$E01A-$E07F` | | gfx6 scratch (S1's and S2's), including code trampolines that `G_TEXTP` rewrites for each line (`JP nn` in RAM, so a pass block can be entered at a per-line offset). Any gfx6 routine may write it |
+| `$E080-$E0FF` | | The cartridge's own variables (**changed from 12.1**: gfx6 now owns `$E000-$E07F`) |
+
+`G_INIT` now also sets `GLH` = 8 (clobbers still AF, HL). No drawing routine changes `GOP`, `GLH` or `GCLIP`. 12.4's poisoning
+already leaves all of `$E000-$E0FF` alone, so the clip-safety test is unchanged.
+
+**Strings** are `n` bytes at an address, no terminator, `n` = 0..255 (a word whose high byte is 0). They may be anywhere in
+memory the routine can read.
+
+### 14.2 Fonts and tables (`src/gfx6/tables4.inc`, chunk 4, page aligned, generated)
+
+This replaces the `PROP6` format and place of section 6 (both fonts now share 8 planes, so a glyph row is one `inc d` away from
+the next, and both fonts index by code).
+
+| Table | Content | Size |
+|---|---|---|
+| `LMASKP`, `RMASKP` | as 12.3 | 2 pages |
+| `PROP6_W` | `PROP6_W[c]` = advance width of code c (0 for a code with no glyph) | 1 page |
+| `PROP6_I` | `PROP6_I[c]` = ink width of code c: 1 + the rightmost ink column, 0 for a glyph with no ink or a code with no glyph | 1 page |
+| `FONTP` | 8 planes, plane k (glyph row k, 0 = top) at `FONTP + 256 k`. Byte c (0..127) = row k of the `PROP6` glyph of code c (bit 7 = leftmost column). Byte 128 + c = row k of the 8x8 glyph of code c | 8 pages |
+| `GLYPH8` | `= FONTP + 128`: row k of the 8x8 glyph of code c at `GLYPH8 + 256 k + c`, c = 0..127, as section 6 | (in `FONTP`) |
+| `SHR` | `SHR + 512 p + v` = `v >> p`, p = 0..7 (pages interleaved with `SHL`) | 8 pages |
+| `SHL` | `= SHR + 256`: `SHL + 512 p + v` = `(v << (8 - p)) AND $FF` (0 for p = 0) | 8 pages |
+| `PROP6_A2`, `PROP6_K` | Internal to `G_TEXTP` (not part of the interface): 2 x advance, and 2 x ink width + `$80` when the glyph has ink in the font's last row | 2 pages |
+
+**8x8 glyphs:** codes 32..126 are `src/font.inc`; codes 0..31 and 127 are blank.
+
+**`PROP6` glyphs:** codes 32..126 from `fonts/prop6.txt`; every other code (0..31, 127..255) has no glyph: no ink, advance 0.
+
+### 14.3 `fonts/prop6.txt` (the `PROP6` source; the owner may redraw glyphs in it)
+
+- Lines starting with `;` are comments; blank lines are ignored.
+- A glyph is a header line `= NN` (NN = decimal code, 32..126), optionally followed by a space and the character itself (for
+  reading only), then exactly 8 rows of `.` (paper) and `#` (ink). Row 0 is the top.
+- All 8 rows of a glyph have the same length L, 1..16. **L is the advance width.** Ink is allowed only in columns 0..7.
+- Every code 32..126 appears exactly once. The generator rejects anything else.
+- Design rules for the first version (not enforced): row 0 blank (the gap between lines), capitals and digits in rows 1-6,
+  x-height rows 2-6, descenders in row 7; vertical strokes 2 pixels wide (mode 6 pixels are half as wide as tall); one blank
+  column at the right as the letter gap.
+
+### 14.4 Routines
+
+All preserve IX, IY and the alternate registers (AF', BC', DE', HL'), execute no `DI` or `EI`, use at most 32 bytes of stack below
+their return address, and leave `GA` unchanged.
+
+| Routine | In | Out / effect | Clobbers |
+|---|---|---|---|
+| `G_TEXT8` | `GA+0` col, `GA+2` row (signed words), `GA+4` string address, `GA+6` n | For i = 0..n-1: the character s[i] is drawn in the cell (col + i, row) **if that whole cell is inside the clip** (`8(col+i) >= x0`, `8(col+i) + 8 <= x1`, `8 row >= y0`, `8 row + 8 <= y1`), else not at all. Drawing a cell: for k = 0..7, the screen byte b of byte column col + i, pixel row 8 row + k, with g = row k of the 8x8 glyph of (s[i] AND $7F): `SET` b = g; `CLR` b = NOT g; `XOR` b = b XOR g. (A cell is opaque in `SET` and `CLR`: they write the whole byte.) | AF, BC, DE, HL |
+| `G_TEXTP` | `GA+0` x, `GA+2` y (signed words), `GA+4` string address, `GA+6` n | A pen starts at (x, y). For each code c of the string in order: c = 13: pen x = x (the start), pen y = pen y + `GLH`. Any other c: every ink pixel of c's `PROP6` glyph, glyph pixel (j, k) at screen (pen x + j, pen y + k), that is inside the clip gets the draw op (`SET` ink, `CLR` paper, `XOR` invert); then pen x = pen x + `PROP6_W[c]`. Returns **HL = pen x, DE = pen y** after the last code. The caller keeps x, y and the pen in -16384..16383 | AF, BC, DE, HL |
+| `G_TEXTW` | `GA+4` string address, `GA+6` n | HL = the width of the widest line: lines are separated by code 13; a line's width is the sum of `PROP6_W` of its codes | AF, BC, DE, HL |
+
+### 14.5 Test cartridge additions
+
+- `gfx6t` exports `G_TEXT8`, `G_TEXTP`, `G_TEXTW`, `GLH`, `FONTP`, `GLYPH8`, `PROP6_W`, `PROP6_I`, `SHR`, `SHL`.
+- **String buffer:** tests put strings at `T_STR` = `$D000` (512 bytes, `$D000-$D1FF`). Those bytes are not poisoned; they must be
+  unchanged after every call (the routines only read them). The rest of 12.4's poisoning applies unchanged.
+- The reference model reads `fonts/prop6.txt` and `src/font.inc` itself (its own parser, from 14.2-14.3) and checks the generated
+  tables in the cartridge image against them byte for byte.
+
+### 14.6 How the S2 bounds are measured
+
+| Measure (section 7) | Calls |
+|---|---|
+| `G_TEXT8` per character, `SET` / `XOR` | One call: n = 64, codes 32..95, at col 0, row 10, clip whole screen. T / 64. `CLR` is reported |
+| `G_TEXTP` per glyph | The sample paragraph (below), word-wrapped greedily at 500 pixels with the model's `PROP6_W` (words joined by one space; a line is never empty), one call per line at x = 5, y = 3 + 10 i (i = line index; most lines cross a character row). Op `SET`, clip whole screen. Total T / total codes (spaces included). `XOR` and `CLR` are reported |
+| `G_TEXTP` per-width figures | Report: for each ink width w that occurs in the font, the mean T of one-code calls (each glyph of that width, at x = 64 + p for p = 0..7, y = 50) |
+| Characters per line | Report: 512 / the mean `PROP6_W` over the paragraph's codes |
+| Longest `DI` | `G_TEXT8`, `G_TEXTP`, `G_TEXTW`: as 12.5 |
+| Code size | as 12.5, report |
+
+Sample paragraph (one line here; 392 characters):
+
+> The quick brown fox jumps over the lazy dog. Mode 6 gives the desktop 512 pixels across, so a proportional font fits about eighty characters on a line. Each glyph is shifted into place through byte tables and clipped to its window. Menus, title bars and dialogs all use it: (1) open, (2) scroll, [3] close; "quotes", 'apostrophes' & 100% of the time {braces} <angles> @home #tags $5 ~ok? Yes!

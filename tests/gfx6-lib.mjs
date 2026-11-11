@@ -13,6 +13,11 @@ export const NEEDED = ['G_INIT', 'G_ADDR', 'G_ROWADDR', 'G_SETOP', 'G_SETCLIP', 
   'GA', 'GOP', 'GCLIP', 'ROWTAB', 'LMASK', 'RMASK', 'T_IDLE', 'T_RET', 'T_CLSLOOP', 'T_CLSDONE', 'V_FRAMES', 'V_CLS', 'RESULT',
   'GFX6_CODE', 'GFX6_CODE_END'];
 
+/** Extra symbols the S2 tests need (14.5). */
+export const NEEDED_S2 = ['G_TEXT8', 'G_TEXTP', 'G_TEXTW', 'GLH', 'FONTP', 'GLYPH8', 'PROP6_W', 'PROP6_I', 'SHR', 'SHL'];
+/** The test string buffer (14.5): 512 bytes at $D000, never poisoned, never to be written by a routine. */
+export const T_STR = 0xD000, T_STR_END = 0xD1FF;
+
 /** Build and boot gfx6t; returns { m, S, img, frames } or null after recording a FAIL on C (the cartridge tests cannot run). */
 export function start(C, needed = NEEDED) {
   let b;

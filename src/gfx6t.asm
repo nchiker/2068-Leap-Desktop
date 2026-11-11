@@ -10,10 +10,11 @@ PORT_AY_DAT EQU $F6
 F4_RUN      EQU $33             ; DOCK chunks 0,1,4,5; RAM 2,3 (display), 6,7
 SCLD_MODE6  EQU %00000110       ; mode 6, black ink on white paper, frame interrupt on, DOCK
 STACK_TOP   EQU $FF00
-V_FRAMES    EQU $E040           ; word: frame interrupts
-V_SHADOW_FF EQU $E042
-V_SHADOW_F4 EQU $E043
-V_CLS       EQU $E044           ; word: clears done by T_CLSLOOP
+V_FRAMES    EQU $E080           ; word: frame interrupts
+V_SHADOW_FF EQU $E082
+V_SHADOW_F4 EQU $E083
+V_CLS       EQU $E084           ; word: clears done by T_CLSLOOP
+T_STR       EQU $D000           ; string buffer for the S2 tests ($D000-$D1FF, section 14.5)
 RESULT      EQU $FF00
 R_STATE     EQU RESULT+2
 
@@ -111,5 +112,8 @@ T_CLSDONE:
     ORG $8000                   ; DOCK chunk 4: page-aligned tables
     INCLUDE "gfx6/tables4.inc"
     ASSERT RMASKP == LMASKP + 256 && (LMASKP & $FF) == 0
+    ASSERT PROP6_I == PROP6_W + 256 && (PROP6_W & $FF) == 0 && (FONTP & $FF) == 0
+    ASSERT SHL == SHR + 256 && (SHR & $FF) == 0 && PROP6_K == PROP6_A2 + 256 && GLYPH8 == FONTP + 128
+    ASSERT $ <= $A000           ; chunk 4 only
 
     SAVEBIN "mem.bin", 0, 65536
