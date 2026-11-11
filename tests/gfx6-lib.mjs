@@ -15,6 +15,10 @@ export const NEEDED = ['G_INIT', 'G_ADDR', 'G_ROWADDR', 'G_SETOP', 'G_SETCLIP', 
 
 /** Extra symbols the S2 tests need (14.5). */
 export const NEEDED_S2 = ['G_TEXT8', 'G_TEXTP', 'G_TEXTW', 'GLH', 'FONTP', 'GLYPH8', 'PROP6_W', 'PROP6_I', 'SHR', 'SHL'];
+/** Extra symbols the S3 tests need (15.3). */
+export const NEEDED_S3 = ['G_LINE', 'G_BLIT', 'G_PRESHIFT', 'G_SAVERECT', 'G_RESTRECT', 'G_SCROLLV'];
+/** The test save-under buffer (15.3): 4 KB at $C000-$CFFF.  It is poisoned like the rest of 12.4's RAM. */
+export const T_BUF = 0xC000, T_BUF_END = 0xCFFF;
 /** The test string buffer (14.5): 512 bytes at $D000, never poisoned, never to be written by a routine. */
 export const T_STR = 0xD000, T_STR_END = 0xD1FF;
 
@@ -114,7 +118,7 @@ export function call(m, S, name, regs = {}, opts = {}) {
     const dt = m.tstates - before;
     if (cpu.halted) throw new Error(`call ${name}: the CPU halted at $${cpu.pc.toString(16)}`);
     if (!cpu.iff1) { run += dt; if (run > maxRun) maxRun = run; } else run = 0;
-    if ((m.tstates - t0 > guard) || ++steps > 4_000_000) {
+    if ((m.tstates - t0 > guard) || ++steps > Math.max(4_000_000, guard)) {
       throw new Error(`call ${name}: ${m.tstates - t0} T-states without returning to T_RET (guard ${guard}), PC = $${cpu.pc.toString(16)}`);
     }
   }
@@ -134,7 +138,7 @@ export function changed(res, names = PRESERVED) {
 // cartridge's variables), $FE00-$FEFF (the stack around the call) and $FF00-$FFFF (the record).  $8000-$BFFF is the cartridge
 // (DOCK chunks 4-5, read-only, not RAM under $F4 = $33), so it has nothing to poison.  The stack canary at $FB00 is inside the
 // poisoned range, as the contract lists it.
-export const POISON_REGIONS = [[0x5800, 0x5FFF], [0x7800, 0x7FFF], [0xC000, 0xDFFF], [0xE100, 0xFDFF]];
+export const POISON_REGIONS = [[0x5800, 0x5FFF], [0x7800, 0x7FFF], [0xC000, 0xDFFF], [0xE100, 0xE6FF], [0xE800, 0xFDFF]];   // $E700-$E7FF: gfx6 code scratch (15.1)
 // Added by these tests: each routine uses at most 32 bytes of stack below its return address ($FEFE), so $FE00-$FEDD stay as they were.
 export const STACK_GUARD = [0xFE00, 0xFEFE - 32 - 1];
 const CLS_REGIONS = [[0x5800, 0x5FFF], [0x7800, 0x7FFF], [0xC000, 0xDFFF], [0xE100, 0xFAFF]];   // 12.5 for G_CLS safety
@@ -156,12 +160,34 @@ export function poison(m, rng, { stack = true, regions = POISON_REGIONS } = {}) 
   }
   return saved;
 }
-/** null when every poisoned byte is unchanged, else { addr, got, want, n } for the first changed one. */
-export function checkPoison(m, token) {
+/**
+ * Record the current content of the regions (and the stack guard) without changing them, for checkPoison: used when RAM already
+ * holds data that must survive a call (a nested save-under buffer, 15.3).
+ */
+export function snapshot(m, { stack = true, regions = POISON_REGIONS } = {}) {
+  const all = stack ? [...regions, STACK_GUARD] : regions;
+  return all.map(([a, b]) => ({ a, b, copy: m.ram.slice(a, b + 1) }));
+}
+/** POISON_REGIONS (12.4) with the range lo..hi (inclusive) taken out: for a buffer the routine reads and that must be unchanged. */
+export function poisonRegionsWithout(lo, hi, regions = POISON_REGIONS) {
+  const out = [];
+  for (const [a, b] of regions) {
+    if (hi < a || lo > b) { out.push([a, b]); continue; }
+    if (lo > a) out.push([a, lo - 1]);
+    if (hi < b) out.push([hi + 1, b]);
+  }
+  return out;
+}
+/**
+ * null when every poisoned byte is unchanged, else { addr, got, want, n } for the first changed one.  skip = [lo, hi) (optional):
+ * bytes in that address range are allowed to change (G_SAVERECT's own output, 15.3).
+ */
+export function checkPoison(m, token, skip = null) {
   for (const { a, b, copy } of token) {
+    const bad = (j) => m.ram[a + j] !== copy[j] && !(skip && a + j >= skip[0] && a + j < skip[1]);
     for (let i = 0; i <= b - a; i++) {
-      if (m.ram[a + i] !== copy[i]) {
-        let n = 0; for (let j = i; j <= b - a; j++) if (m.ram[a + j] !== copy[j]) n++;
+      if (bad(i)) {
+        let n = 0; for (let j = i; j <= b - a; j++) if (bad(j)) n++;
         return { addr: a + i, got: m.ram[a + i], want: copy[i], n };
       }
     }

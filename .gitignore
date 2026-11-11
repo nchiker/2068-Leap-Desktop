@@ -7,3 +7,6 @@ docs/TS2068_Technical_Manual.txt
 
 node_modules/
 *.tmp
+
+# agent worktrees (git worktree add .claude/worktrees/<name>; see CLAUDE.md)
+.claude/worktrees/

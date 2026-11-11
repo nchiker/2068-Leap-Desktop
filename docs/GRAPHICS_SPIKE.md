@@ -82,7 +82,7 @@ Pixel row y has the Spectrum row address within each file.
 | `G_TEXT8` | 8x8 string at a character cell (column 0..63, row 0..23), op SET or XOR, clipped by cell | glyph planes (Arcade `video.asm`), table in ROM |
 | `G_TEXTP` | proportional string at any (x, y), ORed (SET) or XORed, clipped; returns the end x | byte-value shift tables (section 6), new |
 | `G_TEXTW` | width in pixels of a proportional string | new |
-| `G_BLIT` | masked bitmap (w <= 32, h <= 32, mask + image per byte, Arcade's pair format) at any (x, y), clipped | v3 masked blitter idea, shifted through the shift tables (no pre-shift) |
+| `G_BLIT` | masked bitmap (w <= 32, h <= 32, mask + image per byte, Arcade's pair format) at any (x, y), clipped, drawn from 8 pre-shifted copies that `G_PRESHIFT` builds once per bitmap (**amended 2026-11-11, owner approved:** shifting at draw time measured about 5 times the bounds) | v3 masked blitter: pre-shifted copies, unrolled bytes |
 | `G_SAVERECT`, `G_RESTRECT` | copy a rectangle (whole byte columns, both files) to the save-under buffer and back: menu and dialog save-under | new: row copies with `LDI`, alternating files |
 | `G_SCROLLV` | scroll a rectangle up or down by n pixel rows (whole byte columns); the uncovered rows are filled with paper | new: row copies with `LDI` |
 | `P_INIT`, `P_MOVE`, `P_SHIELD`, `P_UNSHIELD` | the pointer: 16x16 masked arrow, 8 pre-shifted phases built at boot, save-under | v3 blitter (unrolled rows, both parities), `build_frame` |
@@ -304,6 +304,16 @@ Optimisations considered and not made:
 | Count rows in pairs | about 80 T | more code |
 | Keep y0 and the row count in registers | about 15 T | |
 
+**Closed (2026-11-11, after S2):** a separate change to `G_FILL`'s setup and `G_SEG` brought the XOR case to **3,246 T** (SET
+2,830), both at x 9, y 5; the bound is unchanged.
+- **Clipping:** compares through A on the high byte (no `SBC HL` / `ADD HL` pair; the differences cannot overflow in the argument
+  range). About 75 T.
+- **Setup:** the first byte column and the left mask stay in registers. About 47 T.
+- **`G_SEG`:** tests rows-left first, so the exit is cheap. About 28 T.
+
+Other S1 figures after it: 512 x 192 SET 146,365; `G_HLINE` 2,103; `G_VLINE` 6,582. S2 figures and the code size (6,266 bytes)
+are unchanged. Re-run by the main model: S1 (seeds 1, 2, 9), S2 (seeds 1, 5), `gfx6-cls` and `gfx6-perf` (28 of 28) pass.
+
 #### How `G_FILL` is built
 
 After clipping, n is the number of byte columns.
@@ -447,6 +457,106 @@ Each option was estimated, not measured.
 - **Viewing a screen in TSRun:** right after a test has stepped the CPU directly, the first `runFrame` can show a partial frame;
   the second one is complete. This is a harness note for S5, not a code issue.
 
+### 13.3 Slice S3 (2026-11-11)
+
+**Result: `G_LINE` and both `G_BLIT` bounds pass. Save, restore and both scroll bounds are missed and recorded (the owner
+chose: optimize, then record). Every S3 routine passes its tests.** Interface: section 15, with two owner-approved changes made
+during S3: the line's pixels no longer depend on the order of its ends, and `G_BLIT` draws from pre-shifted copies built by a
+new routine, `G_PRESHIFT`.
+
+| Measure (15.4) | Measured | Bound | Result |
+|---|---|---|---|
+| `G_LINE` per pixel, `SET` (200 random lines) | 109.0 (x major 104.5, y major 139.7) | <= 150 | pass |
+| `G_LINE` long clipped lines (-16384, -16384)-(16383, 16383) / (-16384, 0)-(16383, 191) | 35,669 / 47,327 | report | reported |
+| `G_BLIT` 16 x 16, worst of 16 positions | 4,442 (x 71, y 5) | <= 4,500 | pass |
+| `G_BLIT` 32 x 32, worst of 16 positions | 10,760 (x 71, y 5) | <= 14,000 | pass |
+| `G_BLIT` 16 x 16 at y 0, p = 0 / 1..7 | 3,677 / 4,302-4,314 | report | reported |
+| `G_PRESHIFT` 16 x 16 / 32 x 32 (once per bitmap) | 191,622 / 615,686 | report | reported |
+| `G_SAVERECT` 96 x 80 | 22,974 (x 72, y 53) | <= 20,000 | **missed by 2,974** |
+| `G_RESTRECT` 96 x 80 | 22,177 (x 72, y 53) | <= 20,000 | **missed by 2,177** |
+| `G_SCROLLV` 256 x 96 by 1 row | 75,840 (y 53, n 1) | <= 55,000 | **missed by 20,840** |
+| `G_SCROLLV` 512 x 192 by 8 rows | 234,886 (n 8) | <= 200,000 | **missed by 34,886** |
+| `G_SCROLLV` 512 x 192 by 1 / by 10 rows | 246,985 / 242,567 | report | reported |
+| Longest `DI` | 0 | <= 1,500 | pass |
+| Code size of `gfx6` | 11,222 bytes (6,266 after S2) | target <= 4 KB, report | over the target |
+
+#### Why save, restore and scroll miss
+
+They copy with `LDI` (16 T a byte), the fastest copy that keeps interrupts on. Each row also needs both files' starts set
+(one register set per file, `EXX` between them) and a loop jump. The row code alone measures:
+
+| Measure | Row code alone | Bound |
+|---|---|---|
+| Save / restore 96 x 80 | 18,510 (15,360 of it `LDI`) | 20,000 |
+| Scroll 256 x 96 by 1 | 54,780 (48,640 of it `LDI`) | 55,000 |
+| Scroll 512 x 192 by 8 | 200,054 (188,416 of it `LDI`) | 200,000 |
+
+So scroll cannot meet its bounds with `LDI`, and save / restore would need setup, code writing and crossings in about 1,500 T
+(they take about 4,400 now). A faster copy uses `POP` / `PUSH`, which needs `DI`, and section 4 / 15.2 rule that out.
+
+| Part of the worst save (x 72, y 53) | T |
+|---|---|
+| Row code: 80 rows x (12 `LDI` + 38) | 18,510 |
+| Clip, header, sizes, first segment | about 2,200 |
+| Writing the row code (24 opcodes, heads, tail) | about 900 |
+| 11 character-row crossings | 1,211 |
+| Return | 119 |
+
+#### How S3 is built (`src/gfx6/s3.asm`)
+
+- **Row code in RAM (`GCODE`, `$E700`, section 15.1):** save, restore and scroll write one row of code for each call: "head,
+  `LDI` x n1, `EXX`, head, `LDI` x n2, `EXX`, `JP PE`". The main set copies one display file, the alternate set the other.
+  `BC'` counts the alternate set's bytes in a segment (the rows of one character row), so the last `LDI` clears P/V and the
+  loop falls out to the segment handler in ROM.
+- **Wrap:** a row whose last byte is offset 31 of character row 7 makes `L` wrap and carry into `H`. That set's head then
+  gets a `NOP` instead of `INC H` for that character row (save / restore: `rw_in` / `rw_out`; scroll: the `XG` crossings).
+  Scroll down copies right to left with `LDD`, so its wrap is offset 0 of character row 0.
+- **Scroll segments:** the first is set up from `ROWTAB`. After that a crossing only moves the crossed pointer's two
+  immediates by 32 and its high bytes (`sc_x*`, or `sc_g*` when a row may wrap). The paper rows are a `G_FILL` (`CLR`).
+- **`G_LINE`:** the closed form of 15.2. When the clip cuts the minor axis, the first and last drawn pixels come from a 32 / 16
+  division, so clipping never walks off-screen pixels. Then one of 12 loops (axis x minor direction x op) steps with
+  `e' = e - dmaj` in `HL'` (`ADD HL,DE` carries when the minor axis steps).
+- **`G_BLIT`:** a bitmap wholly inside the clip takes the fast path. Each row enters one of four unrolled chains (X / Y by the
+  first byte column's parity, x 2 for a skipped last pair) by `JP (IX)`. A byte costs "`LD A,(DE) ; AND (HL) ; INC HL ;
+  OR (HL) ; INC HL ; LD (DE),A`" (40 T) plus the step to the next byte column, and the row's last byte has no step. `IYl` /
+  `IYh` count rows in the character row and after it. A bitmap the clip cuts goes through a general loop that masks each
+  byte with its clip mask.
+- **`G_PRESHIFT`:** straightforward, about 245 T a set byte.
+
+#### Tests
+
+- **`tests/gfx6-model.mjs`:** the S3 model (line, blit, `preshift`, a per-pixel `blitSet`, byte rectangle, scroll region).
+  Self-test of 143 checks.
+- **`tests/gfx6-s3.mjs`:** 33 checks, about 27,000 checked calls a seed.
+  - Each call is followed by the whole-screen model compare, poisoned RAM, preserved registers, and `GA`, `GOP`, `GLH`,
+    `GCLIP` unchanged.
+  - The edge cases of section 8.3 and 15, and the longest `DI`.
+  - The final code passes on seeds 21 and 22 at 600 calls a routine (earlier versions on seeds 4-12 at 300).
+- **`tests/gfx6-perf.mjs`:** the S3 bounds and reports above.
+- The model and tests were written by a separate agent from section 15, without reading the code.
+  - The agent tried about 30 deliberate faults against a JavaScript stub before the Z80 existed, including the old
+    direction-dependent line rule and swapped shifts in `G_PRESHIFT`. All were caught.
+  - S1, S2, `gfx6-cls` and `hello` still pass.
+
+#### Changes and interpretations made in S3
+
+- **`$E700-$E7FF` is gfx6's code scratch** (15.1). The pointer area of section 3 becomes `$E100-$E6FF`; S4 needs about 900
+  bytes.
+- **Line rule** (owner): the pixels start from the end with the smaller major coordinate, so both orders give the same line.
+- **Pre-shifted blit** (owner): section 5 and 15.2. The shifted set's format is specified, so a tool can build sets for ROM
+  icons. Shifting at draw time measured 23,486 / 67,050 T.
+- **S4 note:** `G_BLIT` writes back whole screen bytes, so its shield must cover the bytes (15.2).
+- **"`GA` unchanged"** is tested over all 16 bytes of `GA`.
+
+#### Options for the misses (the owner decides)
+
+1. **Record them, as the S1 miss was, and go on to S4.**
+2. **Save / restore:** a Fable attempt in a LeapG worktree. The floor above makes about 20,000 possible only with every part
+   tight: a persistent `LDI` template instead of writing it each call, a register for the odd column's offset, cheaper
+   crossings.
+3. **Scroll:** these bounds need a copy faster than `LDI`. `POP` / `PUSH` in pieces under 1,500 T of `DI` would need an
+   exception to section 4 and 15.2, and a check that the pointer's deadline still holds.
+
 ## 14. S2 interface (designed 2026-11-11, binding for the S2 code and tests)
 
 Section 14 fills in what sections 3-6 leave open for slice S2 (8x8 text, proportional text, shift tables, the `PROP6` font). It
@@ -531,3 +641,120 @@ their return address, and leave `GA` unchanged.
 Sample paragraph (one line here; 392 characters):
 
 > The quick brown fox jumps over the lazy dog. Mode 6 gives the desktop 512 pixels across, so a proportional font fits about eighty characters on a line. Each glyph is shifted into place through byte tables and clipped to its window. Menus, title bars and dialogs all use it: (1) open, (2) scroll, [3] close; "quotes", 'apostrophes' & 100% of the time {braces} <angles> @home #tags $5 ~ok? Yes!
+
+## 15. S3 interface (designed 2026-11-11, binding for the S3 code and tests)
+
+Section 15 fills in what sections 3-7 leave open for slice S3 (`G_LINE`, `G_BLIT`, `G_SAVERECT` / `G_RESTRECT`, `G_SCROLLV`). It
+adds to sections 12 and 14; nothing in them changes except where 15.1 says so. The tests are written from sections 3-7, 12, 14
+and this section, never from the code.
+
+### 15.1 Memory and arguments
+
+- **`GA+8`** (word) is a fifth argument: the shifted set (`G_BLIT`), the source bitmap (`G_PRESHIFT`), the buffer address
+  (`G_SAVERECT`) or the row count n (`G_SCROLLV`). **`GA+10`** (word) is a sixth, only for `G_PRESHIFT` (the destination).
+  `GA+12..GA+15` stay unused.
+- **Scratch:** S3 routines use gfx6's own variables (`$E01A-$E07F`, 14.1) and **`$E700-$E7FF` (`GCODE`, 256 bytes, amends
+  section 3)**: row-copy code that `G_SAVERECT`, `G_RESTRECT` and `G_SCROLLV` write for each call (one row of `LDI` chains
+  for the call's width, so a row costs no computed jumps). Any gfx6 routine may write it; nothing else may. Section 3's pointer
+  area becomes `$E100-$E6FF` (1,536 bytes; S4 needs about 900).
+- **Save-under buffer (amends section 3):** the buffer is an argument, so menus can nest (each save goes after the last one).
+  `$E800-$EFFF` stays the area the demo uses; the heap is where the kernel will take it from (FEASIBILITY section 3).
+- **Tables:** S3 may add internal tables to `tables.inc` / `tables4.inc` through `tools/gen-tables.mjs`. They are not part of the
+  interface. `G_PRESHIFT` reads `SHR` / `SHL` (14.2).
+
+### 15.2 Routines
+
+All preserve IX, IY and the alternate registers, execute no `DI` or `EI`, use at most 32 bytes of stack below their return
+address, leave `GA`, `GOP`, `GLH` and `GCLIP` unchanged, and clobber AF, BC, DE, HL. Coordinates, sizes and n are signed words in
+-16384..16383, as 12.1.
+
+| Routine | In | Out / effect |
+|---|---|---|
+| `G_LINE` | `GA+0` x0, `GA+2` y0, `GA+4` x1, `GA+6` y1 | The pixels P(i), i = 0..dmaj, of the line below that are inside the clip get the draw op (`SET`, `CLR`, `XOR`); nothing else changes |
+| `G_PRESHIFT` | `GA+4` w, `GA+6` h, `GA+8` source bitmap, `GA+10` destination | Writes the **shifted set** of the bitmap (below) at the destination: exactly the bytes `[dest, dest + 16 h (wb + 1))`. Returns **HL = dest + 16 h (wb + 1)**. w <= 0 or h <= 0 writes nothing (HL = dest); w and h above 32 are not allowed. Ignores the clip and `GOP`. Not bounded (built once per bitmap); its time is reported |
+| `G_BLIT` | `GA+0` x, `GA+2` y, `GA+4` w, `GA+6` h, `GA+8` shifted set (from `G_PRESHIFT` with the same w, h) | Bitmap pixel (j, k), j < w, k < h, at screen (x + j, y + k), if inside the clip: new = (old AND m) OR i, with m and i its mask and image bits in the source bitmap. Ignores `GOP`. w <= 0 or h <= 0 draws nothing; w and h above 32 are not allowed (undefined). The set is only read |
+| `G_SAVERECT` | `GA+0` x, `GA+2` y, `GA+4` w, `GA+6` h, `GA+8` buffer address | Saves the **byte rectangle** of (x, y, w, h) (below) into the buffer. Writes exactly the bytes `[buf, buf + 4 + nc x nr)`. Returns **HL = buf + 4 + nc x nr** (the first byte after it). Ignores the clip and `GOP` |
+| `G_RESTRECT` | HL = buffer address | Writes the saved bytes back to the screen bytes they came from. Changes nothing else, and only reads the buffer. Ignores the clip and `GOP`. The buffer must hold what `G_SAVERECT` wrote, unchanged; anything else is undefined |
+| `G_SCROLLV` | `GA+0` x, `GA+2` y, `GA+4` w, `GA+6` h, `GA+8` n | Scrolls the **scroll region** (below) by n pixel rows: n > 0 moves the content up, n < 0 down, n = 0 does nothing. Rows uncovered by the move become paper (bytes 0). When abs(n) >= the region's row count, the whole region becomes paper. Ignores `GOP`. Nothing outside the region changes |
+
+**The line** (amended 2026-11-11, owner approved: the same pixels whichever end is given first). The major axis is x when
+abs(x1 - x0) >= abs(y1 - y0), else y. The **start** S is the end with the smaller major coordinate (either end when they are
+equal), and E is the other. dmaj = E's major coordinate - S's (>= 0), dmin = abs(E's minor coordinate - S's), smin = the sign
+of E's minor coordinate - S's (+1 for 0). For i = 0..dmaj:
+
+- major coordinate of P(i) = S's + i;
+- minor coordinate of P(i) = S's + smin x floor((2 i dmin + dmaj) / (2 dmaj)) (0 when dmaj = 0: a single pixel, the two ends
+  being the same point).
+
+This is Leap V2's `GFX_LINE` rule (error from dmaj / 2, the minor axis steps when the error reaches dmaj) in closed form, always
+run left to right (x major) or top to bottom (y major). So (x0, y0)-(x1, y1) and (x1, y1)-(x0, y0) give the same pixels. Both
+ends are drawn. The P(i) are all different (their major coordinates differ), so `XOR` twice restores the screen, with the ends
+in either order. Clipping keeps exactly the P(i) that are inside the clip: it never moves a pixel. The intermediate values
+2 i dmin reach about 2^31, so the model uses exact arithmetic.
+
+**`G_BLIT` data format** (Leap Arcade's pair format, unshifted): wb = (w + 7) >> 3 pairs a row; h rows, top row first; each row
+is wb (mask, image) byte pairs, left pair first; bit 7 of a byte is its leftmost pixel. So pixel (j, k) has its pair at
+`data + 2 (k wb + (j >> 3))`, mask byte first, and bit `7 - (j AND 7)`. Mask 1 keeps the screen pixel; image 1 then sets it
+to ink. The columns w..8 wb - 1 of every row **must** be transparent (mask 1, image 0), so it makes no difference whether the
+routine processes them. The data is only read, and must not be in the display files.
+
+**Shifted set** (written by `G_PRESHIFT`; a tool may also build one, for example for icons in ROM): ws = wb + 1 pairs a row.
+Copy p (p = 0..7) starts at `set + 2 p h ws`; its row k at `+ 2 k ws`; its pair q (q = 0..wb) at `+ 2 q`, mask byte first:
+- mask = (M(q - 1) << (8 - p) OR M(q) >> p) AND $FF, with M(-1) = M(wb) = $FF;
+- image = the same with the image bytes, I(-1) = I(wb) = 0.
+
+So pair q of copy x AND 7 is the screen byte at byte column (x >> 3) + q (an arithmetic shift for negative x). The whole set is
+16 h ws bytes: 768 for 16 x 16, 2,560 for 32 x 32.
+
+**Byte rectangle** (`G_SAVERECT`): clamp (x, y, w, h) to the screen as `G_SETCLIP` does, giving the half-open ranges
+[ax, bx) and [ay, by). When either is empty, nc = nr = 0. Otherwise the byte columns c0 = ax >> 3 to c1 = (bx - 1) >> 3, so
+nc = c1 - c0 + 1 (every byte that holds a pixel of the rectangle), and the rows ay to by - 1, so nr = by - ay. The buffer's
+layout is internal: a 4-byte header and then nc x nr screen bytes in an order of the code's choosing. Only `G_RESTRECT` reads it.
+The caller allocates 4 + nc x nr bytes; the largest (whole screen) is 12,292.
+
+**Scroll region** (`G_SCROLLV`): intersect (x, y, w, h) with the clip, giving [cx0, cx1) and [cy0, cy1). The region is the
+byte columns lying wholly inside [cx0, cx1) (c from ceil(cx0 / 8) to floor(cx1 / 8) - 1) and the rows cy0 to cy1 - 1. A partial
+byte at either edge is left alone, so `G_SCROLLV` never writes outside the clip. The region is empty when it has no whole byte
+column or no row. With nr rows and m = abs(n) < nr:
+
+- n > 0 (up): row cy0 + r gets the old row cy0 + r + m for r = 0..nr - 1 - m; the last m rows become paper;
+- n < 0 (down): row cy0 + m + r gets the old row cy0 + r for r = 0..nr - 1 - m; the first m rows become paper.
+
+A window's content area that should scroll whole is placed on byte columns.
+
+**Pointer (S4):** `G_LINE`, `G_BLIT`, `G_SAVERECT`, `G_RESTRECT` and `G_SCROLLV` read or write the screen, so once the pointer
+exists they are called shielded (section 4). `G_SAVERECT` unshielded would save the pointer's image. `G_BLIT` writes back whole
+screen bytes (unchanged pixels included), so its shield rectangle must cover the bytes, not only the bitmap's pixels.
+
+### 15.3 Test cartridge additions
+
+- `gfx6t` exports `G_LINE`, `G_BLIT`, `G_PRESHIFT`, `G_SAVERECT`, `G_RESTRECT`, `G_SCROLLV`.
+- **Blit source bitmaps** go in `T_STR` (`$D000-$D1FF`, 14.5; a 32 x 32 bitmap is 256 bytes), and **shifted sets** in `T_BUF`
+  (up to 2,560 bytes). `G_PRESHIFT` must leave `T_STR` unchanged and write exactly `[dest, returned HL)`; `G_BLIT` must leave both
+  unchanged. Each shifted set is checked byte for byte against the model's (the format above).
+- **Save buffer:** `T_BUF` = `$C000`, 4 KB (`$C000-$CFFF`). Tests use buffer addresses inside it and rectangles whose
+  4 + nc x nr fits before `$D000`. It **is** poisoned like the rest of 12.4's RAM:
+  - after `G_SAVERECT` every poisoned byte outside `[buf, returned HL)` is unchanged;
+  - after `G_RESTRECT` all of `T_BUF` is unchanged.
+- **`G_SAVERECT` / `G_RESTRECT` are checked as a pair:**
+  1. seed the display with random bytes;
+  2. save;
+  3. change the display (random bytes, or random `G_FILL` calls), and mirror the change in the model;
+  4. restore.
+
+  Then the bytes of the byte rectangle equal their values at step 2, and every other display byte equals its value after step 3.
+  Nested saves (several buffers one after another, restored in reverse order) are part of the random runs.
+- `G_SCROLLV` and `G_BLIT` start from random display bytes, so the edges show any stray write.
+
+### 15.4 How the S3 bounds are measured
+
+| Measure (section 7) | Calls |
+|---|---|
+| `G_LINE` per pixel | 200 lines, ends uniform on the screen (x 0..511, y 0..191), fixed seed, op `SET`, clip whole screen. Total T / total pixels (sum of dmaj + 1). **Report:** `XOR`; the `SET` figure split by major axis (x / y) |
+| `G_LINE` long clipped lines | **Report:** (-16384, -16384)-(16383, 16383) and (-16384, 0)-(16383, 191), op `SET`, clip whole screen, T a call |
+| `G_BLIT` 16 x 16 / 32 x 32 at any x | The worst over x = 64 + p, p = 0..7, and y in {0, 5}. Fixed random data (mask and image bytes uniform), its shifted set built by `G_PRESHIFT` first (not counted), clip whole screen. **Report** the 16 x 16 figure for each p at y = 0, and `G_PRESHIFT` for 16 x 16 and 32 x 32 |
+| `G_SAVERECT` / `G_RESTRECT` 96 x 80 | The worst over x in {64, 72} (even and odd first byte column) and y in {0, 53}; buffer `T_BUF`. Each restore puts back its own save |
+| `G_SCROLLV` 256 x 96 by 1 row | (128, y, 256, 96) for y in {48, 53}, n in {1, -1}, clip whole screen: the worst |
+| `G_SCROLLV` 512 x 192 by 8 rows | (0, 0, 512, 192), n in {8, -8}: the worst. **Report:** the same by 1 row and by 10 rows (n = 1, 10) |
+| Longest `DI` | `G_LINE`, `G_BLIT`, `G_PRESHIFT`, `G_SAVERECT`, `G_RESTRECT`, `G_SCROLLV`: as 12.5 |
+| Code size | as 12.5, report |

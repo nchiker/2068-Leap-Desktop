@@ -280,24 +280,27 @@ G_FRAME:
 ; Row-major paths run one character row (a "segment" of up to 8 rows) with INC H / INC D and DJNZ, then G_SEG crosses to the
 ; next one (G_SEG for the row bodies, IXh = rows left; G_SEGW for the blocks, C = L = E at the row start).
 G_FILL:
-    ; --- y: R = min(y + h, cy1) - max(y, cy0)
+    ; --- y: R = min(y + h, cy1) - max(y, cy0).  The comparisons go through A (no SBC HL / ADD HL pair): the differences cannot
+    ; overflow in the argument range, so the sign of the high-byte SBC is the sign of the 16-bit difference.
     ld hl,(GA_H)
     bit 7,h
     ret nz                  ; h < 0 (h = 0 gives R <= 0 below; y + h cannot overflow)
     ld de,(GA_Y)
     add hl,de
     ld bc,(GCY1)
-    or a
-    sbc hl,bc
-    jp p,.y1c
-    add hl,bc
+    ld a,l
+    sub c
+    ld a,h
+    sbc a,b
+    jp p,.y1c               ; y + h >= cy1
 .y1d:
     ex de,hl                ; HL = y, DE = y1
     ld bc,(GCY0)
-    or a
-    sbc hl,bc
-    jp m,.y0c
-    add hl,bc
+    ld a,l
+    sub c
+    ld a,h
+    sbc a,b
+    jp m,.y0c               ; y < cy0
 .y0d:
     ex de,hl                ; HL = y1, DE = y0
     or a
@@ -314,44 +317,31 @@ G_FILL:
     ld de,(GA_X)
     add hl,de
     ld bc,(GCX1)
-    or a
-    sbc hl,bc
+    ld a,l
+    sub c
+    ld a,h
+    sbc a,b
     jp p,.x1c
-    add hl,bc
 .x1d:
     ex de,hl
     ld bc,(GCX0)
-    or a
-    sbc hl,bc
+    ld a,l
+    sub c
+    ld a,h
+    sbc a,b
     jp m,.x0c
-    add hl,bc
 .x0d:
     ex de,hl                ; HL = x1, DE = x0
-    or a
-    sbc hl,de
-    ret m
-    ret z
-    add hl,de
-    dec hl                  ; HL = xl (0..511), DE = x0 (0..511)
+    dec hl                  ; HL = xl
+    ld a,l
+    sub e
+    ld a,h
+    sbc a,d
+    ret m                   ; xl < x0: empty.  Now HL = xl (0..511), DE = x0 (0..511)
     push ix
     push iy
-    ; --- masks: IXh = LM, IXl = RM; C = bc0, B = bc1
-    ld c,l
-    ld b,RMASKP>>8
-    ld a,(bc)               ; RMASKP[xl AND $FF] = RMASK[xl AND 7]
-    ld ixl,a
+    ; --- E = bc0, D = LM (left mask), IXl = RM (right mask), A = n - 1
     ld c,e
-    dec b                   ; LMASKP is the page below RMASKP
-    ld a,(bc)               ; LMASKP[x0 AND $FF] = LMASK[x0 AND 7]
-    ld ixh,a
-    ld a,h
-    rra
-    ld a,l
-    rra
-    rrca
-    rrca
-    and $3F
-    ld b,a
     ld a,d
     rra
     ld a,e
@@ -359,20 +349,33 @@ G_FILL:
     rrca
     rrca
     and $3F
-    ld c,a
-    ld a,b
-    sub c                   ; n - 1
+    ld e,a                  ; E = bc0
+    ld b,LMASKP>>8
+    ld a,(bc)               ; LMASKP[x0 AND $FF] = LMASK[x0 AND 7]
+    ld d,a                  ; D = LM
+    ld c,l
+    inc b                   ; RMASKP is the page above LMASKP
+    ld a,(bc)               ; RMASKP[xl AND $FF] = RMASK[xl AND 7]
+    ld ixl,a
+    ld a,h
+    rra
+    ld a,l
+    rra
+    rrca
+    rrca
+    and $3F                 ; A = bc1
+    sub e                   ; n - 1
     jr z,.one
     cp 8
     jr nc,.wide
-    ; --- n = 2..8: IY = SB_TAB[op][n - 1]; C = left mask, IXl = right mask (complemented for CLR), IXh = P's low byte
-    ld e,a
+    ; --- n = 2..8: IY = SB_TAB[op][n - 1]; C = left mask, IXl = right mask (both complemented for CLR)
+    ld c,a
     ld a,(GOP)
     cp OP_CLR
     jr nz,.nclr
-    ld a,ixh
+    ld a,d
     cpl
-    ld ixh,a
+    ld d,a
     ld a,ixl
     cpl
     ld ixl,a
@@ -381,7 +384,7 @@ G_FILL:
     add a,a
     add a,a
     add a,a
-    add a,e
+    add a,c
     add a,a
     add a,SB_TAB&$FF        ; (SB_TAB is 64-byte aligned: no carry)
     ld l,a
@@ -391,15 +394,27 @@ G_FILL:
     inc l
     ld a,(hl)
     ld iyh,a
-    ld a,(G_Y0)
-    ld l,a
+    ld hl,(G_Y0)            ; L = y0, H = R
+    ld a,l                  ; first segment: B = min(8 - (y0 AND 7), R); IXh = the rows after it
+    or $F8
+    neg
+    ld b,a
+    ld a,h
+    sub b
+    jr nc,.seg1
+    add a,b
+    ld b,a
+    xor a
+.seg1:
+    ld ixh,a
     ld h,ROWTAB>>9
     add hl,hl
     ld a,(hl)
     inc l
     ld h,(hl)
     ld l,a                  ; HL = row base, file 1
-    ld a,c
+    ld c,d                  ; C = left mask
+    ld a,e
     srl a
     jr c,.sodd
     or l
@@ -408,7 +423,7 @@ G_FILL:
     ld a,h
     or $20
     ld d,a
-    jr .seg
+    jp (iy)
 .sodd:
     or l
     ld l,a                  ; P = file 2 at k
@@ -416,20 +431,6 @@ G_FILL:
     ld e,a                  ; Q = file 1 at k + 1
     ld d,h
     set 5,h
-.seg:
-    ld c,ixh                ; C = left mask
-    ld a,(G_Y0)             ; first segment: B = min(8 - (y0 AND 7), R); IXh = the rows after it
-    or $F8
-    neg
-    ld b,a
-    ld a,(G_R)
-    sub b
-    jr nc,.seg1
-    add a,b
-    ld b,a
-    xor a
-.seg1:
-    ld ixh,a
     jp (iy)
 
 .y1c:
@@ -449,19 +450,23 @@ G_FILL:
     ld l,c
     jp .x0d
 
-    ; --- one byte column
+    ; --- one byte column (E = bc0, D = LM, IXl = RM)
 .one:
-    ld a,ixh
+    ld a,d
     and ixl
+    ld c,e
     ld e,a
     ld a,c
     call vcol
     jp fill_exit
 
     ; --- n >= 9: edges by vcol, then whole bytes row-major from an even column
-.wide:
+.wide:                      ; A = n - 1, E = bc0, D = LM, IXl = RM
+    add a,e
+    ld b,a
+    ld c,e
     ld (G_BC0),bc           ; G_BC0 = bc0, G_BC1 = bc1
-    ld a,ixh
+    ld a,d
     ld (G_LM),a
     ld a,ixl
     ld (G_RM),a
@@ -567,11 +572,16 @@ G_FILL:
 ; G_SEGW: the whole-byte blocks (C = L = E at the row start).
 G_SEG:
     ld a,ixh                ; rows left
-    sub 8
-    jr c,.last
-    ld ixh,a
+    or a
+    jr z,fill_exit
     ld b,8
-.go:
+    sub b
+    jr nc,.st
+    add a,b                 ; the last, partial, segment
+    ld b,a
+    xor a
+.st:
+    ld ixh,a
     ld a,l
     add a,32
     ld l,a
@@ -582,17 +592,10 @@ G_SEG:
     ld a,h
     sub 8
     ld h,a
-    ld a,d
-    sub 8
+    xor $20                 ; P and Q are in different files: D = H XOR $20 always
     ld d,a
 .third:
     jp (iy)
-.last:
-    add a,8
-    jr z,fill_exit
-    ld b,a
-    ld ixh,0
-    jr .go
 
 G_SEGW:
     ld a,(G_ROWS)
@@ -996,5 +999,6 @@ G_CLS:
     ret
 
     INCLUDE "gfx6/text.asm"
+    INCLUDE "gfx6/s3.asm"
 
 GFX6_CODE_END:

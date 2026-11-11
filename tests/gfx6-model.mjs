@@ -1,6 +1,6 @@
 "use strict";
-// gfx6-model.mjs -- the reference model for the gfx6 graphics library, slices S1 and S2 (docs/GRAPHICS_SPIKE.md sections 3-6,
-// 12 and 14).  Written from the contract, not from the code.  A 512 x 192 bit screen (one byte per pixel here, 1 = ink) and the
+// gfx6-model.mjs -- the reference model for the gfx6 graphics library, slices S1, S2 and S3 (docs/GRAPHICS_SPIKE.md sections 3-6,
+// 12, 14 and 15).  Written from the contract, not from the code.  A 512 x 192 bit screen (one byte per pixel here, 1 = ink) and the
 // operations: draw op, clip rectangle, G_FILL, G_HLINE, G_VLINE, G_FRAME, G_CLS, plus G_ADDR / G_ROWADDR / ROWTAB (S1); the line
 // height GLH, G_TEXT8, G_TEXTP, G_TEXTW, the font parsers (fonts/prop6.txt, src/font.inc) and the expected generated tables
 // PROP6_W / PROP6_I / FONTP / SHR / SHL (S2).
@@ -23,6 +23,10 @@
 //  6. Draw op values are 0 SET, 1 CLR, 2 XOR; other values are not exercised.
 //  7. G_ADDR: HL = file address + offset, file = (x >> 3) AND 1 (0 -> $4000, 1 -> $6000), offset = (x >> 3) >> 1 added to the
 //     Spectrum row address of file 1 (ROWTAB[y]); the mask is $80 >> (x AND 7).
+// S3 (section 15): line (closed form, exact integers), blit, byteRect / saveRect / restoreRect, scrollRegion / scrollv.  Readings:
+//  S3a. Arguments are wrapped through s16() as everywhere; w or h above 32 in blit throws (the contract says undefined).
+//  S3b. byteRect clamps to the screen only (the clip is ignored); an empty rectangle is {c0 0, nc 0, y0 0, nr 0}.
+//  S3c. scrollv intersects with the clip (already inside the screen); n is a signed word; abs(n) >= rows gives paper.
 // S2 (section 14):
 //  8. G_INIT also sets GLH = 8 (model: init() sets glh = 8).  GLH is a setting written by the caller (setGlh).
 //  9. G_TEXT8: col and row are signed words and the cell test is done in true integers, 8 (col + i) >= x0 and so on (no 16-bit
@@ -191,6 +195,156 @@ export class Gfx6Model {
       if (cur > best) best = cur;
     }
     return best;
+  }
+
+  // ---- S3 (section 15) ------------------------------------------------------------------------------------------------------
+  /**
+   * Call fn(x, y) for each pixel P(i), i = 0..dmaj, of the line (15.2, amended 2026-11-11), in order, whatever the clip.  The major
+   * axis is x when abs(dx) >= abs(dy).  The start S is the end with the smaller major coordinate, E the other; dmaj = E's major -
+   * S's (>= 0), dmin = abs(E's minor - S's), smin = sign of (E's minor - S's) (+1 for 0).  P(i) = S's major + i, and
+   * S's minor + smin floor((2 i dmin + dmaj) / (2 dmaj)) (0 when dmaj = 0).  So the two orders of the ends give the same pixels (and
+   * the same order of visiting).  2 i dmin < 2^32, so the plain integer arithmetic of a double is exact; the floor is taken as
+   * (a - a % b) / b, also exact.
+   */
+  eachLinePixel(x0, y0, x1, y1, fn) {
+    x0 = s16(x0); y0 = s16(y0); x1 = s16(x1); y1 = s16(y1);
+    const xmaj = Math.abs(x1 - x0) >= Math.abs(y1 - y0);
+    let sM = xmaj ? x0 : y0, sN = xmaj ? y0 : x0, eM = xmaj ? x1 : y1, eN = xmaj ? y1 : x1;
+    if (eM < sM) { [sM, eM] = [eM, sM]; [sN, eN] = [eN, sN]; }
+    const dmaj = eM - sM, dmin = Math.abs(eN - sN), smin = eN < sN ? -1 : 1;
+    for (let i = 0; i <= dmaj; i++) {
+      let off = 0;
+      if (dmaj !== 0) { const a = 2 * i * dmin + dmaj, b = 2 * dmaj; off = (a - (a % b)) / b; }
+      if (xmaj) fn(sM + i, sN + smin * off); else fn(sN + smin * off, sM + i);
+    }
+  }
+  /** The line's pixels as [[x, y], ...] (no clipping). */
+  linePixels(x0, y0, x1, y1) { const out = []; this.eachLinePixel(x0, y0, x1, y1, (x, y) => out.push([x, y])); return out; }
+  /** G_LINE (15.2): the pixels of the line inside the clip get the draw op. */
+  line(x0, y0, x1, y1) {
+    const c = this.clip;
+    this.eachLinePixel(x0, y0, x1, y1, (x, y) => { if (x >= c.x0 && x < c.x1 && y >= c.y0 && y < c.y1) this.plot(x, y); });
+  }
+  /** dmaj + 1: the number of pixels of the line (the count the T-state per pixel figure divides by). */
+  static lineLength(x0, y0, x1, y1) { return Math.max(Math.abs(s16(x1) - s16(x0)), Math.abs(s16(y1) - s16(y0))) + 1; }
+
+  /**
+   * G_BLIT (15.2): bitmap pixel (j, k), j < w, k < h, at (x + j, y + k), inside the clip: new = (old AND m) OR i, the pair at
+   * data + 2 (k wb + (j >> 3)), mask byte first, bit 7 - (j AND 7); wb = (w + 7) >> 3.  Ignores the op.  w <= 0 or h <= 0 draws
+   * nothing; w or h above 32 is not allowed (throws).
+   */
+  blit(x, y, w, h, data) {
+    x = s16(x); y = s16(y); w = s16(w); h = s16(h);
+    if (w <= 0 || h <= 0) return;
+    if (w > 32 || h > 32) throw new RangeError(`blit ${w} x ${h}: w and h above 32 are not allowed`);
+    const wb = (w + 7) >> 3, c = this.clip, px = this.px;
+    for (let k = 0; k < h; k++) {
+      const yy = y + k;
+      if (yy < c.y0 || yy >= c.y1) continue;
+      for (let j = 0; j < w; j++) {
+        const xx = x + j;
+        if (xx < c.x0 || xx >= c.x1) continue;
+        const p = 2 * (k * wb + (j >> 3)), bit = 7 - (j & 7), mk = (data[p] >> bit) & 1, im = (data[p + 1] >> bit) & 1, i = yy * SCR_W + xx;
+        px[i] = (px[i] & mk) | im;
+      }
+    }
+  }
+
+  /**
+   * G_PRESHIFT (15.2): the shifted set of a source bitmap of w x h (w, h in 1..32; pair format of G_BLIT) as bytes: ws = wb + 1
+   * pairs a row; copy p (p = 0..7) at 2 p h ws, its row k at + 2 k ws, its pair q (q = 0..wb) at + 2 q, mask byte first;
+   * mask = ((M(q - 1) << (8 - p)) OR (M(q) >> p)) AND $FF with M(-1) = M(wb) = $FF; image the same with I(-1) = I(wb) = 0.
+   * Length 16 h ws.  w <= 0 or h <= 0: an empty set (nothing is written).  Static-like: does not touch the screen.
+   */
+  preshift(w, h, src) {
+    w = s16(w); h = s16(h);
+    if (w <= 0 || h <= 0) return new Uint8Array(0);
+    if (w > 32 || h > 32) throw new RangeError(`preshift ${w} x ${h}: w and h above 32 are not allowed`);
+    const wb = (w + 7) >> 3, ws = wb + 1, out = new Uint8Array(16 * h * ws);
+    for (let p = 0; p < 8; p++) for (let k = 0; k < h; k++) for (let q = 0; q <= wb; q++) {
+      const M = (b) => (b < 0 || b >= wb ? 0xFF : src[2 * (k * wb + b)]), I = (b) => (b < 0 || b >= wb ? 0 : src[2 * (k * wb + b) + 1]);
+      const at = 2 * p * h * ws + 2 * k * ws + 2 * q;
+      out[at] = ((M(q - 1) << (8 - p)) | (M(q) >> p)) & 0xFF;
+      out[at + 1] = ((I(q - 1) << (8 - p)) | (I(q) >> p)) & 0xFF;
+    }
+    return out;
+  }
+  /**
+   * G_BLIT drawn from a shifted set (15.2): a second, independent reading of the set format.  For each bitmap pixel (j, k) inside
+   * the clip: the screen byte column (x + j) >> 3 (arithmetic shift), q = that - (x >> 3), copy p = x AND 7, bit 7 - ((x + j) AND 7)
+   * of pair q of copy p's row k: new = (old AND m) OR i.  Equals blit(...) on the source of the set.
+   */
+  blitSet(x, y, w, h, set) {
+    x = s16(x); y = s16(y); w = s16(w); h = s16(h);
+    if (w <= 0 || h <= 0) return;
+    const wb = (w + 7) >> 3, ws = wb + 1, c = this.clip, p = x & 7, px = this.px;
+    for (let k = 0; k < h; k++) {
+      const yy = y + k;
+      if (yy < c.y0 || yy >= c.y1) continue;
+      for (let j = 0; j < w; j++) {
+        const xx = x + j;
+        if (xx < c.x0 || xx >= c.x1) continue;
+        const q = (xx >> 3) - (x >> 3), at = 2 * p * h * ws + 2 * k * ws + 2 * q, bit = 7 - (xx & 7), mk = (set[at] >> bit) & 1, im = (set[at + 1] >> bit) & 1, i = yy * SCR_W + xx;
+        px[i] = (px[i] & mk) | im;
+      }
+    }
+  }
+
+  /**
+   * The byte rectangle of G_SAVERECT (15.2): (x, y, w, h) clamped to the screen (not the clip), half-open [ax, bx) x [ay, by);
+   * empty (nc = nr = 0) when either range is; else c0 = ax >> 3, nc = ((bx - 1) >> 3) - c0 + 1, y0 = ay, nr = by - ay.
+   */
+  byteRect(x, y, w, h) {
+    x = s16(x); y = s16(y); w = s16(w); h = s16(h);
+    const none = { c0: 0, nc: 0, y0: 0, nr: 0 };
+    if (w <= 0 || h <= 0) return none;
+    const ax = Math.max(x, 0), bx = Math.min(x + w, SCR_W), ay = Math.max(y, 0), by = Math.min(y + h, SCR_H);
+    if (ax >= bx || ay >= by) return none;
+    const c0 = ax >> 3;
+    return { c0, nc: ((bx - 1) >> 3) - c0 + 1, y0: ay, nr: by - ay };
+  }
+  /** G_SAVERECT as the model sees it: a snapshot of the pixels of the byte rectangle (the buffer layout is internal). */
+  saveRect(x, y, w, h) {
+    const r = this.byteRect(x, y, w, h), px = new Uint8Array(r.nc * 8 * r.nr);
+    for (let k = 0; k < r.nr; k++) for (let j = 0; j < r.nc * 8; j++) px[k * r.nc * 8 + j] = this.px[(r.y0 + k) * SCR_W + r.c0 * 8 + j];
+    return { ...r, saved: px, size: 4 + r.nc * r.nr };
+  }
+  /** G_RESTRECT: the saved pixels go back where they came from; nothing else changes. */
+  restoreRect(s) {
+    for (let k = 0; k < s.nr; k++) for (let j = 0; j < s.nc * 8; j++) this.px[(s.y0 + k) * SCR_W + s.c0 * 8 + j] = s.saved[k * s.nc * 8 + j];
+  }
+
+  /**
+   * The scroll region of G_SCROLLV (15.2): (x, y, w, h) intersected with the clip, [cx0, cx1) x [cy0, cy1); the byte columns lying
+   * wholly inside [cx0, cx1) (c0 = ceil(cx0 / 8) .. floor(cx1 / 8) - 1) and the rows cy0 .. cy1 - 1.  null when it is empty.
+   * Returns { c0, nc, y0, nr }.
+   */
+  scrollRegion(x, y, w, h) {
+    x = s16(x); y = s16(y); w = s16(w); h = s16(h);
+    if (w <= 0 || h <= 0) return null;
+    const c = this.clip, cx0 = Math.max(x, c.x0), cx1 = Math.min(x + w, c.x1), cy0 = Math.max(y, c.y0), cy1 = Math.min(y + h, c.y1);
+    if (cx0 >= cx1 || cy0 >= cy1) return null;
+    const c0 = (cx0 + 7) >> 3, c1 = cx1 >> 3;
+    if (c0 >= c1) return null;
+    return { c0, nc: c1 - c0, y0: cy0, nr: cy1 - cy0 };
+  }
+  /**
+   * G_SCROLLV (15.2): the scroll region moves by n pixel rows (n > 0 up, n < 0 down), the uncovered rows become paper; when
+   * abs(n) >= the region's rows the whole region becomes paper; n = 0 does nothing.  Ignores the op.
+   */
+  scrollv(x, y, w, h, n) {
+    n = s16(n);
+    const r = this.scrollRegion(x, y, w, h);
+    if (!r || n === 0) return;
+    const m = Math.abs(n), xa = r.c0 * 8, len = r.nc * 8, px = this.px, row = (k) => (r.y0 + k) * SCR_W + xa;
+    if (m >= r.nr) { for (let k = 0; k < r.nr; k++) px.fill(0, row(k), row(k) + len); return; }
+    if (n > 0) {
+      for (let k = 0; k < r.nr - m; k++) px.copyWithin(row(k), row(k + m), row(k + m) + len);
+      for (let k = r.nr - m; k < r.nr; k++) px.fill(0, row(k), row(k) + len);
+    } else {
+      for (let k = r.nr - 1 - m; k >= 0; k--) px.copyWithin(row(k + m), row(k), row(k) + len);
+      for (let k = 0; k < m; k++) px.fill(0, row(k), row(k) + len);
+    }
   }
 
   /** G_CLS: the whole screen to paper; ignores clip and op. */
@@ -728,6 +882,276 @@ async function selfTest() {
     C.check('PARAGRAPH is 392 characters; greedy wrap at 500 px gives 5 lines, each <= 500 px, joined by one space = the paragraph',
       PARAGRAPH.length === 392 && lines.length === 5 && lines.every((l) => wd(l) <= 500 && l.length > 0) && lines.join(' ') === PARAGRAPH &&
       wd(lines[0] + ' ' + lines[1].split(' ')[0]) > 500, `${lines.map((l) => l.length + '/' + wd(l)).join(' ')}`);
+  }
+  // ---- S3: line, blit, byte rectangle, scroll ---------------------------------------------------------------------------------
+  {
+    const LP = (a, b, c, d) => J(new Gfx6Model().linePixels(a, b, c, d));
+    const pts = (...p) => J(p.map(([x, y]) => [x, y]));
+    // hand-worked: (0,0)-(4,2): dmaj 4, dmin 2: minor offsets floor((4 i + 4) / 8) = 0, 1, 1, 2, 2; the reverse gives the same pixels
+    C.check('line (0,0)-(4,2) = (0,0) (1,1) (2,1) (3,2) (4,2); the reverse (4,2)-(0,0) is the same pixels (the start is the end with the smaller x)',
+      LP(0, 0, 4, 2) === pts([0, 0], [1, 1], [2, 1], [3, 2], [4, 2]) && LP(4, 2, 0, 0) === LP(0, 0, 4, 2));
+    C.check('line (0,0)-(5,2): offsets floor((4 i + 5) / 10) = 0, 0, 1, 1, 2, 2',
+      LP(0, 0, 5, 2) === pts([0, 0], [1, 0], [2, 1], [3, 1], [4, 2], [5, 2]));
+    C.check('line, the eight octants (both orders of each pair of ends give the same pixels, listed from the end with the smaller major coordinate)',
+      LP(0, 0, 5, 2) === pts([0, 0], [1, 0], [2, 1], [3, 1], [4, 2], [5, 2]) && LP(5, 2, 0, 0) === LP(0, 0, 5, 2) &&
+      LP(5, 0, 0, 2) === pts([0, 2], [1, 2], [2, 1], [3, 1], [4, 0], [5, 0]) && LP(0, 2, 5, 0) === LP(5, 0, 0, 2) &&
+      LP(0, 0, 2, 5) === pts([0, 0], [0, 1], [1, 2], [1, 3], [2, 4], [2, 5]) && LP(2, 5, 0, 0) === LP(0, 0, 2, 5) &&
+      LP(0, 5, 2, 0) === pts([2, 0], [2, 1], [1, 2], [1, 3], [0, 4], [0, 5]) && LP(2, 0, 0, 5) === LP(0, 5, 2, 0));
+    C.check('line, ties: dmaj 1 (0,0)-(1,1) -> (1,1); dmaj 2 dmin 1 (0,0)-(2,1) = (0,0) (1,1) (2,1), and (2,1)-(0,0) the same; (0,1)-(2,0) = (0,1) (1,0) (2,0)',
+      LP(0, 0, 1, 1) === pts([0, 0], [1, 1]) && LP(0, 0, 2, 1) === pts([0, 0], [1, 1], [2, 1]) && LP(2, 1, 0, 0) === LP(0, 0, 2, 1) &&
+      LP(0, 1, 2, 0) === pts([0, 1], [1, 0], [2, 0]) && LP(2, 0, 0, 1) === LP(0, 1, 2, 0));
+    C.check('line, |dx| = |dy|: x is the major axis and the line is the exact diagonal, both orders, both slopes',
+      LP(0, 0, 3, 3) === pts([0, 0], [1, 1], [2, 2], [3, 3]) && LP(3, 3, 0, 0) === LP(0, 0, 3, 3) &&
+      LP(0, 3, 3, 0) === pts([0, 3], [1, 2], [2, 1], [3, 0]) && LP(3, 0, 0, 3) === LP(0, 3, 3, 0));
+    C.check('line, dmaj = 0: a single pixel at (x0, y0); horizontal and vertical lines: dmaj + 1 pixels, both ends drawn, either order',
+      LP(7, 9, 7, 9) === pts([7, 9]) && LP(3, 2, 3, 6) === pts([3, 2], [3, 3], [3, 4], [3, 5], [3, 6]) && LP(3, 6, 3, 2) === LP(3, 2, 3, 6) &&
+      LP(5, 1, 2, 1) === pts([2, 1], [3, 1], [4, 1], [5, 1]) && LP(-5, -5, -5, -5) === pts([-5, -5]));
+    // against an independent iterative Bresenham (the ends swapped first so that the major coordinate grows): error starts at floor(dmaj / 2), += dmin per step, the minor axis steps when err >= dmaj
+    const bres = (x0, y0, x1, y1) => {
+      { const xm0 = Math.abs(x1 - x0) >= Math.abs(y1 - y0); if (xm0 ? x1 < x0 : y1 < y0) { [x0, y0, x1, y1] = [x1, y1, x0, y0]; } }   // start at the smaller major coordinate
+      const dx = x1 - x0, dy = y1 - y0, adx = Math.abs(dx), ady = Math.abs(dy), xm = adx >= ady, dmaj = xm ? adx : ady, dmin = xm ? ady : adx;
+      const sx = dx < 0 ? -1 : 1, sy = dy < 0 ? -1 : 1, out = [];
+      let x = x0, y = y0, err = Math.floor(dmaj / 2);
+      out.push([x, y]);
+      for (let i = 0; i < dmaj; i++) {
+        if (xm) x += sx; else y += sy;
+        err += dmin;
+        if (err >= dmaj) { err -= dmaj; if (xm) y += sy; else x += sx; }
+        out.push([x, y]);
+      }
+      return out;
+    };
+    {
+      let bad = '', n = 0;
+      const mm = new Gfx6Model();
+      for (let dx = -20; dx <= 20 && !bad; dx++) for (let dy = -20; dy <= 20; dy++) {
+        n++;
+        if (J(mm.linePixels(100, 50, 100 + dx, 50 + dy)) !== J(bres(100, 50, 100 + dx, 50 + dy))) { bad = `(100,50)-(${100 + dx},${50 + dy})`; break; }
+      }
+      C.check('line = iterative Bresenham (error from floor(dmaj / 2)) for all 41 x 41 offsets within 20', !bad, bad || `${n} lines`);
+      let s2 = 424242; const R = (lo, hi) => { s2 = (Math.imul(s2, 1664525) + 1013904223) >>> 0; return lo + (s2 >>> 4) % (hi - lo + 1); };
+      bad = '';
+      for (let k = 0; k < 1500 && !bad; k++) {
+        const far = k % 3 === 0, lo = far ? -16384 : -600, hi = far ? 16383 : 700;
+        const a = [R(lo, hi), R(lo, hi), R(lo, hi), R(lo, hi)];
+        if (far) { a[2] = a[0] + R(-1500, 1500); a[3] = a[1] + R(-1500, 1500); a[2] = Math.max(-16384, Math.min(16383, a[2])); a[3] = Math.max(-16384, Math.min(16383, a[3])); }
+        if (LP(...a) !== J(bres(...a))) bad = `(${a})`;
+      }
+      C.check('line = iterative Bresenham for 1,500 random lines (a third far off screen)', !bad, bad);
+      // the closed form with BigInt, spot-checked at random i on lines with the largest products (2 i dmin about 2^31)
+      bad = '';
+      for (let k = 0; k < 300 && !bad; k++) {
+        const x0 = R(-16384, 16383), y0 = R(-16384, 16383), x1 = R(-16384, 16383), y1 = R(-16384, 16383);
+        const xm = Math.abs(x1 - x0) >= Math.abs(y1 - y0);
+        let sM = BigInt(xm ? x0 : y0), sN = BigInt(xm ? y0 : x0), eM = BigInt(xm ? x1 : y1), eN = BigInt(xm ? y1 : x1);
+        if (eM < sM) { [sM, eM] = [eM, sM]; [sN, eN] = [eN, sN]; }
+        const dmaj = eM - sM, dmin = eN > sN ? eN - sN : sN - eN, smin = eN < sN ? -1n : 1n;
+        const line = mm.linePixels(x0, y0, x1, y1);
+        if (line.length !== Number(dmaj) + 1) { bad = `length of (${x0},${y0})-(${x1},${y1})`; break; }
+        for (const i of [0, 1, Number(dmaj) >> 1, Number(dmaj) - 1, Number(dmaj), R(0, Number(dmaj))]) {
+          if (i < 0) continue;
+          const bi = BigInt(i), off = dmaj === 0n ? 0n : (2n * bi * dmin + dmaj) / (2n * dmaj);
+          const wx = xm ? sM + bi : sN + smin * off, wy = xm ? sN + smin * off : sM + bi;
+          if (BigInt(line[i][0]) !== wx || BigInt(line[i][1]) !== wy) { bad = `P(${i}) of (${x0},${y0})-(${x1},${y1})`; break; }
+        }
+      }
+      C.check('line P(i) = the BigInt closed form on 300 lines across the full -16384..16383 range', !bad, bad);
+    }
+    {
+      const m1 = new Gfx6Model(), m2 = new Gfx6Model();
+      m1.line(-16384, -16384, 16383, 16383);
+      C.check('line (-16384,-16384)-(16383,16383), clip whole screen: exactly the 192 diagonal pixels (0,0)..(191,191)',
+        m1.count() === 192 && m1.get(0, 0) && m1.get(191, 191) && !m1.get(100, 99) && !m1.get(99, 100));
+      m2.line(-16384, 0, 16383, 191);
+      let ok = m2.count() === 512, why = `${m2.count()} pixels`;
+      for (let x = 0; x < 512 && ok; x++) { let n = 0; for (let y = 0; y < 192; y++) n += m2.get(x, y); if (n !== 1) { ok = false; why = `column ${x}: ${n}`; } }
+      const i0 = 16384, y0v = Math.floor((2 * i0 * 191 + 32767) / 65534);
+      C.check('line (-16384,0)-(16383,191): one pixel in each of the 512 columns, column 0 at y floor((2 * 16384 * 191 + 32767) / 65534)', ok && m2.get(0, y0v), why);
+    }
+    {
+      let s3 = 777; const R = (lo, hi) => { s3 = (Math.imul(s3, 1664525) + 1013904223) >>> 0; return lo + (s3 >>> 5) % (hi - lo + 1); };
+      let bad = '';
+      for (let k = 0; k < 300 && !bad; k++) {
+        const a = [R(-60, 560), R(-40, 240), R(-60, 560), R(-40, 240)], cl = [R(-20, 400), R(-20, 150), R(-3, 300), R(-3, 120)], op = R(0, 2);
+        const A = new Gfx6Model(), B = new Gfx6Model();
+        for (let i = 0; i < A.px.length; i++) A.px[i] = B.px[i] = R(0, 1);
+        A.setOp(op); B.setOp(op); B.setClip(...cl); A.setClip(...cl);
+        A.line(...a);
+        // independent: apply the line pixel by pixel to a copy, but only where inside cl and the screen
+        const c = B.clip;
+        for (const [x, y] of bres(...a)) {
+          if (x < c.x0 || x >= c.x1 || y < c.y0 || y >= c.y1) continue;
+          const i = y * SCR_W + x; B.px[i] = op === 0 ? 1 : op === 1 ? 0 : B.px[i] ^ 1;
+        }
+        const d = A.compare(B); if (d) bad = `line(${a}) clip ${cl} op ${op}: ${fmtDiff(d)}`;
+      }
+      C.check('line with a random clip and op = the same pixels, kept only when inside the clip (clipping never moves a pixel), 300 cases', !bad, bad);
+      const m = new Gfx6Model(); m.setOp(OP_XOR);
+      for (let k = 0; k < 2; k++) m.line(3, 4, 300, 150);
+      for (let k = 0; k < 2; k++) m.line(-600, 100, 900, -50);
+      m.line(10, 10, 10, 10); m.line(10, 10, 10, 10);
+      C.check('XOR line twice (same ends, same order) restores the screen, also for a single pixel and off-screen ends', m.count() === 0);
+      m.line(0, 0, 4, 2); m.line(4, 2, 0, 0);
+      C.check('XOR (0,0)-(4,2) then (4,2)-(0,0): erased (same pixels either way round)', m.count() === 0, `${m.count()}`);
+      let s6 = 31337; const R6 = (lo, hi) => { s6 = (Math.imul(s6, 1664525) + 1013904223) >>> 0; return lo + (s6 >>> 5) % (hi - lo + 1); };
+      let bad2 = '';
+      for (let k = 0; k < 1500 && !bad2; k++) {
+        const x0 = R6(-40, 560), y0 = R6(-40, 240), d = R6(1, 150), t = k % 6;
+        const [x1, y1] = [[x0 + R6(-300, 300), y0 + R6(-200, 200)], [x0 + 2 * d, y0 + d], [x0 - 2 * d, y0 + d], [x0 + d, y0 - 2 * d], [x0 + 2 * d + 1, y0 - d], [x0 + d, y0 + d]][t];
+        const A = new Gfx6Model(), B = new Gfx6Model(), op = R6(0, 2);
+        for (let i = 0; i < A.px.length; i++) A.px[i] = B.px[i] = R6(0, 1);
+        A.setOp(op); B.setOp(op); A.line(x0, y0, x1, y1); B.line(x1, y1, x0, y0);
+        const dd = A.compare(B); if (dd) bad2 = `(${x0},${y0})-(${x1},${y1}) op ${op}: ${fmtDiff(dd)}`;
+        const la = J(A.linePixels(x0, y0, x1, y1).map(String).sort()), lb = J(A.linePixels(x1, y1, x0, y0).map(String).sort());
+        if (la !== lb) bad2 = `pixel sets of (${x0},${y0})-(${x1},${y1}) differ`;
+      }
+      C.check('line A-B and B-A give the same pixels (and the same drawn screen) on 1,500 random lines incl. ties (dmaj = 2 dmin, odd dmaj), all ops', !bad2, bad2);
+      const e = new Gfx6Model(); e.setClip(1, 1, 0, 5); e.line(0, 0, 511, 191);
+      C.check('line with an empty clip draws nothing', e.count() === 0);
+    }
+    // blit
+    {
+      // w = 3, h = 2, wb = 1: row 0 mask $5F image $80, row 1 mask $DF image $A0 (columns 3..7 transparent: mask 1, image 0)
+      const d = [0x5F, 0x80, 0xDF, 0xA0];
+      const a = new Gfx6Model(); a.fill(0, 0, 20, 20); a.blit(4, 4, 3, 2, d);
+      C.check('blit 3 x 2 at (4,4) over ink: (old AND m) OR i leaves exactly one paper pixel, at (6,4) (j = 2, row 0: mask 0, image 0)',
+        a.count() === 400 - 1 && !a.get(6, 4) && a.get(4, 4) && a.get(5, 4) && a.get(4, 5) && a.get(5, 5) && a.get(6, 5));
+      const b = new Gfx6Model(); b.blit(4, 4, 3, 2, d);
+      C.check('blit over paper: the image bits show: (4,4), (4,5), (6,5)', b.count() === 3 && b.get(4, 4) && b.get(4, 5) && b.get(6, 5));
+      const c = new Gfx6Model(); c.setOp(OP_XOR); c.blit(4, 4, 3, 2, d); c.setOp(OP_CLR); c.blit(20, 20, 3, 2, d);
+      C.check('blit ignores the draw op (XOR and CLR give the same 3 pixels as SET)', c.count() === 6 && c.get(4, 4) && c.get(22, 21));
+      const e = new Gfx6Model(); e.setClip(5, 4, 1, 1); e.fill(0, 0, 512, 192); e.setClip(0, 0, 512, 192); e.px.fill(0); e.setClip(5, 5, 1, 1); e.blit(4, 4, 3, 2, d);
+      C.check('blit clipped to the single pixel (5,5): (j = 1, k = 1: mask 1, image 0) leaves paper; clip (4,5,1,1): (j = 0, k = 1) shows ink',
+        e.count() === 0 && (() => { const t = new Gfx6Model(); t.setClip(4, 5, 1, 1); t.blit(4, 4, 3, 2, d); return t.count() === 1 && t.get(4, 5); })());
+      // w = 9, h = 1: two pairs; pair 2 = mask $7F image $80: pixel j = 8 shows ink (mask 0, image 1), padding transparent
+      const f = new Gfx6Model(); f.fill(30, 7, 20, 1); f.blit(30, 7, 9, 1, [0xFF, 0x00, 0x7F, 0x80]);
+      C.check('blit w = 9 uses the second pair for j = 8: over an inked row, mask 0 / image 1 keeps the ink; with mask $FF image $00 pair 1 nothing changes',
+        f.count() === 20);
+      const g = new Gfx6Model(); g.fill(30, 7, 20, 1); g.blit(30, 7, 9, 1, [0xFF, 0x00, 0x00, 0x00]);   // pair 2: mask 0, image 0, but only j = 8 is inside w
+      C.check('blit w = 9: pair 2 mask bit 7 = 0 clears j = 8 (x 38) only; its other bits are padding and never drawn', g.count() === 19 && !g.get(38, 7) && g.get(39, 7));
+      const h = new Gfx6Model(), d2 = [0xFF, 0x80, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x01];   // w = 16 h = 2: row k at data + 4 k
+      h.blit(0, 0, 16, 2, d2);
+      C.check('blit w = 16, h = 2: row 1 starts at data + 4 (wb = 2 pairs a row): pixels (0,0) and (15,1)', h.count() === 2 && h.get(0, 0) && h.get(15, 1));
+      const n = new Gfx6Model(); n.blit(0, 0, 0, 5, d); n.blit(0, 0, 5, 0, d); n.blit(0, 0, -3, 5, d); n.blit(0, 0, 5, -3, d);
+      let threw = false; try { n.blit(0, 0, 33, 1, d); } catch { threw = true; }
+      C.check('blit with w <= 0 or h <= 0 draws nothing; w = 33 is rejected by the model', n.count() === 0 && threw);
+      const o = new Gfx6Model(); o.blit(-2, -1, 3, 2, d);
+      C.check('blit at (-2,-1): only bitmap pixel (2, 1) (screen (0, 0)) is inside: mask 0 image 1 -> ink', o.count() === 1 && o.get(0, 0));
+    }
+    // preshift
+    {
+      const m = new Gfx6Model(), d = [0x5F, 0x80, 0xDF, 0xA0];            // w = 3, h = 2: wb 1, ws 2; padding transparent
+      const set = m.preshift(3, 2, d), hx = (a) => Array.from(a).map((v) => v.toString(16).padStart(2, '0')).join(' ');
+      C.check('preshift 3 x 2: 16 h ws = 64 bytes; copy 0 = the source pairs then the fill pair ($FF, 0): 5F 80 FF 00 DF A0 FF 00',
+        set.length === 64 && hx(set.subarray(0, 8)) === '5f 80 ff 00 df a0 ff 00', hx(set.subarray(0, 8)));
+      C.check('preshift 3 x 2, copy p = 3 (at 2 p h ws = 24): row 0 = EB 10 FF 00, row 1 = FB 14 FF 00 (hand-worked: mask $5F -> (FF << 5) | (5F >> 3) = EB; image 80 >> 3 = 10; pair 1 mask (5F << 5) | (FF >> 3) = FF, image 00)',
+        hx(set.subarray(24, 32)) === 'eb 10 ff 00 fb 14 ff 00', hx(set.subarray(24, 32)));
+      const w9 = m.preshift(9, 1, [0xFF, 0x00, 0x7F, 0x80]);
+      C.check('preshift 9 x 1 (wb 2, ws 3): 48 bytes; copy 4 at offset 2 p h ws = 24: FF 00 F7 08 FF 00 (fill M(-1) = M(wb) = $FF, I = 0 at both edges)',
+        w9.length === 48 && hx(w9.subarray(24, 30)) === 'ff 00 f7 08 ff 00' && hx(w9.subarray(0, 6)) === 'ff 00 7f 80 ff 00', hx(w9.subarray(24, 30)));
+      C.check('preshift: copy 0 always ends each row with the pair ($FF, 0); copy 7 pair 0 = M(-1) << 1 | M(0) >> 7',
+        (() => { const p = m.preshift(16, 2, Array.from({ length: 8 }, (_, i) => (i * 37 + 5) & 255)); const src = Array.from({ length: 8 }, (_, i) => (i * 37 + 5) & 255);
+          return p[2 * 2 * 3 - 2] === 0xFF && p[2 * 2 * 3 - 1] === 0 && p[2 * 7 * 2 * 3] === (((0xFF << 1) | (src[0] >> 7)) & 255) && p[2 * 7 * 2 * 3 + 1] === (src[1] >> 7); })());
+      C.check('preshift: w <= 0 or h <= 0 gives an empty set; w or h above 32 is rejected by the model',
+        m.preshift(0, 5, d).length === 0 && m.preshift(5, 0, d).length === 0 && m.preshift(-3, 5, d).length === 0 && m.preshift(5, -1, d).length === 0 &&
+        (() => { try { m.preshift(33, 1, d); } catch { return true; } return false; })());
+      C.check('preshift sizes: 16 x 16 = 768 bytes, 32 x 32 = 2,560, 1 x 1 = 32, 9 x 3 = 144',
+        m.preshift(16, 16, new Array(64).fill(0xFF).map((v, i) => (i & 1 ? 0 : v))).length === 768 && m.preshift(32, 32, new Array(256).fill(0)).length === 2560 &&
+        m.preshift(1, 1, [0x7F, 0x80]).length === 32 && m.preshift(9, 3, new Array(12).fill(0)).length === 144);
+      // the format against an independent per-pixel reading: blit through the set = blit from the source, every x (all 8 shifts, negative x), random data
+      let s7 = 2024; const R = (lo, hi) => { s7 = (Math.imul(s7, 1664525) + 1013904223) >>> 0; return lo + (s7 >>> 6) % (hi - lo + 1); };
+      let bad = '', n = 0;
+      for (let k = 0; k < 600 && !bad; k++) {
+        const w = R(1, 32), h = R(1, 12), wb = (w + 7) >> 3, src = [];
+        for (let r = 0; r < h; r++) for (let b = 0; b < wb; b++) { let mk = R(0, 255), im = R(0, 255); if (b === wb - 1) { const pad = (1 << (8 * wb - w)) - 1; mk |= pad; im &= ~pad & 255; } src.push(mk, im); }
+        const A = new Gfx6Model(), B = new Gfx6Model();
+        for (let i = 0; i < A.px.length; i++) A.px[i] = B.px[i] = R(0, 1);
+        const cl = R(0, 3) === 0 ? [R(-5, 300), R(-5, 100), R(-3, 300), R(-3, 120)] : [0, 0, 512, 192]; A.setClip(...cl); B.setClip(...cl);
+        const x = R(0, 5) === 0 ? R(-60, 540) : R(-40, 300) , y = R(-10, 190), set = A.preshift(w, h, src);
+        A.blit(x, y, w, h, src); B.blitSet(x, y, w, h, set); n++;
+        const dd = A.compare(B); if (dd) bad = `blit(${x}, ${y}, ${w}, ${h}) clip ${cl}: ${fmtDiff(dd)}`;
+      }
+      C.check('blitSet (the set read per pixel: copy x AND 7, pair (x + j >> 3) - (x >> 3)) equals blit from the source on 600 random bitmaps, positions (negative too) and clips', !bad, bad || `${n} cases`);
+    }
+    // byteRect / saveRect / restoreRect
+    {
+      const m = new Gfx6Model(), br = (...a) => J(Object.values(m.byteRect(...a)));
+      C.check('byteRect (5,3,10,2) -> c0 0, nc 2, y0 3, nr 2 (x 5..14 touches byte columns 0 and 1)', br(5, 3, 10, 2) === J([0, 2, 3, 2]));
+      C.check('byteRect (8,0,8,1) -> column 1 only; (8,0,9,1) -> columns 1 and 2; (7,0,2,1) -> columns 0 and 1', br(8, 0, 8, 1) === J([1, 1, 0, 1]) && br(8, 0, 9, 1) === J([1, 2, 0, 1]) && br(7, 0, 2, 1) === J([0, 2, 0, 1]));
+      C.check('byteRect (-5,-5,10,10) -> clamped to (0..4, 0..4): c0 0, nc 1, y0 0, nr 5', br(-5, -5, 10, 10) === J([0, 1, 0, 5]));
+      C.check('byteRect (500,190,100,100) -> columns 62..63, rows 190..191', br(500, 190, 100, 100) === J([62, 2, 190, 2]));
+      C.check('byteRect of the whole screen (0,0,512,192): 64 columns x 192 rows = 4 + 12,288 = 12,292 bytes; (-16384,-16384,32767,32767) too',
+        br(0, 0, 512, 192) === J([0, 64, 0, 192]) && br(-16384, -16384, 32767, 32767) === J([0, 64, 0, 192]) && m.saveRect(0, 0, 512, 192).size === 12292);
+      C.check('byteRect empty cases: w = 0, h = 0, w < 0, off the left (-20,0,20,5), off the right (512,0,5,5), below (0,192,5,5): nc = nr = 0, size 4',
+        [[0, 0, 0, 5], [0, 0, 5, 0], [0, 0, -4, 5], [-20, 0, 20, 5], [512, 0, 5, 5], [0, 192, 5, 5], [0, -9, 5, 9]].every((a) => m.byteRect(...a).nc === 0 && m.byteRect(...a).nr === 0 && m.saveRect(...a).size === 4));
+      m.setClip(100, 100, 3, 3);
+      C.check('byteRect and saveRect ignore the clip and the op', J(Object.values(m.byteRect(0, 0, 20, 4))) === J([0, 3, 0, 4]));
+      let s4 = 4711; const R = (lo, hi) => { s4 = (Math.imul(s4, 1664525) + 1013904223) >>> 0; return lo + (s4 >>> 6) % (hi - lo + 1); };
+      let bad = '';
+      for (let k = 0; k < 300 && !bad; k++) {
+        const A = new Gfx6Model(); for (let i = 0; i < A.px.length; i++) A.px[i] = R(0, 1);
+        const rect = [R(-30, 540), R(-20, 210), R(-3, 150), R(-3, 80)], s = A.saveRect(...rect), before = A.px.slice();
+        for (let i = 0; i < 4000; i++) A.px[R(0, A.px.length - 1)] ^= 1;
+        const mid = A.px.slice(); A.restoreRect(s);
+        // independent expectation: inside the byte rectangle = before, elsewhere = mid
+        for (let y = 0; y < SCR_H && !bad; y++) for (let x = 0; x < SCR_W; x++) {
+          const inside = s.nc > 0 && y >= s.y0 && y < s.y0 + s.nr && x >= 8 * s.c0 && x < 8 * (s.c0 + s.nc), i = y * SCR_W + x;
+          if (A.px[i] !== (inside ? before[i] : mid[i])) { bad = `rect ${rect} pixel (${x}, ${y})`; break; }
+        }
+      }
+      C.check('saveRect / change / restoreRect: the byte rectangle returns to its saved values, every other pixel keeps the later value (300 cases)', !bad, bad);
+    }
+    // scrollv
+    {
+      const m = new Gfx6Model();
+      for (let y = 10; y < 15; y++) m.set(8 + (y % 16), y, 1);           // one marker per row, x = 18..22
+      m.scrollv(8, 10, 16, 5, 2);                                         // c0 1, nc 2, rows 10..14: up by 2
+      C.check('scrollv up by 2 on (8,10,16,5): row 10 <- old 12, 11 <- 13, 12 <- 14, rows 13 and 14 paper',
+        m.count() === 3 && m.get(8 + 12 % 16, 10) && m.get(8 + 13 % 16, 11) && m.get(8 + 14 % 16, 12));
+      const n = new Gfx6Model();
+      for (let y = 10; y < 15; y++) n.set(8 + (y % 16), y, 1);
+      n.scrollv(8, 10, 16, 5, -2);
+      C.check('scrollv down by 2: row 12 <- old 10, 13 <- 11, 14 <- 12, rows 10 and 11 paper',
+        n.count() === 3 && n.get(8 + 10 % 16, 12) && n.get(8 + 11 % 16, 13) && n.get(8 + 12 % 16, 14));
+      const p = new Gfx6Model(); p.fill(0, 0, 40, 3); p.setOp(OP_XOR);
+      p.scrollv(3, 0, 30, 3, 1);                                          // cx 3..33: whole byte columns 1..3 (x 8..31); x 3..7 and 32 stay
+      C.check('scrollv (3,0,30,3) by 1: only whole byte columns 1..3 (x 8..31) scroll; the partial bytes at x 3..7 and x 32 are left alone, rows 0..1 keep ink, row 2 paper in the region',
+        p.count() === 120 - 24 && !p.get(8, 2) && !p.get(31, 2) && p.get(7, 2) && p.get(32, 2) && p.get(8, 1) && p.get(3, 2) && p.op === OP_XOR);
+      for (const nn of [3, -3, 4, 100, -100, 16383, -16384]) {
+        const q = new Gfx6Model(); q.fill(0, 0, 40, 3); q.scrollv(3, 0, 30, 3, nn);
+        if (q.count() !== 120 - 72 || q.get(8, 0) || q.get(31, 2) || !q.get(7, 0) || !q.get(32, 2)) { C.check(`scrollv n = ${nn} >= rows (3): the region (72 pixels) becomes paper`, false); break; }
+      }
+      C.check('scrollv with abs(n) >= the region rows: the whole region becomes paper, partial bytes intact (n = 3, -3, 4, 100, -100, 16383, -16384)', true);
+      const z = new Gfx6Model(); z.fill(0, 0, 40, 3); z.scrollv(1, 0, 14, 5, 1); z.scrollv(8, 0, 0, 3, 1); z.scrollv(8, 0, 8, 0, 1); z.scrollv(8, 0, 16, 3, 0); z.scrollv(-100, 0, 20, 3, 1); z.scrollv(512, 0, 8, 3, 1);
+      C.check('scrollv with no whole byte column (x 1..14), w = 0, h = 0, n = 0, or off screen: nothing changes', z.count() === 120);
+      const c = new Gfx6Model(); c.fill(0, 0, 64, 8); c.setClip(16, 0, 16, 4); c.scrollv(0, 0, 512, 192, 1);
+      C.check('scrollv intersects with the clip: clip (16,0,16,4) with the whole screen: columns 2..3, rows 0..3 (rows 0..2 keep ink, row 3 paper)',
+        c.count() === 64 * 8 - 16 && !c.get(16, 3) && c.get(16, 2) && c.get(15, 3) && c.get(32, 3) && c.get(16, 4));
+      const r = (...a) => JSON.stringify(m.scrollRegion(...a));
+      C.check('scrollRegion: (3,0,30,3) -> c0 1 nc 3 y0 0 nr 3; (1,0,14,5) -> null; (0,0,512,192) -> 64 columns 192 rows; (-20,-5,40,10) -> c0 0 nc 2 (x 0..19: bytes 0, 1) rows 0..4',
+        r(3, 0, 30, 3) === JSON.stringify({ c0: 1, nc: 3, y0: 0, nr: 3 }) && r(1, 0, 14, 5) === 'null' && r(0, 0, 512, 192) === JSON.stringify({ c0: 0, nc: 64, y0: 0, nr: 192 }) && r(-20, -5, 40, 10) === JSON.stringify({ c0: 0, nc: 2, y0: 0, nr: 5 }));
+      // brute force from the contract text: row cy0 + r gets old row cy0 + r + m, and so on, on a random screen
+      let s5 = 99; const R = (lo, hi) => { s5 = (Math.imul(s5, 1664525) + 1013904223) >>> 0; return lo + (s5 >>> 7) % (hi - lo + 1); };
+      let bad = '';
+      for (let k = 0; k < 400 && !bad; k++) {
+        const A = new Gfx6Model(), B = new Gfx6Model();
+        for (let i = 0; i < A.px.length; i++) A.px[i] = B.px[i] = R(0, 1);
+        const cl = [R(-20, 300), R(-20, 120), R(-3, 400), R(-3, 150)]; A.setClip(...cl); B.setClip(...cl);
+        const rect = [R(-30, 400), R(-20, 150), R(-3, 300), R(-3, 120)], nn = [0, 1, -1, 7, -7, 8, -8, R(-200, 200), R(-16384, 16383), 192, -192][R(0, 10)];
+        A.scrollv(...rect, nn);
+        const c2 = B.clip, old = B.px.slice();
+        const cx0 = Math.max(rect[0], c2.x0), cx1 = Math.min(rect[0] + rect[2], c2.x1), cy0 = Math.max(rect[1], c2.y0), cy1 = Math.min(rect[1] + rect[3], c2.y1);
+        if (rect[2] > 0 && rect[3] > 0 && cx0 < cx1 && cy0 < cy1 && nn !== 0) {
+          const bx0 = Math.ceil(cx0 / 8), bx1 = Math.floor(cx1 / 8), nr = cy1 - cy0, mm = Math.abs(nn);
+          for (let bc = bx0; bc < bx1; bc++) for (let j = 0; j < 8; j++) for (let r2 = 0; r2 < nr; r2++) {
+            const x = bc * 8 + j, src = nn > 0 ? r2 + mm : r2 - mm;
+            B.px[(cy0 + r2) * SCR_W + x] = (src >= 0 && src < nr && mm < nr) ? old[(cy0 + src) * SCR_W + x] : 0;
+          }
+        }
+        const d = A.compare(B); if (d) bad = `scrollv(${rect}, ${nn}) clip ${cl}: ${fmtDiff(d)}`;
+      }
+      C.check('scrollv = the contract rule written row by row, 400 random rectangles, clips and n', !bad, bad);
+    }
   }
   C.done();
 }
