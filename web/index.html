@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Leap Desktop test page</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <button id="reset" type="button">Reset</button>
+  <button id="pause" type="button">Pause</button>
+  <label><input id="joy" type="checkbox" checked> Joystick</label>
+  <button id="load" type="button">Load .dck</button>
+  <input id="file" type="file" accept=".dck" hidden>
+  <span id="cart">no cartridge</span>
+</header>
+<div id="slot"><canvas id="screen" width="640" height="240" tabindex="0"></canvas></div>
+<footer><span id="status">starting</span></footer>
+<script type="module" src="main.js"></script>
+</body>
+</html>

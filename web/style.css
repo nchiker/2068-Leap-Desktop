@@ -1,0 +1,12 @@
+:root { color-scheme: dark; --bg: #15171a; --fg: #d8dde3; --line: #3a4048; }
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { display: flex; flex-direction: column; background: var(--bg); color: var(--fg); font: 14px/1.4 system-ui, sans-serif; }
+header, footer { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 16px; }
+button { font: inherit; padding: 4px 12px; color: inherit; background: #262b31; border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
+button:hover { background: #313840; }
+#cart, #status { font-family: ui-monospace, monospace; }
+/* screen.js fits the canvas inside this box (largest 4:3 area), so it needs a definite size. */
+#slot { flex: 1 1 0; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 8px 16px; }
+#screen { background: #000; outline: none; }
+#slot:focus-within { box-shadow: inset 0 0 0 2px #4a7fbf; }

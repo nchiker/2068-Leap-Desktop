@@ -1,0 +1,69 @@
+"use strict";
+// lib.mjs -- headless TSRun harness for Leap Desktop tests (the pattern of Leap-IDE's arcade/spike/xip/lib.mjs).
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { ROOT } from '../tools/build.mjs';
+
+const TSRUN = join(ROOT, 'tsrun');
+export const M = await import(pathToFileURL(join(TSRUN, 'machine.js')).href);
+export const Z = await import(pathToFileURL(join(TSRUN, 'z80.js')).href);
+export const FRAME_T = M.tStatesPerFrame;          // 58,688 on TSRun
+
+// TSRun's frame buffer: 640 x 240 palette indices at the hi-res pixel clock; the 512 x 192 screen starts at (64, 24).
+export const FRAME_W = 640, SCR_X0 = 64, SCR_Y0 = 24, SCR_W = 512, SCR_H = 192;
+
+/** New stock TS2068 (stock ROMs) with the DCK inserted and reset. */
+export function boot(dck) {
+  const m = M.createMachine(new Uint8Array(9).fill(0x1F), new Uint8Array(2).fill(0xFF));
+  const must = (e) => { if (e) throw new Error(e); };
+  must(M.setHomeRom(m, new Uint8Array(readFileSync(join(TSRUN, 'roms/ts2068-0.rom')))));
+  must(M.setExRom(m, new Uint8Array(readFileSync(join(TSRUN, 'roms/ts2068-1.rom')))));
+  must(M.insertDock(m, new Uint8Array(dck)));
+  M.resetMachine(m);
+  return m;
+}
+
+/** Run whole frames until pred(m) holds after a frame; returns the frames run, or -1. */
+export function runFramesUntil(m, pred, max = 400) {
+  for (let f = 1; f <= max; f++) { M.runFrame(m); if (pred(m)) return f; }
+  return -1;
+}
+
+/** Palette index shown at screen pixel (x 0..511, y 0..191) in the last rendered frame. */
+export const screenPixel = (m, x, y) => m.pixels[(SCR_Y0 + y) * FRAME_W + SCR_X0 + x];
+
+/** Write the 512 x 192 screen as a PGM image (ink dark, paper light) for looking at by eye. */
+export function savePgm(m, path) {
+  const head = `P5\n${SCR_W} ${SCR_H}\n255\n`;
+  const out = new Uint8Array(head.length + SCR_W * SCR_H);
+  for (let i = 0; i < head.length; i++) out[i] = head.charCodeAt(i);
+  let k = head.length;
+  for (let y = 0; y < SCR_H; y++) for (let x = 0; x < SCR_W; x++) out[k++] = (screenPixel(m, x, y) & 7) * 36;
+  writeFileSync(path, out);
+}
+
+/** The 96 glyphs of src/font.inc (codes 32..127), 8 bytes each. */
+export function loadFont() {
+  const bytes = [];
+  for (const line of readFileSync(join(ROOT, 'src/font.inc'), 'utf8').split('\n')) {
+    const m = line.match(/^\s*DB\s+([^;]*)/);
+    if (m) for (const s of m[1].split(',')) bytes.push(parseInt(s.trim().replace('$', ''), 16));
+  }
+  return (code) => bytes.slice((code - 32) * 8, (code - 32) * 8 + 8);
+}
+
+/** Tiny check collector: check(name, ok, detail); done() prints a summary and sets the exit code. */
+export function checks(title) {
+  let pass = 0, fail = 0;
+  return {
+    check(name, ok, detail = '') {
+      if (ok) pass++; else fail++;
+      console.log(`${ok ? 'PASS' : 'FAIL'}: ${name}${detail ? ` (${detail})` : ''}`);
+    },
+    done() {
+      console.log(`${title}: ${pass} passed, ${fail} failed`);
+      if (fail) process.exitCode = 1;
+    },
+  };
+}
