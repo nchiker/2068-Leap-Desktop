@@ -34,5 +34,13 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
 - Every routine gets a headless test against a reference model written from its spec (`tests/hello.mjs` is the pattern).
 - Cross-emulator runs: `tools/xemu/` (ZEsarUX through ZRCP, Fuse through a movie converted to `.scr` frames).
 - Stepping TSRun instruction by instruction can drop that frame's interrupt: count interrupts only over frames run normally.
-- Delegate routine research, doc updates and test runs to cheaper models (Sonnet / Haiku); keep design and debugging here.
+- **Use lower-cost subagents for routine work (owner's standing instruction).** Pass the `model` explicitly when spawning:
+  - **Sonnet:**
+    - source surveys and research (reading Leap-IDE, Leap V2, TSRun, the manual);
+    - reference models and test files written from a contract;
+    - generators (`tools/gen-*.mjs`);
+    - doc updates from known facts;
+    - cross-emulator runners.
+  - **Haiku:** running test suites and emulator runs, and reporting the results (give the exact commands and what to report).
+  - **Main model only:** design, contracts, Z80 drawing / ISR / banking code, debugging, and judging results. Check a subagent's result (re-run its tests) before telling the owner it is done.
 - Commit only when the owner asks.
