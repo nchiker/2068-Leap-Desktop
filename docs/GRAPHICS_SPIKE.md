@@ -177,3 +177,154 @@ A mock desktop drawn only with `gfx6`. Nothing in it works: no menus open and no
 | S3 | `G_LINE` (from Leap V2 `GFX_LINE`), `G_BLIT`, `G_SAVERECT` / `G_RESTRECT`, `G_SCROLLV` | as S1 |
 | S4 | Pointer in the ISR, shield, the flicker test | main model |
 | S5 | Demo cartridge `spike6`, `tests/gfx6-perf.mjs` complete, ZEsarUX and Fuse runs, "As built", the mode decision in `docs/FEASIBILITY.md` | Sonnet, results checked by the main model |
+
+## 12. S1 interface (designed 2026-11-11, binding for the S1 code and tests)
+
+Section 12 fills in what sections 3-5 leave open for slice S1. The tests are written from sections 3-7 and this section, never
+from the code.
+
+### 12.1 Memory
+
+| Address | Name | What |
+|---|---|---|
+| `$E000-$E00F` | `GA` | Argument block. `GA+0` x, `GA+2` y, `GA+4` w, `GA+6` h: signed 16-bit words, little-endian |
+| `$E010` | `GOP` | Draw op: 0 `SET` (ink, bit = 1), 1 `CLR` (paper, bit = 0), 2 `XOR` (invert) |
+| `$E012-$E019` | `GCLIP` | Clip rectangle, half-open, already intersected with the screen: x0, x1, y0, y1 as words, `0 <= x0, x1 <= 512`, `0 <= y0, y1 <= 192`. Written only by `G_INIT` and `G_SETCLIP` |
+| `$E000-$E03F` | | All of gfx6's variables (`GA`, `GOP`, `GCLIP`, scratch). A routine may write anywhere in here |
+| `$E040-$E0FF` | | The cartridge's own variables (the test cartridge: frame counter, port shadows, counters) |
+
+Argument ranges: x, y, w, h in -16384..16383. `w <= 0` or `h <= 0` draws nothing.
+
+### 12.2 Routines
+
+All routines preserve IX, IY and the alternate registers. None of them executes `DI` or `EI`: they leave the interrupt state as
+they found it. Each uses at most 32 bytes of stack below its return address.
+
+| Routine | In | Out / effect | Clobbers |
+|---|---|---|---|
+| `G_INIT` | | `GOP` = `SET`, clip = whole screen (0, 0, 512, 192) | AF, HL |
+| `G_ADDR` | HL = x (0..511), E = y (0..191) | HL = the screen byte holding pixel (x, y), A = its bit mask (`$80 >> (x AND 7)`) | F, DE |
+| `G_ROWADDR` | A = y (0..191) | HL = `ROWTAB[y]`: the address of row y, byte column 0, in file 1 | AF |
+| `G_SETOP` | A = op (0, 1, 2) | `GOP` = A | |
+| `G_SETCLIP` | `GA`: x, y, w, h | clip = the rectangle intersected with the screen; empty when it has no pixel on screen. `GA` unchanged | AF, BC, DE, HL |
+| `G_FILL` | `GA`: x, y, w, h | every pixel of the rectangle that is inside the clip gets the draw op; nothing else changes. `GA` unchanged | AF, BC, DE, HL |
+| `G_HLINE` | HL = x, DE = y, BC = w | as `G_FILL` (x, y, w, 1). `GA` undefined afterwards | AF, BC, DE, HL |
+| `G_VLINE` | HL = x, DE = y, BC = h | as `G_FILL` (x, y, 1, h). `GA` undefined afterwards | AF, BC, DE, HL |
+| `G_FRAME` | `GA`: x, y, w, h | the 1-pixel outline of the rectangle in the draw op, clipped: the pixels of the rectangle that lie in its first or last row or its first or last column, **each exactly once** (so `XOR` twice restores the screen). w = 1 or h = 1 gives the whole (thin) rectangle. `GA` undefined afterwards | AF, BC, DE, HL |
+| `G_CLS` | | all 12,288 display bytes (`$4000-$57FF`, `$6000-$77FF`) to 0 (paper). Ignores the clip and the draw op: it is the whole-screen clear. Interrupts stay as they were; with them on, the ISR's stack depth must be at most 32 bytes (binding on every ISR, including S4's pointer ISR) | AF, BC, DE, HL |
+
+S1 has no pointer: the shield (`P_SHIELD`) around `G_CLS` and the other routines comes in S4.
+
+### 12.3 Tables (`src/gfx6/tables.inc`, written by `tools/gen-tables.mjs`)
+
+`ROWTAB` (192 words, row y's address in file 1: `$4000 + (y AND $C0) * 32 + (y AND 7) * 256 + (y AND $38) * 4`), then `LMASK`
+(8 bytes, `$FF >> i`) and `RMASK` (8 bytes, `($FF << (7 - i)) AND $FF`). The file has labels and data only; the including source
+places it on a 512-byte boundary in chunk 0-1.
+
+`src/gfx6/tables4.inc` holds the page-aligned tables for chunk 4-5. For S1 these are `LMASKP` and `RMASKP` (256 bytes each,
+indexed by the low byte of x): `LMASKP[v] = $FF >> (v AND 7)`, `RMASKP[v] = ($FF << (7 - (v AND 7))) AND $FF`. The including
+source places the file on a page boundary in chunk 4-5; the tables follow each other with no padding.
+
+### 12.4 Test cartridge `gfx6t` (`src/gfx6t.asm`, build target `gfx6t`)
+
+The shape of `hello`: DOCK chunks 0, 1, 4, 5; stack top `$FF00`; record at `$FF00` (marker `$A5 $5A`, then state 1 = ready).
+It clears both display files and `$E000-$EFFF`, sets mode 6, calls `G_INIT`, enables interrupts, writes the record, then idles
+at `T_IDLE` (`HALT` loop). Symbols the tests use (from `build/gfx6t/out.sym`): the routines above, `GA`, `GOP`, `GCLIP`,
+`ROWTAB`, `LMASK`, `RMASK`, `T_IDLE`, `T_RET`, `T_CLSLOOP`, `T_CLSDONE`, `V_FRAMES`, `V_CLS`, `RESULT`, `GFX6_CODE`,
+`GFX6_CODE_END`.
+
+- **ISR** (IM 1): increments the word `V_FRAMES`, and on purpose leaves `$FF` bytes in its stack frame (16 bytes deep with the
+  return address), so a stack write that the clear does not heal shows as ink.
+- **`T_RET`**: the sentinel return address. It is a `JR $` loop; a test stops when PC reaches it.
+- **`T_CLSLOOP`**: `EI`, then calls `G_CLS` forever, incrementing the word `V_CLS` after each clear. `T_CLSDONE` is the address
+  right after the `CALL G_CLS` (a test stops there to see a finished clear).
+
+**Calling a routine directly** (the tests): after the record is marked, set `cpu.halted = false`, `iff1 = iff2 = false`
+(interrupts off; `true` for the DI measurement), `SP = $FF00`, push `T_RET`, set the input registers, `PC` = the routine, then
+step `runZ80(cpu, bus, 1, m)` until `PC = T_RET`. The routine's cost is the change of `m.tstates`, including its `RET`.
+Stepping never raises a frame interrupt (TSRun raises it only at the end of `runFrame`).
+
+**Clip safety:** before a call, every RAM byte in `$4000-$FFFF` outside the display files is poisoned with random values, except
+`$E000-$E03F` (gfx6's variables), `$E040-$E0FF` (the cartridge's), `$FE00-$FEFF` (the stack around the call) and
+`$FF00-$FFFF` (the record). After the call all poisoned bytes must be unchanged. Display bytes are compared with the model, all
+512 x 192 pixels, after every call.
+
+### 12.5 How the S1 bounds are measured
+
+| Measure (section 7) | Calls |
+|---|---|
+| `G_CLS` whole screen | one direct call, interrupts off (= ISR time excluded) |
+| `G_CLS` interrupt safety | `T_CLSLOOP` for 300 frames with `runFrame`; `V_FRAMES` must rise by exactly 300; then step to `T_CLSDONE`; all display bytes 0; `$5800-$5FFF`, `$7800-$7FFF`, `$C000-$DFFF`, `$E100-$FAFF` unchanged (poisoned before). The pointer part ("with the pointer moving") is run again in S4 |
+| Longest `DI` | every S1 routine, stepped from `iff1 = true`: the longest run of T-states with `iff1 = false` |
+| `G_FILL` 512 x 192 `SET` | (0, 0, 512, 192), clip whole screen |
+| `G_FILL` 32 x 16 at odd x, `SET` / `XOR` | the **worst** over x in {1, 3, 9, 101, 255, 477} and y in {0, 5} |
+| `G_HLINE` 512 / `G_VLINE` 192 | (0, y, 512) for y in {0, 100, 191}; (x, 0, 192) for x in {0, 7, 100, 511}: the worst, `SET` |
+| Code size | `GFX6_CODE_END - GFX6_CODE` (no tables): report |
+
+## 13. As built
+
+Measured figures are TSRun T-states, taken by `tests/gfx6-perf.mjs` as section 12.5 defines them and re-run by the main model.
+
+### 13.1 Slice S1 (2026-11-11)
+
+**Result: 7 measures pass, 1 is reported (code size) and 1 bound is missed (`G_FILL` 32 x 16 at odd x, XOR, by 96 T). The owner decided to record the miss and continue.**
+
+| Measure | Measured | Bound | Result |
+|---|---|---|---|
+| `G_CLS` whole screen | 73,064 | <= 80,000 | pass |
+| `G_CLS` interrupt safety | 300 frame interrupts in 300 frames, 239 clears; display all 0 and the guarded RAM unchanged afterwards | 0 lost | pass (the "pointer moving" part waits for S4) |
+| Longest `DI` | 0 (no S1 routine executes `DI`) | <= 1,500 | pass |
+| `G_FILL` 512 x 192, SET | 146,433 | <= 150,000 | pass |
+| `G_FILL` 32 x 16 at odd x, SET (worst of 12 positions) | 2,980 at x 1, y 5 | <= 3,000 | pass |
+| `G_FILL` 32 x 16 at odd x, XOR (worst of 12 positions) | 3,396 at x 1, y 5 | <= 3,300 | **missed by 96** |
+| `G_HLINE` 512 (worst of y 0, 100, 191) | 2,169 | <= 2,500 | pass |
+| `G_VLINE` 192 (worst of x 0, 7, 100, 511) | 6,643 | <= 7,000 | pass |
+| Code size of `gfx6` (`GFX6_CODE_END - GFX6_CODE`) | 3,162 bytes | target <= 4 KB, report | reported |
+
+#### The missed bound
+
+`G_FILL` 32 x 16 at odd x, XOR, costs 3,396 T at x 1, y 5, against a bound of 3,300. The bound stands unchanged. The owner decided
+(2026-11-11) to record the miss and continue with S2.
+
+| Part of the XOR call at x 1, y 5 | T |
+|---|---|
+| Setup: signed 16-bit clipping of both axes (about 475 of it); byte columns, masks, row address, body selection, saving IX / IY | 967 |
+| 16 rows (about 131 a row) | 2,090 |
+| Two character-row crossings | 301 |
+| Return | 38 |
+| Total | 3,396 |
+
+At y 0 (one crossing fewer) the same rectangle costs 3,213 (XOR) and 2,797 (SET).
+
+Per-call setup, mostly clipping, is paid by every gfx6 routine. S2's text figures will show whether it needs a common cheaper path.
+Optimisations considered and not made:
+
+| Change | Saves | Cost |
+|---|---|---|
+| Count rows in pairs | about 80 T | more code |
+| Keep y0 and the row count in registers | about 15 T | |
+
+#### How `G_FILL` is built
+
+After clipping, n is the number of byte columns.
+- **n = 1:** a vertical walk, with the 8 rows of a character row unrolled.
+- **n = 2..8:** straight-line row bodies, one per op and n. The walk is a serpentine: rows alternate left-to-right and right-to-left, so no row resets its pointers. The left mask is in C and the right mask in IXl.
+- **n >= 9:** the edge columns by the vertical walk, then the whole bytes row-major through 64-element unrolled blocks entered at an offset.
+- Rows are walked one character row at a time (`INC H`), with a crossing between character rows.
+- `G_FILL` uses the undocumented 8-bit halves of IX: the masks while it sets up, then in the 2..8-column bodies the right mask (IXl) and the rows left (IXh). TSRun runs them; ZEsarUX and Fuse are to be checked in S5.
+- Tables: `ROWTAB` (chunk 0-1, 512-byte boundary) in `src/gfx6/tables.inc`; `LMASKP` and `RMASKP` (256 bytes each, chunk 4) in `src/gfx6/tables4.inc`. Both files are generated by `tools/gen-tables.mjs`.
+
+#### Tests
+
+- `tests/gfx6-model.mjs`: the reference model, written from the contract; self-test of 36 checks.
+- `tests/gfx6-s1.mjs`: 21 check categories. They cover the tables, `G_ADDR` for all 98,304 pixels, `G_ROWADDR`, `G_SETCLIP`, 600 random calls per drawing routine with random clips and ops, the section 8 edge cases, clip safety by poisoned RAM, preserved registers and the longest `DI`. It passes on several seeds.
+- `tests/gfx6-cls.mjs`: `G_CLS` interrupt safety.
+- `tests/gfx6-perf.mjs`: the bounds above.
+
+The tests were written by a separate agent from the contract, without reading the code. They were shown to fail on deliberately broken copies of the code: a stray write, a clobbered IX, a frame corner drawn twice and a changed `GA`.
+
+#### Interpretations made in S1
+
+- `G_CLS` ignores the clip and the draw op (section 12.2).
+- Every ISR is limited to 32 bytes of stack (section 12.2; binding on S4).
+- The 32 x 16 bound is measured as the worst over x in {1, 3, 9, 101, 255, 477} and y in {0, 5} (section 12.5).

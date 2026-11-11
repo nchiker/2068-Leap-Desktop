@@ -9,17 +9,27 @@ import { execFileSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDck, chunksFromImage } from './mkdck.mjs';
+import { genTables, genTables4 } from './gen-tables.mjs';
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const TARGETS = {
   hello: { src: 'src/hello.asm', chunks: [0, 1, 4, 5] },
   probe23: { src: 'src/probe23.asm', chunks: [0, 1, 2, 3, 4, 5] },   // docs/PROBE_DOCK23.md
+  gfx6t: { src: 'src/gfx6t.asm', chunks: [0, 1, 4, 5], tables: true }, // docs/GRAPHICS_SPIKE.md section 12.4
 };
 
 /** Assemble one target; returns { img (64 KB), syms, dck, dckPath }. */
 export function build(name, defs = {}) {
   const src = TARGETS[name]?.src;
   if (!src) throw new Error(`unknown target ${name} (known: ${Object.keys(TARGETS).join(', ')})`);
+  if (TARGETS[name].tables) {                 // src/gfx6/tables*.inc are generated, never hand-edited: regenerate before assembling
+    for (const [file, gen] of [['src/gfx6/tables.inc', genTables], ['src/gfx6/tables4.inc', genTables4]]) {
+      const path = join(ROOT, file), text = gen();
+      let old = null;
+      try { old = readFileSync(path, 'utf8'); } catch { /* first build */ }
+      if (old !== text) writeFileSync(path, text);
+    }
+  }
   const dir = join(ROOT, 'build', name);
   mkdirSync(dir, { recursive: true });
   const args = ['--nologo', '--lstlab', `--lst=${join(dir, 'out.lst')}`, `--sym=${join(dir, 'out.sym')}`,
