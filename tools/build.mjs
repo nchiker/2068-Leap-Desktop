@@ -2,7 +2,7 @@
 // build.mjs -- assemble Leap Desktop cartridges with sjasmplus and write DCKs.
 //   node tools/build.mjs            build every target
 //   node tools/build.mjs hello      build one
-// Per target: build/<name>/{mem.bin,out.lst,out.sym} and build/<name>.dck (DOCK bank 0, kinds 0 and 2, chunks 0,1,4,5:
+// Per target: build/<name>/{mem.bin,out.lst,out.sym} and build/<name>.dck (DOCK bank 0, kinds 0 and 2; chunks 0,1,4,5 is
 // the shape Leap Arcade proved on TSRun, ZEsarUX 13.0 and Fuse 1.9.1).
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -11,12 +11,14 @@ import { fileURLToPath } from 'node:url';
 import { buildDck, chunksFromImage } from './mkdck.mjs';
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-export const SHIPPED_CHUNKS = [0, 1, 4, 5];
-export const TARGETS = { hello: 'src/hello.asm' };
+export const TARGETS = {
+  hello: { src: 'src/hello.asm', chunks: [0, 1, 4, 5] },
+  probe23: { src: 'src/probe23.asm', chunks: [0, 1, 2, 3, 4, 5] },   // docs/PROBE_DOCK23.md
+};
 
 /** Assemble one target; returns { img (64 KB), syms, dck, dckPath }. */
 export function build(name, defs = {}) {
-  const src = TARGETS[name];
+  const src = TARGETS[name]?.src;
   if (!src) throw new Error(`unknown target ${name} (known: ${Object.keys(TARGETS).join(', ')})`);
   const dir = join(ROOT, 'build', name);
   mkdirSync(dir, { recursive: true });
@@ -32,7 +34,7 @@ export function build(name, defs = {}) {
     const m = line.match(/^(\S+):\s+EQU\s+0x([0-9A-Fa-f]+)/);
     if (m) syms[m[1]] = parseInt(m[2], 16);
   }
-  const dck = buildDck(chunksFromImage(img, SHIPPED_CHUNKS));
+  const dck = buildDck(chunksFromImage(img, TARGETS[name].chunks));
   const dckPath = join(ROOT, 'build', `${name}.dck`);
   writeFileSync(dckPath, dck);
   return { img, syms, dck, dckPath };

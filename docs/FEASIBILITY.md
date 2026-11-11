@@ -157,7 +157,7 @@ All of `$4000-$7FFF` is contended, and hidden while DOCK 2-3 is mapped. Nothing 
 |---|---|---|---|
 | 0-1 (always mapped) | 16 KB | Kernel, about 12-15 KB **EST**: boot, ISR, input, event queue, graphics core, text and fonts, window manager, menus, dialogs, object dispatch, allocator, far-call trampolines, jump table | Pattern proven (EMU) |
 | 4-5 | 16 KB | Toolkit (controls, about 3-4 KB **EST**), desktop shell (about 3 KB), Calculator (about 2 KB) | Pattern proven (EMU) |
-| 2-3 | 16 KB | Write (about 6-7 KB **EST**) and Paint (about 5-6 KB), executing in place. Every display access goes through kernel trampolines that unmap 2-3, draw and remap (about 50 T a call **EST**). The ISR runs from chunk 0 with its stack in chunk 7, and saves and restores `$F4` itself if it must touch the screen | **TM** allows it. Execution from 2 and 3 runs on TSRun (**EMU**, XIP spike E1). Still to probe: ZEsarUX, Fuse, and the trampoline. If the probe fails: chunks 2-3 hold resources copied to RAM, as Arcade does now |
+| 2-3 | 16 KB | Write (about 6-7 KB **EST**) and Paint (about 5-6 KB), executing in place. Every display access goes through kernel trampolines that unmap 2-3, draw and remap (about 50 T a call **EST**). The ISR runs from chunk 0 with its stack in chunk 7, and saves and restores `$F4` itself if it must touch the screen | **TM** allows it. **Probe (a) passed on TSRun, ZEsarUX 13.0 and Fuse 1.9.1** (**EMU**, `docs/PROBE_DOCK23.md`): code in place, calls between 2 and 3, the trampoline, an ISR drawing while mapped |
 | 6 | 8 KB | Resources: icons, a second font, dialog templates. Can be blitted straight to the screen; the heap at `$C000-$DFFF` is hidden while it is mapped, so the blit source must not be heap | Reads proven (EMU) |
 | 7 | — | Never mapped: the stack lives there | — |
 
@@ -344,12 +344,12 @@ cross-checked on ZEsarUX and Fuse. It shows:
 **Mode check.** The same graphics core draws one window's contents in mode 0 and mode 2, to prove that the per-app modes work on one code base.
 
 **Side probes:**
-- **(a)** code executing from DOCK 2-3 through a kernel trampoline, with interrupts on. Plain execution from 2 and 3 already passes on TSRun (XIP spike E1); the probe adds ZEsarUX, Fuse and the trampoline's display access;
+- **(a)** code executing from DOCK 2-3 through a kernel trampoline, with interrupts on: **done, PASS on TSRun, ZEsarUX and Fuse** (`docs/PROBE_DOCK23.md`);
 - **(b)** later, for the hardware phase: a contention test cartridge (a timed loop from `$4000`, `$6000`, `$8000` and `$C000`, and from DOCK chunks), plus how mode 6 looks on a real display.
 
 ## Roadmap (priority order)
 
-0. **Probe (a)** above. Probe (b) and Arcade hardware checklist item 0 wait for the hardware phase.
+0. **Probe (a): done, PASS on all three emulators** (`docs/PROBE_DOCK23.md`). Probe (b) and Arcade hardware checklist item 0 wait for the hardware phase.
 1. **Project setup:** the LeapG repo, vendored sources with a provenance manifest, Arcade's build tools and DCK linker, a test page in the style of Leap-IDE running TSRun, the memory map, and `desktop.json` (the ABI spec).
 2. **Graphics core, mode 6 first:**
    - Adapt the Arcade pieces in "Graphics core: what comes from Arcade": masked blitter, pre-shift builder, shift tables, glyph planes, dirty bitmap, rectangle walker, PUSH fill.

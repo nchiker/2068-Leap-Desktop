@@ -16,7 +16,12 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
 
 - Cartridge: LROS header `DB $00,$01 / DW ENTRY / DB $BC` at DOCK chunk 0. Entry starts with `DI`, sets its own stack
   (`$FF00` downward, chunk 7), `$FF` (DOCK selected) before `$F4`, then `$F4 = $33` (DOCK 0, 1, 4, 5).
-- Never map a DOCK chunk over the stack. Keep RAM shadows of `$F4` and `$FF`; never read the ports back.
+- Never map a DOCK chunk over the stack. Keep RAM shadows of `$F4` and `$FF`; never read the ports back. Store the shadow
+  **before** each `OUT`.
+- An ISR that touches the display maps the display (`$F4 = $33`) itself, then writes the **shadow** back to the port. It never
+  assumes the port equals the shadow. Safe at every instruction boundary by reasoning; exercised by `docs/PROBE_DOCK23.md` (about
+  900 interrupts per emulator), not yet by interrupt injection at every instruction.
+- Application code may run in DOCK 2-3 (`$F4 = $3F`); it reaches the display only through kernel trampolines.
 - TSRun fills RAM with random bytes at power-on: initialise every variable, and give test records a marker
   (see `RESULT` in `src/hello.asm`).
 - TSRun drops a frame interrupt that arrives under `DI`: never hold `DI` across a frame boundary.
@@ -27,5 +32,7 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
 ## Working method
 
 - Every routine gets a headless test against a reference model written from its spec (`tests/hello.mjs` is the pattern).
+- Cross-emulator runs: `tools/xemu/` (ZEsarUX through ZRCP, Fuse through a movie converted to `.scr` frames).
+- Stepping TSRun instruction by instruction can drop that frame's interrupt: count interrupts only over frames run normally.
 - Delegate routine research, doc updates and test runs to cheaper models (Sonnet / Haiku); keep design and debugging here.
 - Commit only when the owner asks.
