@@ -104,12 +104,12 @@ export function bootDesk5(opts = {}) {
 
 // ---------------------------------------------------------------------------------------------------------------------------
 // The shell and the launcher, driven from outside (SHELL.md 4, 9, 10).
-/** SHELL 10.4: the window "Leap Desktop" (32, 24, 256, 80) and its two icons, K_PROG = 0. */
+/** SHELL 10.4 / WRITE 11.2: the window "Leap Desktop" (32, 24, 256, 80) and its three icons, K_PROG = 0. */
 export function shellUp(env) {
   const { m, S } = env;
   if (m.ram[S.K_PROG] !== 0) return false;
   const v = allViews(m, S), win = v.find((x) => x.cls === S.CL_Window && x.x === 32 && x.y === 24 && x.w === 256 && x.h === 80);
-  return !!win && v.filter((x) => x.cls === S.CL_Icon && x.depth === win.depth + 1).length === 2;
+  return !!win && v.filter((x) => x.cls === S.CL_Icon && x.depth === win.depth + 1).length === 3;
 }
 /** The program's windows on the desk (W_SLOTS, slots 1..14): [{ a, cls, x, y, w, h, title }]. */
 export function openWindows(m, S) {
@@ -123,7 +123,8 @@ export function openWindows(m, S) {
 }
 /** Where each program's first window is, after its launch (SHELL 4, 5, 10.4; CALCULATOR 4). */
 export const PROG_WIN = { 0: { x: 32, y: 24, w: 256, h: 80, title: 'Leap Desktop', plain: true }, 1: { x: 160, y: 24, w: 176, h: 144, title: 'Calculator' },
-  2: { x: 176, y: 32, w: 320, h: 144, title: 'Controls' } };   // TOOLKIT 10.5: grown from 144 x 112
+  2: { x: 176, y: 32, w: 320, h: 144, title: 'Controls' },   // TOOLKIT 10.5: grown from 144 x 112
+  3: { x: 16, y: 16, w: 480, h: 168, title: 'Write' } };    // WRITE 11.3
 /** Program p is running: K_PROG = p and its window (class, rectangle, title) is on the desk, as the only one. */
 export function progUp(env, p) {
   const { m, S } = env;
@@ -136,8 +137,8 @@ export function waitProgram(env, p, max = 120) {
   for (let i = 0; i <= max; i++) { if (progUp(env, p)) return i; if (i < max) env.frame(); }
   return -1;
 }
-/** The icons of the shell (SHELL 10.4, 10.5): "Calculator" at (48, 40), "Controls" at (112, 40); 64 x 26. */
-export const ICON_RECT = { 1: { x: 48, y: 40, w: 64, h: 26 }, 2: { x: 112, y: 40, w: 64, h: 26 } };
+/** The icons of the shell (SHELL 10.4, 10.5, WRITE 11.2): "Calculator" at (48, 40), "Controls" at (112, 40), "Write" at (176, 40); 64 x 26. */
+export const ICON_RECT = { 1: { x: 48, y: 40, w: 64, h: 26 }, 2: { x: 112, y: 40, w: 64, h: 26 }, 3: { x: 176, y: 40, w: 64, h: 26 } };
 export const iconCentre = (p) => [ICON_RECT[p].x + 32, ICON_RECT[p].y + 13];
 /** CWindow's close box (SHELL 10.1): (x + w - 19, y + 1, 15, 7) of a window at (x, y, w). */
 export const closeBoxOf = (wx, wy, ww) => ({ x: wx + ww - 19, y: wy + 1, w: 15, h: 7 });

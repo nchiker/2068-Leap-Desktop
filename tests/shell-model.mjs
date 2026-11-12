@@ -54,8 +54,10 @@ export const ICONART = parseIcons();
 // ---------------------------------------------------------------------------------------------------------------------------------------------
 // The programs and the shell's geometry (SHELL 4, 5, 10.4)
 export const SHELL_WIN = { x: 32, y: 24, w: 256, h: 80, title: 'Leap Desktop' };
-export const ICONS = [{ name: 'Calculator', art: 'CALC', prog: 1, x: 48, y: 40, w: 64, h: 26 }, { name: 'Controls', art: 'CTRL', prog: 2, x: 112, y: 40, w: 64, h: 26 }];
-export const LEAP_MENU = menuSpec(1, 'Leap', [[1, 0, 'About Leap Desktop...'], [2, 2, ''], [3, 0, 'Calculator'], [4, 0, 'Controls']]);
+// WRITE 11.2: a third icon "Write" at (176, 40) (its bitmap is `icon WRITE` in icons.txt) and the menu item "Write" (id 5) after "Controls"
+export const ICONS = [{ name: 'Calculator', art: 'CALC', prog: 1, x: 48, y: 40, w: 64, h: 26 }, { name: 'Controls', art: 'CTRL', prog: 2, x: 112, y: 40, w: 64, h: 26 },
+  { name: 'Write', art: 'WRITE', prog: 3, x: 176, y: 40, w: 64, h: 26 }];
+export const LEAP_MENU = menuSpec(1, 'Leap', [[1, 0, 'About Leap Desktop...'], [2, 2, ''], [3, 0, 'Calculator'], [4, 0, 'Controls'], [5, 0, 'Write']]);
 export const ABOUT = { dialog: { x: 128, y: 64, w: 256, h: 64 }, label: { x: 144, y: 76, w: 200, h: 9, text: 'Leap Desktop, step 5' }, ok: { x: 304, y: 100, w: 64, h: 16, text: 'OK' } };
 export const DBL_FRAMES = 20;
 
@@ -63,6 +65,7 @@ export const DBL_FRAMES = 20;
 export function iconLook(g, ic, selected) {
   g.setOp(OP_CLR); g.fill(ic.x, ic.y, ic.w, ic.h);
   const art = ICONART[ic.art];
+  if (!art) throw new Error(`icons.txt has no icon ${ic.art} (WRITE 11.2: the Write icon's bitmap is in icons.txt; the key is read as WRITE)`);   // CONTRACT? the third icon's key in icons.txt
   for (let r = 0; r < 16; r++) for (let c = 0; c < 32; c++) g.set(ic.x + 16 + c, ic.y + r, art[r][c] === '#' ? 1 : 0);
   const cs = codesOf(ic.name), tw = g.textw(cs), tx = ic.x + Math.floor((64 - tw) / 2);
   g.setOp(OP_SET); g.textp(tx, ic.y + 17, cs);
@@ -145,7 +148,7 @@ export class ShellSim {
 if (process.argv[1] === fileURLToPath(import.meta.url) && process.argv.includes('--self-test')) {
   let bad = 0;
   const eq = (name, a, b) => { const ok = JSON.stringify(a) === JSON.stringify(b); if (!ok) bad++; console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${ok ? '' : `: got ${JSON.stringify(a)}, want ${JSON.stringify(b)}`}`); };
-  eq('icons parsed', [Object.keys(ICONART), ICONART.CALC.length, ICONART.CTRL[0].length], [['CALC', 'CTRL'], 16, 32]);
+  eq('icons parsed (CALC, CTRL, and WRITE once the main model has drawn it)', [Object.keys(ICONART).slice(0, 2), ICONART.CALC.length, ICONART.CTRL[0].length], [['CALC', 'CTRL'], 16, 32]);
   // the bitmap: CALC's first row is '....####...' at x + 8: columns 4..27 inked
   { const g = new Gfx6Model(); iconLook(g, ICONS[0], false); eq('CALC row 0 pixels', [g.get(48 + 16 + 3, 40), g.get(48 + 16 + 4, 40), g.get(48 + 16 + 27, 40), g.get(48 + 16 + 28, 40)], [0, 1, 1, 0]); }
   // the name's width and the inverted box

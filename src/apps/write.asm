@@ -357,31 +357,69 @@ wr_lstart:
     ex de,hl
     ret
 
-; wr_tw: HL = an offset, B = codes (0-255) -> DE = their width.  Clobbers AF, B, HL.
+; wr_tw: HL = an offset, B = codes (0-255) -> DE = their width: at most two runs, either side of the gap.  Clobbers AF, BC, HL.
 wr_tw:
     ld de,0
     ld a,b
     or a
     ret z
     push de
+    ld de,(WR_GS)
+    ex de,hl
+    or a
+    sbc hl,de                   ; GS - from
+    jr c,.after
+    jr z,.after
+    ld a,h                      ; codes before the gap: min(B, GS - from)
+    or a
+    jr nz,.all
+    ld a,l
+    cp b
+    jr nc,.all
+    ld c,a
+    ld a,b
+    sub c
+    push af                     ; the codes after the gap
+    ld b,c
+    ld hl,(WR_BUF)
+    add hl,de
+    pop af
+    pop de
+    push af
+    call wr_twr
+    pop af
+    ld b,a
+    ld hl,(WR_GB)
+    jr wr_twr
+.all:
+    ld hl,(WR_BUF)
+    add hl,de
+    pop de
+    jr wr_twr
+.after:
+    ex de,hl
     call wr_ptr
     pop de
-.l:
-    call wr_gap
+; wr_twr: HL = an address, B = codes (> 0), DE = a width -> DE + their advances.  Clobbers AF, BC, HL.
+wr_twr:
     ld a,(hl)
     inc hl
-    push hl
+    ld c,l
     ld l,a
+    ld a,h
     ld h,PROP6_W >> 8
-    ld a,(hl)
-    pop hl
+    ld l,(hl)
+    ld h,a
+    ld a,l
+    ld l,c
     add a,e
     ld e,a
     jr nc,.n
     inc d
 .n:
-    djnz .l
+    djnz wr_twr
     ret
+
 ; wr_gap: HL = an address -> GB when it is GA.  Clobbers F.
 wr_gap:
     push de
@@ -1060,8 +1098,9 @@ wr_draw:
     call wr_nc
     push ix
     ld ix,(WR_TV)
-    KFAR W_DRAWVIEW
+    call wr_dv
     pop ix
+wr_drawn:
     ld hl,WR_NCX
     ld de,WR_OCX
     ld bc,4
@@ -1802,13 +1841,82 @@ tv_fb:
     call wr_ncf
     ld a,WM_CARET
     ld (WR_MODE),a
+    call wr_dv
+    jp wr_drawn
+
+; wr_dv: IX = the text view: W_DRAWVIEW in WR_MODE.  A partial mode narrows the view's rows to those it draws for the call
+; (its drawing uses the fixed rectangle of 11.3, so the pixels are the same; W_DRAWVIEW then scans and clips only those rows).
+; Clobbers AF, BC, DE, HL.
+wr_dv:
+    ld a,(WR_MODE)
+    cp WM_CARET
+    jr z,.caret
+    cp WM_FROM
+    jr z,.one
+    cp WM_LINES
+    jr nz,.whole
+    ld a,(WR_MJ)                ; lines MJ .. MJ2
+    ld c,a
+    ld a,(WR_MJ2)
+    sub c
+    inc a
+    ld b,a
+    add a,a
+    add a,a
+    add a,a
+    add a,b
+    ld b,a                      ; 9 lines
+    ld a,c
+    jr .rows
+.one:
+    ld a,(WR_MJ)
+    ld b,9
+.rows:                          ; A = the first shown index, B = rows
+    call wr_jy
+    ld a,l
+    jr .narrow
+.caret:                         ; the old and the new caret's rows
+    ld a,(WR_OCV)
+    ld b,a
+    ld a,(WR_NCV)
+    or b
+    ret z                       ; neither shown: nothing to draw
+    ld a,(WR_NCY)
+    ld c,a
+    ld e,a
+    ld a,(WR_NCV)
+    or a
+    jr nz,.n
+    ld a,(WR_OCY)
+    ld c,a
+    ld e,a
+.n:
+    ld a,(WR_OCV)
+    or a
+    jr z,.cy
+    ld a,(WR_OCY)
+    cp c
+    jr nc,.c1
+    ld c,a                      ; C = the top
+.c1:
+    cp e
+    jr c,.cy
+    ld e,a                      ; E = the bottom caret's top
+.cy:
+    ld a,e
+    sub c
+    add a,9
+    ld b,a
+    ld a,c
+.narrow:
+    ld (ix+View_y),a
+    ld (ix+View_h),b
     KFAR W_DRAWVIEW
-    ld hl,WR_NCX
-    ld de,WR_OCX
-    ld bc,4
-    ldir
-    xor a
-    ld (WR_MODE),a
+    ld (ix+View_y),TV_Y
+    ld (ix+View_h),TV_H
+    ret
+.whole:
+    KFAR W_DRAWVIEW
     ret
 
 ; ---------------------------------------------------------------------------------------------------------------------------

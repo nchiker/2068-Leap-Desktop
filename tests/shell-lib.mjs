@@ -12,6 +12,7 @@ import * as M from './tk-model.mjs';
 import './tk-model2.mjs';                          // registers the List and Field looks (T2 / T3) with tk-model's renderWindow
 import { readDisp, diffDisp } from './wm-lib.mjs';
 import { drawBar } from './wm-model3.mjs';
+import * as WM from './wr-model.mjs';
 
 export { L, SM, M, readDisp, diffDisp };
 export const { hex, rd16 } = L;
@@ -126,9 +127,15 @@ export function controlsDiff(env, extra = []) {
   M.renderWindow(tree, g); SM.closeBoxLook(g, wv.x, wv.y, wv.w);
   return diffDisp(readDisp(m), M.toDisp(g), withPointer(env, extra));
 }
-/** The screen of the running program against its model (the shell, Calculator showing `dstr`, Controls). */
+/** Write's screen (WRITE 11.3) with an empty document, as a fresh launch draws it: the caret shows when K_FOCUS is the text view. */
+export function writeDiff(env, extra = []) {
+  const { m, S } = env, tv = S.WR_TV !== undefined ? rd16(m, S.WR_TV) : 0, foc = rd16(m, S.K_FOCUS);
+  const g = WM.renderScreen(new WM.Doc(), { focus: tv !== 0 && foc === tv });
+  return diffDisp(readDisp(m), WM.toDisp(g), withPointer(env, extra));
+}
+/** The screen of the running program against its model (the shell, Calculator showing `dstr`, Controls, Write with an empty document). */
 export function programDiff(env, p = env.m.ram[env.S.K_PROG], extra = [], dstr = '0') {
-  return p === 0 ? shellDiff(env, extra) : p === 1 ? L.screenDiff(env, dstr) : controlsDiff(env, extra);
+  return p === 0 ? shellDiff(env, extra) : p === 1 ? L.screenDiff(env, dstr) : p === 2 ? controlsDiff(env, extra) : writeDiff(env, extra);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------

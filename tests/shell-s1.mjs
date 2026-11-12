@@ -52,9 +52,12 @@ function dirty(env, p) {
     const spots = [[194, 52], [194, 64], [194, 80], [194, 92], [194, 104], [306, 53], [306, 123]];
     for (let i = rng.int(1, 4); i > 0; i--) { const [x, y] = rng.pick(spots); L.click(env, x, y, 3, 5); }
     if (rng.chance(0.5)) L.typeCode(env, rng.pick([32, 14, 15]));
+  } else if (p === 3) {
+    // Write: caret moves and clicks in the text view only (a changed document would ask before it quits, WRITE 11.6): nothing of it may survive the quit
+    for (let i = rng.int(1, 4); i > 0; i--) { if (rng.chance(0.5)) L.typeCode(env, rng.pick([8, 9, 10, 11])); else L.click(env, rng.int(30, 460), rng.int(34, 170), 3, 4); }
   } else {
     // the shell: one single click on an icon, then at least 25 frames so that no second click can make a double (SHELL 4: <= 20 frames)
-    if (rng.chance(0.6)) { H.clickIcon(env, rng.pick([1, 2]), 3, 4); env.frames_(25); }
+    if (rng.chance(0.6)) { H.clickIcon(env, rng.pick([1, 2, 3]), 3, 4); env.frames_(25); }
     if (rng.chance(0.4)) L.typeCode(env, rng.pick([14, 15, 10, 11]));
     if (rng.chance(0.2)) { H.leapMenu(env, 1); L.typeCode(env, rng.pick([13, 27, 3])); env.frames_(6); }
   }
@@ -66,7 +69,7 @@ function dirty(env, p) {
 function launcherGroup() {
   const sec = new Sec('1 launcher: random launches (icon double click, ENTER on the focused icon, the Leap menu items 3 and 4) and quits (close box, SYMBOL SHIFT + Q); after each K_PROG, the windows, the app arena top, K_FOCUS / K_CAPTURE / W_MODAL / the posted queue, the stack at the event loop and the screen as after a fresh launch');
   const env = mkShell(), { m, S } = env;
-  const base = {}, stat = { launches: 0, quits: 0, byMethod: {}, maxLaunch: 0, maxQuit: 0, perProg: { 1: 0, 2: 0 }, shells: 0 };
+  const base = {}, stat = { launches: 0, quits: 0, byMethod: {}, maxLaunch: 0, maxQuit: 0, perProg: { 1: 0, 2: 0, 3: 0 }, shells: 0 };
   base[0] = H.captureState(env);
   sec.ok(base[0].prog === 0 && base[0].wins.length === 1 && base[0].wins[0].title === 'Leap Desktop' && base[0].focus === H.iconAddrs(env)[0], () => `boot state: ${JSON.stringify({ prog: base[0].prog, wins: base[0].wins, focus: hex(base[0].focus) })} (the shell, K_FOCUS on the first icon)`);
   sec.ok(base[0].sp !== undefined, 'the shell\'s event loop was seen (K_GETEV)');
@@ -116,7 +119,7 @@ function launcherGroup() {
   let cur = 0, step = 0;
   const methods = ['dbl', 'enter', 'menu'];
   // a clean prelude gives the baselines: nothing was done in the shell or the programs before their first launch
-  for (const p of [1, 2]) {
+  for (const p of [1, 2, 3]) {
     note(`first launch of ${p} by dbl`);
     if (!launch(p, 'dbl')) return sec.end('stopped');
     judge(p, `the first launch of program ${p}`); stat.launches++; stat.perProg[p]++;
@@ -126,7 +129,7 @@ function launcherGroup() {
   }
   for (let i = 0; i < NLAUNCH && sec.nf < 10; i++) {
     if (cur === 0) {
-      const p = rng.pick([1, 2]), method = rng.pick(methods);
+      const p = rng.pick([1, 2, 3]), method = rng.pick(methods);
       if (rng.chance(0.5)) dirty(env, 0);
       note(`launch ${p} by ${method}`);
       if (!launch(p, method)) break;
@@ -146,7 +149,7 @@ function launcherGroup() {
   if (cur !== 0) { quit(cur, 'close'); judge(0, 'the last return'); }
   // the three baselines against each other: a program has its own state
   sec.ok(base[1].top !== base[2].top || base[1].focus !== base[2].focus, 'the two programs have different arena states');
-  sec.end(`${stat.launches} launches (calculator ${stat.perProg[1]}, controls ${stat.perProg[2]}), ${stat.quits} quits, methods ${JSON.stringify(stat.byMethod)}; the shell's arena top ${hex(base[0].top)}, calculator's ${hex(base[1].top)}, controls' ${hex(base[2].top)}; loop SP shell ${hex(base[0].sp)}, calculator ${hex(base[1].sp)}, controls ${hex(base[2].sp)}; most frames: launch ${stat.maxLaunch}, quit ${stat.maxQuit} (the whole driver, input included)`);
+  sec.end(`${stat.launches} launches (calculator ${stat.perProg[1]}, controls ${stat.perProg[2]}, write ${stat.perProg[3]}), ${stat.quits} quits, methods ${JSON.stringify(stat.byMethod)}; the shell's arena top ${hex(base[0].top)}, calculator's ${hex(base[1].top)}, controls' ${hex(base[2].top)}, write's ${hex(base[3].top)}; loop SP shell ${hex(base[0].sp)}, calculator ${hex(base[1].sp)}, controls ${hex(base[2].sp)}; most frames: launch ${stat.maxLaunch}, quit ${stat.maxQuit} (the whole driver, input included)`);
 }
 
 // 1b. Exact cycles: 50 launch / quit cycles (SHELL 7)
@@ -156,7 +159,7 @@ function cyclesGroup() {
   const base = { 0: H.captureState(env) };
   let diffsN = 0;
   for (let i = 0; i < NCYCLES && sec.nf < 6; i++) {
-    const p = 1 + (i & 1), how = i & 2 ? 'ssq' : 'close';
+    const p = 1 + (i % 3), how = i & 2 ? 'ssq' : 'close';
     if (!L.launchByDoubleClick(env, p)) { sec.ok(false, `cycle ${i}: launch ${p} failed (K_PROG ${m.ram[S.K_PROG]})`); break; }
     env.frames_(12);
     const c1 = H.captureState(env);
@@ -169,7 +172,7 @@ function cyclesGroup() {
     const d0 = H.compareStates(env, base[0], H.captureState(env), `cycle ${i}: back in the shell after ${how}`);
     sec.ok(d0.length === 0, () => dig(d0)); diffsN += d0.length;
   }
-  sec.end(`${diffsN} differences from the first launch's state; the arena tops $${base[0].top.toString(16)} / $${base[1].top.toString(16)} / $${base[2] ? base[2].top.toString(16) : '-'}`);
+  sec.end(`${diffsN} differences from the first launch's state; the arena tops $${base[0].top.toString(16)} / $${base[1].top.toString(16)} / $${base[2] ? base[2].top.toString(16) : '-'} / $${base[3] ? base[3].top.toString(16) : '-'}`);
 }
 
 // ===========================================================================================================================
@@ -190,9 +193,9 @@ function shellGroup() {
     const views = H.treeOf(env), win = views.find((v) => v.cls === S.CL_Window);
     sec.ok(!!win && [win.x, win.y, win.w, win.h].join() === '32,24,256,80' && H.readStrText(m, rd16(m, win.a + S.Window_title)) === 'Leap Desktop', () => `the window ${win && [win.x, win.y, win.w, win.h]}, title "${win && H.readStrText(m, rd16(m, win.a + S.Window_title))}"`);
     const ics = views.filter((v) => v.cls === S.CL_Icon);
-    sec.ok(ics.length === 2 && ics[0].x === 48 && ics[0].y === 40 && ics[1].x === 112 && ics[1].y === 40 && ics.every((v) => v.w === 64 && v.h === 26 && (v.flags & 1) === 1), () => `icons ${JSON.stringify(ics.map((v) => [v.x, v.y, v.w, v.h, v.flags]))}, want (48, 40) and (112, 40), 64 x 26 (SHELL 10.5), focusable`);
-    sec.ok(ics.length === 2 && m.ram[ics[0].a + S.Icon_prog] === 1 && m.ram[ics[1].a + S.Icon_prog] === 2, () => `Icon prog fields ${ics.map((v) => m.ram[v.a + S.Icon_prog])}, want 1 and 2 (SHELL 10.4: prog 1 byte)`);
-    sec.ok(ics.length === 2 && H.readStrText(m, rd16(m, ics[0].a + S.Icon_name)) === 'Calculator' && H.readStrText(m, rd16(m, ics[1].a + S.Icon_name)) === 'Controls', () => `Icon names ${ics.map((v) => H.readStrText(m, rd16(m, v.a + S.Icon_name)))}`);
+    sec.ok(ics.length === 3 && ics[0].x === 48 && ics[0].y === 40 && ics[1].x === 112 && ics[1].y === 40 && ics[2].x === 176 && ics[2].y === 40 && ics.every((v) => v.w === 64 && v.h === 26 && (v.flags & 1) === 1), () => `icons ${JSON.stringify(ics.map((v) => [v.x, v.y, v.w, v.h, v.flags]))}, want (48, 40), (112, 40) and (176, 40) (WRITE 11.2), 64 x 26 (SHELL 10.5), focusable`);
+    sec.ok(ics.length === 3 && m.ram[ics[0].a + S.Icon_prog] === 1 && m.ram[ics[1].a + S.Icon_prog] === 2 && m.ram[ics[2].a + S.Icon_prog] === 3, () => `Icon prog fields ${ics.map((v) => m.ram[v.a + S.Icon_prog])}, want 1, 2 and 3 (SHELL 10.4: prog 1 byte)`);
+    sec.ok(ics.length === 3 && H.readStrText(m, rd16(m, ics[0].a + S.Icon_name)) === 'Calculator' && H.readStrText(m, rd16(m, ics[1].a + S.Icon_name)) === 'Controls' && H.readStrText(m, rd16(m, ics[2].a + S.Icon_name)) === 'Write', () => `Icon names ${ics.map((v) => H.readStrText(m, rd16(m, v.a + S.Icon_name)))}`);
     const d0 = H.shellDiff(env);
     sec.ok(d0 === null, () => `boot screen: ${d0}`);
     sec.ok(rd16(m, S.K_FOCUS) === icons[0], () => `K_FOCUS after boot ${hex(rd16(m, S.K_FOCUS))}, the first icon is ${hex(icons[0])}`);
@@ -200,9 +203,9 @@ function shellGroup() {
     L.moveTo(env, 500, 180); env.frames_(4);
     const d1 = H.shellDiff(env);
     sec.ok(d1 === null, () => `pointer parked at (500, 180): ${d1}`);
-    L.typeCode(env, 14); L.typeCode(env, 14); env.frames_(4);                    // 2a's TABs below start from the first icon again (two TABs: second, first)
+    // the TABs below start from the first icon (the focus is there after the boot)
     // the selected look on each icon (set the focus by TAB, as a user does) and with none: K_FOCUS cleared by the harness is not a user state, so only 0 / 1
-    for (const k of [1, 0, 1]) {
+    for (const k of [1, 2, 0, 1]) {
       L.typeCode(env, 14); env.frames_(6);
       sec.ok(rd16(m, S.K_FOCUS) === icons[k], () => `TAB: K_FOCUS ${hex(rd16(m, S.K_FOCUS))}, want icon ${k} ${hex(icons[k])}`);
       const d = H.shellDiff(env);
@@ -213,7 +216,7 @@ function shellGroup() {
     const sh = H.readDisp(m), want = SM.toDisp(g), bx = SM.boxRect(32, 24, 256);
     let boxDiff = 0; for (let y = bx.y; y < bx.y + bx.h; y++) for (let x = bx.x; x < bx.x + bx.w; x++) { const bit = (a, X, Y) => (a[Y * 64 + (X >> 3)] >> (7 - (X & 7))) & 1; if (bit(sh, x, y) !== bit(want, x, y)) boxDiff++; }
     sec.ok(boxDiff === 0, () => `${boxDiff} pixels differ in the place where a close box would be: the shell's window has none`);
-    sec.end('window, 2 icons (bitmaps from icons.txt, names, selection) in 8 screens');
+    sec.end('window, 3 icons (bitmaps from icons.txt, names, selection) in 8 screens');
   }
   // ---- clicks, double clicks, TAB, arrows, ENTER against ShellSim, random
   {
@@ -272,7 +275,7 @@ function shellGroup() {
     for (let k = 0; k < NSHELL && sec.nf < 10; k++) {
       const r = rng.next();
       if (r < 0.50) {
-        const i = rng.int(0, 1);
+        const i = rng.int(0, 2);
         const gap = rng.chance(0.55) ? rng.pick([2, 3, 4, 6, 10, 15, 18, 19, 20, 20, 21, 21, 22, 25, 30, 45]) : undefined;
         const prev = sim.last ? { ...sim.last } : null;
         const pr = press(i, gap);
@@ -321,7 +324,7 @@ function shellGroup() {
     const sec = new Sec('2c double click timing: a second E_DOWN on the same icon <= 20 frames (V_FRAMES, as handled) after the first opens the program, 21 or more does not; the shell remembers the frame; also across the V_FRAMES wrap');
     const gaps = [2, 3, 4, 5, 8, 10, 15, 18, 19, 20, 21, 22, 23, 25, 30, 40, 100, 200];
     const stat = { opened: 0, kept: 0 };
-    for (const wrap of [false, true]) for (const p of [1, 2]) for (const gap of gaps) {
+    for (const wrap of [false, true]) for (const p of [1, 2, 3]) for (const gap of gaps) {
       if (m.ram[S.K_PROG] !== 0) L.waitShell(env);
       env.frames_(30);                                                            // the last press is more than 20 frames ago
       if (wrap) { const v = 0xFFFF - rng.int(2, Math.min(gap, 40)) ; env.m.ram[S.V_FRAMES] = v & 0xFF; env.m.ram[S.V_FRAMES + 1] = v >> 8; env.resync(); }
@@ -342,7 +345,7 @@ function shellGroup() {
         env.frames_(4);
       }
     }
-    sec.end(`${gaps.length * 4} trials (2 icons, with and without the V_FRAMES wrap), ${stat.opened} opened, ${stat.kept} refused`);
+    sec.end(`${gaps.length * 4} trials (3 icons, with and without the V_FRAMES wrap), ${stat.opened} opened, ${stat.kept} refused`);
   }
   // ---- ENTER and TAB / arrows from the user's side (the keys are checked again in 2b)
   {

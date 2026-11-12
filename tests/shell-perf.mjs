@@ -93,7 +93,7 @@ H.needSyms(S, H.SHELL_NEEDED);
 const env = H.bootShell();                                              // the memory watch on: the launches below also run under it
 const { m } = env;
 {
-  const frames = { launch: { 1: [], 2: [] }, quitBox: { 1: [], 2: [] }, quitKey: { 1: [], 2: [] } };
+  const frames = { launch: { 1: [], 2: [], 3: [] }, quitBox: { 1: [], 2: [], 3: [] }, quitKey: { 1: [], 2: [], 3: [] } };
   const drawn = (p) => L.progUp(env, p) && H.programDiff(env, p, [], '0') === null && (p !== 0 || H.shellDiff(env) === null);
   const run = (p) => {
     // the second click of a double click on icon p: the first click, 9 frames; the second press is frame 1; count the frames until the program's window is drawn (the screen equals the model's)
@@ -106,7 +106,7 @@ const { m } = env;
     m.mouse.buttons = L.MOUSE_UP;
     return ok ? n : NaN;
   };
-  for (let rep = 0; rep < NREP; rep++) for (const p of [1, 2]) {
+  for (let rep = 0; rep < NREP; rep++) for (const p of [1, 2, 3]) {
     env.frames_(12);
     const n = run(p); frames.launch[p].push(n);
     env.frames_(12);
@@ -134,12 +134,12 @@ const { m } = env;
     env.frames_(12);
   }
   const worst = (a) => Math.max(...a);
-  for (const p of [1, 2]) {
-    const name = p === 1 ? 'Calculator' : 'Controls';
+  for (const p of [1, 2, 3]) {
+    const name = p === 1 ? 'Calculator' : p === 2 ? 'Controls' : 'Write';
     row(`launch ${name}: frames from the second click's press (frame 1) to its window drawn (the screen equals the model's), worst of ${NREP} (EST about 8)`, worst(frames.launch[p]), 30, `all ${frames.launch[p].join(', ')}`);
   }
-  for (const p of [1, 2]) {
-    const name = p === 1 ? 'Calculator' : 'Controls';
+  for (const p of [1, 2, 3]) {
+    const name = p === 1 ? 'Calculator' : p === 2 ? 'Controls' : 'Write';
     row(`quit ${name} by the close box: frames from the release (frame 1; E_UP closes) to the shell's window drawn, worst of ${NREP}`, worst(frames.quitBox[p]), 30, `all ${frames.quitBox[p].join(', ')}`);
     row(`quit ${name} by SYMBOL SHIFT + Q: frames from the key's first frame to the shell's window drawn, worst of ${NREP}`, worst(frames.quitKey[p]), 30, `all ${frames.quitKey[p].join(', ')}`);
   }
@@ -150,9 +150,9 @@ const { m } = env;
   const e = H.bootShell(), me = e.m;
   const base = { 0: H.captureState(e) };
   let diffs = 0, cyc = 0, firstDiff = '';
-  const sps = { 0: new Set([base[0].sp]), 1: new Set(), 2: new Set() }, tops = { 0: new Set([base[0].top]), 1: new Set(), 2: new Set() };
+  const sps = { 0: new Set([base[0].sp]), 1: new Set(), 2: new Set(), 3: new Set() }, tops = { 0: new Set([base[0].top]), 1: new Set(), 2: new Set(), 3: new Set() };
   for (let i = 0; i < NCYC; i++) {
-    const p = 1 + (i & 1);
+    const p = 1 + (i % 3);
     if (!L.launchByDoubleClick(e, p)) { diffs++; firstDiff ||= `cycle ${i}: launch ${p} failed`; break; }
     e.frames_(12);
     const c1 = H.captureState(e); if (!base[p]) base[p] = c1;
@@ -167,7 +167,7 @@ const { m } = env;
   }
   row(`${NCYC} launch / quit cycles: differences from the first launch's state (K_PROG, only that program's windows, the app arena's top at its base plus the program's own, K_FOCUS / K_CAPTURE / W_MODAL / the posted queue, the screen)`, diffs, 0, `${cyc} cycles; ${e.frames} frames (${Math.round(e.frames / Math.max(cyc, 1))} a cycle with the 12-frame settles); arena tops (own allocations above $C400): shell ${[...tops[0]].map((t) => t - 0xC400)}, Calculator ${[...tops[1]].map((t) => t - 0xC400)}, Controls ${[...tops[2]].map((t) => t - 0xC400)}${firstDiff ? '; first: ' + firstDiff : ''}`);
   const spDistinct = (s) => s.size;
-  row('stack at the program\'s event loop (SP at K_GETEV\'s entry) after the cycles: distinct values over all launches of the shell / Calculator / Controls (must be 1 each: no growth)', Math.max(spDistinct(sps[0]), spDistinct(sps[1]), spDistinct(sps[2])), 1, `SP shell ${[...sps[0]].map((v) => hex(v))}, Calculator ${[...sps[1]].map((v) => hex(v))}, Controls ${[...sps[2]].map((v) => hex(v))} (the stack top is $FF00)`);
+  row('stack at the program\'s event loop (SP at K_GETEV\'s entry) after the cycles: distinct values over all launches of the shell / Calculator / Controls (must be 1 each: no growth)', Math.max(spDistinct(sps[0]), spDistinct(sps[1]), spDistinct(sps[2]), spDistinct(sps[3])), 1, `SP shell ${[...sps[0]].map((v) => hex(v))}, Calculator ${[...sps[1]].map((v) => hex(v))}, Controls ${[...sps[2]].map((v) => hex(v))}, Write ${[...sps[3]].map((v) => hex(v))} (the stack top is $FF00)`);
   row('frame interrupts lost over the 50-cycle machine\'s normal frames (V_FRAMES must rise by 1 a frame)', e.vf.bad, 0, `${e.vf.checked} frames checked${e.vf.bad ? '; first ' + e.vf.first : ''}; memory watch: ${e.w.summary()}`);
   if (e.w.n) { missed++; console.log('FAIL | the memory watch (BANKING 10.7) reported violations in the cycle run'); }
   void me;
