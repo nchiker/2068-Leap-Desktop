@@ -1,6 +1,9 @@
 "use strict";
 // calc-c1.mjs -- Calculator, tests 1-5 of docs/CALCULATOR.md section 8, on the prebuilt `desk5` cartridge (build/desk5.dck, build/desk5/out.sym; never rebuilt here).
 // Written from the contract (sections 3-8) and docs/BANKING.md (2, 4, 10.7, 11.1), never from src/apps/calc.asm.  The reference is tests/calc-model.mjs.
+// SHELL.md 9-10 changed the cartridge: it boots into the shell, and Calculator is program 1, launched from the shell (tests/calc-lib.mjs bootDesk5 double-clicks its
+// icon) and left by its close box (CWindow, SHELL 10.1) or SYMBOL SHIFT + Q (key code CLOSE).  It has no menu (SHELL 9.4: "the menu bar is empty"), so the old "Calc" menu
+// choices of test 4 are replaced by: a click on the menu bar does nothing, the close box and SS+Q quit to the shell, and Calculator starts at 0 again (SHELL 1).
 //   node tests/calc-c1.mjs [--seed N] [--n1 N] [--n2 N] [--n4 N] [--only LIST] [--nowatch] [--verbose]
 //     --n1 N      random X OP y pairs in test 1 (default 20000)
 //     --n2 N      random key sequences in test 2 (default 3000)
@@ -145,6 +148,7 @@ if (ONLY.includes(3)) {
   const views = L.allViews(m, S);
   const win = views.find((v) => v.kind === 'Window'), disp = views.find((v) => v.kind === 'CDisp'), btns = views.filter((v) => v.kind === 'Button');
   sec.ok(!!win && win.x === L.WIN.x && win.y === L.WIN.y && win.w === L.WIN.w && win.h === L.WIN.h, () => `window rect ${win ? [win.x, win.y, win.w, win.h] : 'missing'}, want ${[L.WIN.x, L.WIN.y, L.WIN.w, L.WIN.h]}`);
+  sec.ok(!!win && win.cls === S.CL_CWindow, () => `the window's class ${win && hex(win.cls)}, want CWindow ${hex(S.CL_CWindow)} (SHELL 9.4: Calculator has a close box)`);
   sec.ok(!!win && String.fromCharCode(...(win.title || [])) === L.WIN.title, () => `window title "${win && win.title ? String.fromCharCode(...win.title) : null}"`);
   sec.ok(!!disp && disp.x === L.DISP.x && disp.y === L.DISP.y && disp.w === L.DISP.w && disp.h === L.DISP.h, () => `CDisp rect ${disp ? [disp.x, disp.y, disp.w, disp.h] : 'missing'}, want ${[L.DISP.x, L.DISP.y, L.DISP.w, L.DISP.h]}`);
   sec.ok(!!disp && (disp.flags & 1) === 0, () => `CDisp flags ${disp && disp.flags}: not focusable (bit 0 clear)`);
@@ -189,7 +193,7 @@ if (ONLY.includes(3)) {
 // ===========================================================================================================================
 // 4. Input over frames --------------------------------------------------------------------------------------------------------
 if (ONLY.includes(4)) {
-  const env = mk('input'), { m, S } = env, sec = new Sec('4 input over frames: keys through the keyboard matrix, clicks through the Kempston mouse, C_DSTR and the screen against the model');
+  const env = mk('input'), { m, S } = env, sec = new Sec('4 input over frames: keys through the keyboard matrix, clicks through the Kempston mouse, close box and SS+Q back to the shell, C_DSTR and the screen against the model');
   const model = new Calc();
   let nKey = 0, nClick = 0, nMenu = 0, screens = 0, maxFramesToShow = 0;
   const trail = [];
@@ -234,22 +238,52 @@ if (ONLY.includes(4)) {
     else byKey(rng.pick(kbOnly));
     if (sec.nf > 12) break;
   }
-  // the menu "Calc": press on the title, move to the item, release (WINDOWS 18.4); item 1 = "Clear", 2 = "Clear entry" (CALCULATOR 3)
-  const menu = (item, name) => {
+  // SHELL 9.4: Calculator has no menu, the menu bar is empty.  A press on the bar where "Calc" used to be (20, 4), moved down over where its items were and released,
+  // changes nothing: the display, the screen (CALCULATOR 4 rendering with the empty bar) and the program all stay.
+  {
+    for (const s2 of ['1', '2', '+', '3']) byKey(s2.charCodeAt(0));
     L.moveTo(env, 20, 4); m.mouse.buttons = L.MOUSE_LEFT; env.frames_(3);
-    L.moveTo(env, 30, 9 + 10 * (item - 1) + 5); env.frames_(2);
+    L.moveTo(env, 30, 14); env.frames_(2);
     m.mouse.buttons = L.MOUSE_UP; env.frames_(8); nMenu++;
-    model.key(item === 1 ? 99 : 101); trail.push(item === 1 ? 99 : 101);
-    check(`menu "${name}"`);
+    check('a press on the empty menu bar, moved down and released');
+    sec.ok(m.ram[S.K_PROG] === 1 && L.progUp(env, 1), () => `after the press on the menu bar: K_PROG ${m.ram[S.K_PROG]}, Calculator window up ${L.progUp(env, 1)}`);
+    for (const s2 of '5=') byKey(s2.charCodeAt(0));
+    byKey(99);
+  }
+  // Quit by the close box (SHELL 9.4, 10.1: a click on the box of the front CWindow), back to the shell; Calculator starts at 0 again (SHELL 1: nothing kept).
+  let nQuit = 0;
+  const wasShell = () => L.shellUp(env) && m.ram[S.K_PROG] === 0;
+  const relaunch = (how) => {
+    const ok = L.launchByDoubleClick(env, 1); env.frames_(8);
+    sec.ok(ok, () => `${how}: Calculator did not start again from the shell (K_PROG ${m.ram[S.K_PROG]})`);
+    model.key(99); trail.length = 0;                                             // a fresh Calculator is in the "C" state
+    check(`Calculator launched again after ${how}`);
   };
-  for (const s of ['1', '2', '+', '3']) byKey(s.charCodeAt(0));
-  menu(2, 'Clear entry'); for (const s of '5=') byKey(s.charCodeAt(0));
-  menu(1, 'Clear'); for (const s of '8*2=') byKey(s.charCodeAt(0));
-  for (const s of '1/0=') byKey(s.charCodeAt(0));
-  menu(2, 'Clear entry (while Error)');
-  for (const s of '9') byKey(s.charCodeAt(0));
-  menu(1, 'Clear');
-  sec.end(`${nKey} typed inputs, ${nClick} clicks, ${nMenu} menu choices, ${screens} screens compared; ${env.frames} frames run`);
+  for (const s2 of '47*') byKey(s2.charCodeAt(0));
+  {
+    const ok = L.quitByCloseBox(env, 1); env.frames_(8); nQuit++;
+    sec.ok(ok && wasShell(), () => `close box: back to the shell: ${ok}, K_PROG ${m.ram[S.K_PROG]}`);
+    relaunch('the close box');
+  }
+  for (const s2 of '9+') byKey(s2.charCodeAt(0));
+  {
+    const ok = L.quitBySSQ(env); env.frames_(8); nQuit++;
+    sec.ok(ok && wasShell(), () => `SYMBOL SHIFT + Q: back to the shell: ${ok}, K_PROG ${m.ram[S.K_PROG]}`);
+    relaunch('SYMBOL SHIFT + Q');
+  }
+  // the close box pressed with the pointer moved out and released outside does not close (SHELL 10.1 tracking: E_UP closes only when pressed); then in, release in: closes
+  {
+    const b = L.closeBoxOf(L.WIN.x, L.WIN.y, L.WIN.w), cx = b.x + 7, cy = b.y + 3;
+    L.moveTo(env, cx, cy); m.mouse.buttons = L.MOUSE_LEFT; env.frames_(3);
+    L.moveTo(env, cx, cy + 40); env.frames_(2); m.mouse.buttons = L.MOUSE_UP; env.frames_(10);
+    sec.ok(m.ram[S.K_PROG] === 1 && L.progUp(env, 1), () => `close box pressed, moved out and released outside: K_PROG ${m.ram[S.K_PROG]} (still Calculator wanted)`);
+    check('after a close box press released outside');
+    byKey(55);
+    const ok = L.quitByCloseBox(env, 1); env.frames_(8); nQuit++;
+    sec.ok(ok && wasShell(), () => `close box after the aborted press: back to the shell: ${ok}`);
+    relaunch('the close box again');
+  }
+  sec.end(`${nKey} typed inputs, ${nClick} clicks, ${nMenu} presses on the empty menu bar, ${nQuit} quits to the shell, ${screens} screens compared; ${env.frames} frames run`);
 }
 
 // ===========================================================================================================================

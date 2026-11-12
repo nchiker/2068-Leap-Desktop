@@ -9,6 +9,9 @@
 //     --nset N    random TK_SETBAR calls (default 400)
 //     --ndemo N   random inputs in the demo (default 120)
 //     --only LIST groups to run: 1 looks, 2 Check events, 3 VScroll tracking, 4 TK_SETBAR, 5 demo, 6 watch / frames / DI (default all)
+// Since SHELL.md 9-10 the cartridge boots the shell; group 5 launches "Controls" (program 2, SHELL 5 / 9.6) through the shell (a double click on its icon) and leaves it by
+// the close box (CWindow, SHELL 10.1); the window is at (176, 32, 144, 112) (SHELL 5) with the controls at the offsets of TOOLKIT 9.4 from its corner.  Groups 1-4 and 6 build
+// their own windows on an empty desk (tk-lib bootParked: the shell's window closed).
 // Exit code 1 on any failure.
 import { checks } from './lib.mjs';
 import * as T from './tk-lib.mjs';
@@ -496,32 +499,26 @@ if (ONLY.includes(4)) {
 
 // ===========================================================================================================================
 // 5. The demo, over real frames: the program's own loop (DOCK 2-3) with the Kempston mouse and the keyboard.
+// TOOLKIT 9.4's rectangles, moved with the window: it was at (352, 16), SHELL 5 puts it at (176, 32), so every control is 176 left and 16 lower (the offsets from the corner stay).
 const DEMO = {
-  win: [352, 16, 144, 112], checks: [['Sound', 360, 32, 72, 9], ['Grid', 360, 44, 72, 9]], radios: [['Small', 360, 60, 72, 9], ['Medium', 360, 72, 72, 9], ['Large', 360, 84, 72, 9]],
-  bar: [476, 32, 12, 80], label: [360, 100, 100, 9],
+  win: [176, 32, 144, 112], checks: [['Sound', 184, 48, 72, 9], ['Grid', 184, 60, 72, 9]], radios: [['Small', 184, 76, 72, 9], ['Medium', 184, 88, 72, 9], ['Large', 184, 100, 72, 9]],
+  bar: [300, 48, 12, 80], label: [184, 116, 100, 9],
 };
 if (ONLY.includes(5)) {
-  const env = L.bootDesk5(); envs.push(env);
+  // the cartridge boots the shell; bootDesk5 launches Controls (program 2) through the shell: a double click on its icon (SHELL 4, 10.4)
+  const env = L.bootDesk5({ prog: 2 }); envs.push(env);
   const { m, S } = env;
   env.rng = rng;
-  const sec = new Sec('5 the demo: "Controls..." in the Calc menu, one of each control, driven by the mouse and the keys over real frames; flags, label text, screen against the model');
+  const sec = new Sec('5 the demo: Controls (program 2, launched from the shell), one of each control, driven by the mouse and the keys over real frames; flags, label text, screen against the model; quit by the close box and SS+Q, started fresh again');
   // my own frame counter state is the lib's (env.frame checks V_FRAMES)
-  const calcWin = rd16(m, S.C_WIN);
-  sec.ok(rd16(m, S.D_WIN) === 0, () => `before the menu item: D_WIN ${hex(rd16(m, S.D_WIN))} (the window is built once, on first use)`);
-  const openDemo = () => {
-    L.moveTo(env, 20, 4); m.mouse.buttons = L.MOUSE_LEFT; env.frames_(3);
-    L.moveTo(env, 30, 9 + 10 * 2 + 5); env.frames_(2);
-    m.mouse.buttons = L.MOUSE_UP; env.frames_(12);
-  };
-  openDemo();
-  let dwin = rd16(m, S.D_WIN);
-  if (!dwin) { sec.note('the "Controls..." item did not open the demo by the mouse (menu 1, item 3 at (30, 35)); the E_MENU was posted by hand'); const q = S.K_POSTQ + 4 * ((m.ram[S.K_PHEAD] + m.ram[S.K_PN]) & 3); [7, 1, 3, 0].forEach((v, i) => { m.ram[q + i] = v; }); m.ram[S.K_PN]++; env.frames_(12); dwin = rd16(m, S.D_WIN); }
-  sec.ok(dwin !== 0, 'D_WIN is set after the menu item');
+  sec.ok(L.progUp(env, 2), () => `after the double click on the Controls icon: K_PROG ${m.ram[S.K_PROG]}, windows ${JSON.stringify(L.openWindows(m, S).map((w) => [w.title, w.x, w.y, w.w, w.h]))}`);
+  const dwin = rd16(m, S.D_WIN);
+  sec.ok(dwin !== 0, 'D_WIN is set after the launch');
   if (dwin) {
     const rv = (a) => L.readView(m, S, a);
     const kidsOf = (a) => { const out = []; for (let v = rv(a).child; v; v = rv(v).next) out.push(rv(v)); return out; };
     const wv = rv(dwin), kids = kidsOf(dwin);
-    sec.ok(wv.cls === S.CL_Window && [wv.x, wv.y, wv.w, wv.h].join() === DEMO.win.join(), () => `window: class ${hex(wv.cls)} rect ${[wv.x, wv.y, wv.w, wv.h]}, want (352, 16, 144, 112)`);
+    sec.ok(wv.cls === S.CL_CWindow && [wv.x, wv.y, wv.w, wv.h].join() === DEMO.win.join(), () => `window: class ${hex(wv.cls)} (want CWindow ${hex(S.CL_CWindow)}) rect ${[wv.x, wv.y, wv.w, wv.h]}, want (176, 32, 144, 112) (SHELL 5)`);
     sec.ok(T.textOf(m, rd16(m, dwin + S.Window_title)) === 'Controls', () => `window title "${T.textOf(m, rd16(m, dwin + S.Window_title))}"`);
     sec.ok(m.ram[dwin + S.Window_slot] !== 0 && rd16(m, S.W_SLOTS + 2 * m.ram[dwin + S.Window_slot]) === dwin, 'the demo window is open (a slot)');
     const find = (rect, cls) => kids.find((v) => [v.x, v.y, v.w, v.h].join() === rect.join() && v.cls === cls);
@@ -539,9 +536,9 @@ if (ONLY.includes(5)) {
       nodes.push({ kind: 'Check', addr: v.a, id: v.id, x: v.x, y: v.y, w: v.w, h: v.h, flags: v.flags, codes: T.codesOf(textOf(v) || ''), name: txt });
     }
     const bv = find(DEMO.bar, S.CL_VScroll);
-    sec.ok(!!bv, 'a VScroll at (476, 32, 12, 80)');
+    sec.ok(!!bv, 'a VScroll at (300, 48, 12, 80)');
     const lv = find(DEMO.label, S.CL_Label);
-    sec.ok(!!lv, 'a Label at (360, 100, 100, 9)');
+    sec.ok(!!lv, 'a Label at (184, 116, 100, 9)');
     if (bv && lv) {
       const mx = m.ram[bv.a + S.VScroll_max], pg = m.ram[bv.a + S.VScroll_page], tg = rd16(m, bv.a + S.VScroll_target);
       sec.ok(mx === 20 && pg === 5, () => `bar max ${mx} page ${pg}, want 20 and 5`);
@@ -557,7 +554,6 @@ if (ONLY.includes(5)) {
       const firstFocusable = order.find((n) => tree.canFocus(n)) || null;
       sec.ok((tree.focus && tree.focus.addr) === (firstFocusable && firstFocusable.addr), () => `K_FOCUS after opening ${hex(focusAddr())}, the first focusable control is ${firstFocusable ? firstFocusable.name : 'none'}`);
       const labelText = () => { const t = rd16(m, lv.a + S.Label_text); return t ? Array.from(m.ram.subarray(t + 1, t + 1 + m.ram[t])) : []; };
-      const calcDisp0 = L.readDstr(m, S);
       const barRam = () => m.ram[bv.a + S.VScroll_value];
       const check = (what) => {
         env.frames_(2);
@@ -569,22 +565,17 @@ if (ONLY.includes(5)) {
         const dv = Array.from(m.ram.subarray(S.D_VSTR + 1, S.D_VSTR + 1 + m.ram[S.D_VSTR]));
         sec.ok(String.fromCharCode(...dv) === `Value: ${bar.value}`, () => `${what}: D_VSTR "${String.fromCharCode(...dv)}", want "Value: ${bar.value}"`);
         sec.ok(focusAddr() === (tree.focus ? tree.focus.addr : 0), () => `${what}: K_FOCUS ${hex(focusAddr())}, model ${tree.focus ? tree.focus.name || tree.focus.id : 0}`);
-        const g = M.renderWindow(tree), cov = T.rectCov(wv.x, wv.y, wv.w, wv.h), pm = L.pointerMask(m, S);
+        const g = M.renderWindow(tree); L.closeBoxLook(g, wv.x, wv.y, wv.w);          // the window is in front: SHELL 10.1 close box
+        const cov = T.rectCov(wv.x, wv.y, wv.w, wv.h), pm = L.pointerMask(m, S);
         for (let i = 0; i < cov.length; i++) cov[i] &= pm[i];
         const d = T.diffDisp(T.readDisp(m), M.toDisp(g), cov);
         sec.ok(d === null, () => `${what}: the demo window's pixels: ${d}`);
-        sec.ok(L.readDstr(m, S) === calcDisp0, () => `${what}: Calculator's display changed to "${L.readDstr(m, S)}"`);
         return d === null;
       };
       check('the opened demo');
-      // opening it again: the same window, no second one
-      {
-        const slots = () => { let n = 0; for (let s = 1; s < 15; s++) if (rd16(m, S.W_SLOTS + 2 * s)) n++; return n; };
-        const n0 = slots();
-        openDemo();
-        sec.ok(rd16(m, S.D_WIN) === dwin && slots() === n0, () => `the menu item again: D_WIN ${hex(rd16(m, S.D_WIN))} (was ${hex(dwin)}), open windows ${slots()} (were ${n0})`);
-        syncFocus(); check('the item chosen again');
-      }
+      // the initial state, for the fresh start after a quit (SHELL 1: nothing kept across a switch)
+      const init0 = { flags: nodes.map((n) => n.flags), bar: barRam(), label: String.fromCharCode(...labelText()), focus: focusAddr() };
+      sec.ok(m.ram[S.K_PROG] === 2 && L.openWindows(m, S).length === 1, 'only the Controls window is open');
       const st = { clicks: 0, keys: 0, drags: 0, repeats: 0, rejected: 0, posts: 0 };
       const clickNode = (n) => {
         const [x, y] = [rng.int(n.x, n.x + n.w - 1), rng.int(n.y, n.y + n.h - 1)];
@@ -694,7 +685,24 @@ if (ONLY.includes(5)) {
         }
         sc.end(`${holdRuns.length} holds, gaps between steps: ${holdRuns.slice(0, 3).map((h) => `[${h.steps.slice(1).map((v, i) => v - h.steps[i]).join(',')}]`).join(' ')}; the first step came ${holdRuns.slice(0, 3).map((h) => h.steps[0] - h.vfe).join(',')} frames after the E_DOWN was polled`);
       }
-      sec.end(`${st.clicks} clicks, ${st.keys} keys, ${st.drags} bar scripts (${st.repeats} with a repeat; ${st.rejected} rejected as ambiguous), ${env.frames} frames run`);
+      // leaving: the close box, then Controls again from the shell starts as the first time (SHELL 1, 3: nothing is kept); the same with SYMBOL SHIFT + Q (SHELL 9.4)
+      let quits = 0;
+      for (const how of ['the close box', 'SYMBOL SHIFT + Q']) {
+        const okQ = how === 'the close box' ? L.quitByCloseBox(env, 2) : L.quitBySSQ(env); env.frames_(8); quits++;
+        sec.ok(okQ && L.shellUp(env), () => `${how}: back to the shell: ${okQ}, K_PROG ${m.ram[S.K_PROG]}`);
+        const okL = L.launchByDoubleClick(env, 2); env.frames_(10);
+        sec.ok(okL, () => `${how}: Controls did not start again from the shell (K_PROG ${m.ram[S.K_PROG]})`);
+        if (!okL) break;
+        const dw = rd16(m, S.D_WIN), wv2 = rv(dw), ks = kidsOf(dw);
+        sec.ok(wv2.cls === S.CL_CWindow && [wv2.x, wv2.y, wv2.w, wv2.h].join() === DEMO.win.join(), () => `${how}: second window ${hex(wv2.cls)} ${[wv2.x, wv2.y, wv2.w, wv2.h]}`);
+        nodes.forEach((n, i) => { const v = ks.find((k) => k.x === n.x && k.y === n.y && k.cls === S.CL_Check); sec.ok(!!v && v.flags === init0.flags[i], () => `${how}: "${n.name}" flags ${v && hex(v.flags, 2)} on the second launch, first launch ${hex(init0.flags[i], 2)}`); });
+        const bv2 = ks.find((k) => k.cls === S.CL_VScroll), lv2 = ks.find((k) => k.cls === S.CL_Label);
+        sec.ok(!!bv2 && m.ram[bv2.a + S.VScroll_value] === init0.bar, () => `${how}: bar value ${bv2 && m.ram[bv2.a + S.VScroll_value]} on the second launch, first launch ${init0.bar}`);
+        const t2 = lv2 ? rd16(m, lv2.a + S.Label_text) : 0, lt = t2 ? String.fromCharCode(...m.ram.subarray(t2 + 1, t2 + 1 + m.ram[t2])) : '';
+        sec.ok(lt === init0.label, () => `${how}: label "${lt}" on the second launch, first launch "${init0.label}"`);
+        sec.ok(rd16(m, S.K_FOCUS) === init0.focus, () => `${how}: K_FOCUS ${hex(rd16(m, S.K_FOCUS))} on the second launch, first launch ${hex(init0.focus)}`);
+      }
+      sec.end(`${st.clicks} clicks, ${st.keys} keys, ${st.drags} bar scripts (${st.repeats} with a repeat; ${st.rejected} rejected as ambiguous), ${quits} quits to the shell and fresh launches, ${env.frames} frames run`);
     } else sec.end();
   } else sec.end();
 }

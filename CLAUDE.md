@@ -39,8 +39,12 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
 - Input: CAPS SHIFT + 1 = TAB, CS + 4 = ESC; BREAK counts as ESC in the window manager. A Kempston mouse (ports `$xxDF`) is
   read when `K_MSET` turns it on; TSRun emulates it as `m.mouse`, and the test page has a Mouse switch.
 - Step 5 placement (owner, 2026-11-12): toolkit always mapped; shell, Calculator, Write in DOCK 2-3; DOCK 6 for resources and
-  later Paint's drawing core. Step 5's pool growth <= 3,400 bytes. Slice B0 (the crossing) is done; the toolkit contract is next,
-  after the owner reviews the SYMBOL SHIFT layout (the text field control needs it).
+  later Paint's drawing core. Step 5's pool growth <= 3,400 bytes (1,688 used after the shell slice).
+- Step 5 cartridge `desk5` (DOCK 0-5): boots into the shell (`docs/SHELL.md`). Programs: 0 shell, 1 Calculator, 2 Controls; one
+  at a time through `K_LAUNCH` / `K_QUIT`; each copies its RAM image to `$C000` (<= 1 KB); app arena `$C400-$DFFF`. Windows
+  that programs close are `CWindow`s (close box; SYMBOL SHIFT + Q = key code `CLOSE` 17). Programs dispatch with `TK_DISPATCH`.
+- Tests that use `desk5` boot through the shell (`tests/calc-lib.mjs` `bootDesk5`, `tests/shell-lib.mjs`).
+- SYMBOL SHIFT layout: accepted as drafted until the owner has tried it (T3's text field is where they will).
 
 ## Working method
 

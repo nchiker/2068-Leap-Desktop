@@ -4,6 +4,7 @@
 //     --ndiv N   random divisions measured through '=' (default 8000)
 //     --nops N   random other operations (+ - *) measured through '=' (default 2000)
 //     --nsel N   random digit keys measured over random states (default 20000)
+// Cartridge since SHELL.md 9-10: it boots the shell; bootDesk5 launches Calculator through the shell (a double click on its icon), then everything below is as before.
 // Rows: measured, bound, pass / MISSED / reported.  Exit code 1 on a missed bound.  T-states are TSRun's (no memory contention); direct calls, sentinel return, interrupts off.
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -29,7 +30,7 @@ const row = (name, measured, bound, note = '') => {
 const load = L.loadDesk5(), S = load.S;
 
 // ---- bytes ---------------------------------------------------------------------------------------------------------------------------------
-row('Calculator bytes in DOCK 2-3 (C_END - C_INIT: code and image)', S.C_END - S.C_INIT, 2500, `C_INIT ${hex(S.C_INIT)}, C_END ${hex(S.C_END)}, 1,800 estimated`);
+row('Calculator bytes in DOCK 2-3 (C_END - C_START: code and image; C_START replaces C_INIT since SHELL 10.3)', S.C_END - S.C_START, 2500, `C_START ${hex(S.C_START)}, C_END ${hex(S.C_END)}, 1,800 estimated`);
 row('Calculator RAM image (C_IMG_LEN)', S.C_IMG_LEN, 512);
 {
   // desk5's pool bytes beyond kern4's kernel: kern4 (build/kern4/out.sym) is the kernel plus its test code; desk5 is the same kernel, gfx6 and menus without test code.

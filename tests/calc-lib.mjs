@@ -1,8 +1,12 @@
 "use strict";
 // calc-lib.mjs -- shared harness of the Calculator tests (tests/calc-c1.mjs, tests/calc-perf.mjs).  Written from docs/CALCULATOR.md and
 // docs/BANKING.md only (never from src/apps/calc.asm).  It never builds: it loads the prebuilt build/desk5.dck and build/desk5/out.sym.
-//   - bootDesk5: boot, mouse attached before the first frame, the memory watch of BANKING 10.7 (makeWatch from bank-lib), the writes to the
-//     Calculator's RAM image watched, V_FRAMES read after every normally run frame, frames until the program runs;
+//   - bootDesk5: boot (the cartridge runs the shell: docs/SHELL.md 9-10), mouse attached before the first frame, the memory watch of BANKING 10.7
+//     (makeWatch from bank-lib), V_FRAMES read after every normally run frame, frames until the shell runs, then the program under test is launched
+//     THROUGH THE SHELL (a double click on its icon, SHELL 4 / 10.4) and the writes to Calculator's RAM image are watched (opts.prog: 1 Calculator
+//     (default), 2 Controls, 0 stay in the shell);
+//   - launchByDoubleClick / quitByCloseBox / quitBySSQ / waitProgram: the shell's launcher driven by the mouse and the keys (SHELL 9.4, 10.1, 10.4);
+//   - the stack depth seen at K_GETEV's entry (the program's event loop): env.sp;
 //   - directKey: C_KEY called directly under mapping A (CALCULATOR 3), with the T-states;
 //   - keyboard and mouse drivers for frame-by-frame input;
 //   - the screen as the contract's section 4 draws it (a gfx6-model rendering), and the view tree read from RAM.
@@ -25,7 +29,7 @@ export const argNum = (name, dflt) => { const v = argVal(name, null); return v =
 export const rd16 = (m, a) => m.ram[a] | (m.ram[a + 1] << 8);
 export const F4K = 0x33, F4A = 0x3F;
 
-export const NEEDED = ['C_KEY', 'C_DSTR', 'C_MAIN', 'C_INIT', 'C_END', 'C_IMG', 'C_IMG_ADDR', 'C_IMG_LEN', 'C_WIN', 'C_DISP', 'K_PX', 'K_PY', 'V_FRAMES', 'V_SHADOW_F4',
+export const NEEDED = ['K_PROG', 'K_LAUNCH', 'K_QUIT', 'K_PROGS', 'S_WIN', 'S_START', 'S_END', 'S_LAST', 'S_LASTF', 'CL_CWindow', 'CL_Icon', 'W_SLOTS', 'W_MODAL', 'K_GETEV', 'C_KEY', 'C_DSTR', 'C_START', 'C_END', 'C_IMG', 'C_IMG_ADDR', 'C_IMG_LEN', 'C_WIN', 'C_DISP', 'K_PX', 'K_PY', 'V_FRAMES', 'V_SHADOW_F4',
   'V_SHADOW_FF', 'T_RET', 'CL_Button', 'CL_Window', 'CL_CDisp', 'View_x', 'View_y', 'View_w', 'View_h', 'View_flags', 'View_id', 'View_child', 'View_next', 'View_parent',
   'Button_text', 'Window_title', 'K_FAR', 'K_FAR_END', 'GFX6_CODE', 'GFX6_CODE_END', 'K_ROOT', 'K_FOCUS', 'PT_X', 'PT_Y', 'W_DRAWVIEW', 'K_MSET', 'K_BTN'];
 
@@ -43,12 +47,14 @@ export function loadDesk5() {
 export const varRegion = (S) => [S.C_WIN, S.C_IMG_ADDR + S.C_IMG_LEN - 1];
 
 /**
- * Boot the prebuilt desk5, the mouse attached before the first frame (so K_MSET reads its counters), the memory watch armed, and run normal frames
- * until the program is running (C_WIN set) plus `settle` frames.  Returns env = { m, S, w, load, vf, wr, frames }.
+ * Boot the prebuilt desk5 (it runs the shell, program 0), the mouse attached before the first frame (so K_MSET reads its counters), the memory watch armed, run
+ * normal frames until the shell is up, then (opts.prog, default 1) launch that program through the shell: a double click on its icon.  Returns env =
+ * { m, S, w, load, vf, wr, sp, frames }.
  *   w   the memory watch of BANKING 10.7 (bank-lib makeWatch; its violations are in w.n / w.summary())
  *   vf  V_FRAMES check state { checked, bad, first }, updated by env.frame()
- *   wr  writes to the RAM image outside the variables, once the program runs: { n, first: [] }
- * env.frame() runs one normal frame with the V_FRAMES check; env.frames(n) runs n.
+ *   wr  writes to Calculator's RAM image outside its variables, while Calculator runs: { n, first: [] }
+ *   sp  the stack depth sampler: { on, samples: Map(SP -> count) } of SP at every entry of K_GETEV (a program's event loop and the tracking loops call it)
+ * env.frame() runs one normal frame with the V_FRAMES check; env.frames_(n) runs n.
  */
 export function bootDesk5(opts = {}) {
   const load = loadDesk5(), S = load.S;
@@ -57,15 +63,20 @@ export function bootDesk5(opts = {}) {
   const w = opts.watch === false ? { n: 0, kinds: {}, first: [], summary: () => 'watch off', on: false } : makeWatch(m, S);
   const vf = { checked: 0, bad: 0, first: '', started: false };
   const wr = { n: 0, first: [], armed: false };
+  const sp = { on: false, samples: new Map() };
   const [vlo, vhi] = varRegion(S);
-  const wr0 = m.bus.write;
+  const wr0 = m.bus.write, rd0 = m.bus.read;
   m.bus.write = function (addr, v) {
     const a = addr & 0xFFFF;
     if (wr.armed && a >= S.C_IMG_ADDR && a <= vhi && a < vlo) { wr.n++; if (wr.first.length < 8) wr.first.push(`${hex(a)} <- ${hex(v, 2)}, PC ${hex(m.cpu.pc)}`); }
     wr0(addr, v);
   };
+  m.bus.read = function (addr) {
+    if (sp.on && (addr & 0xFFFF) === S.K_GETEV && m.cpu.pc === S.K_GETEV) sp.samples.set(m.cpu.sp, (sp.samples.get(m.cpu.sp) || 0) + 1);
+    return rd0(addr);
+  };
   let prev = rd16(m, S.V_FRAMES);
-  const env = { m, S, w, load, vf, wr, frames: 0, direct: false };
+  const env = { m, S, w, load, vf, wr, sp, frames: 0, direct: false };
   env.frame = () => {
     M.runFrame(m); env.frames++;
     const cur = rd16(m, S.V_FRAMES);
@@ -74,15 +85,91 @@ export function bootDesk5(opts = {}) {
     prev = cur;
   };
   env.frames_ = (n) => { for (let i = 0; i < n; i++) env.frame(); };
+  env.resync = () => { prev = rd16(m, S.V_FRAMES); };         // after a test wrote V_FRAMES itself (a wrap test): the next frame is judged from the new value
   const maxFrames = opts.maxFrames ?? 500;
   let ready = false;
-  // before the first ISR the image variables are the copy's or power-on noise: wait for the first ISR, then for C_WIN
-  for (let i = 0; i < maxFrames; i++) { env.frame(); if (vf.started && rd16(m, S.C_WIN) !== 0) { ready = true; break; } }
-  if (!ready) throw new Error(`desk5: the program did not start in ${maxFrames} frames (C_WIN stays 0)`);
+  // before the first ISR the variables are power-on noise: wait for the first ISR, then for the shell's window tree (SHELL 10.4) and K_PROG = 0
+  for (let i = 0; i < maxFrames; i++) { env.frame(); if (vf.started && shellUp(env)) { ready = true; break; } }
+  if (!ready) throw new Error(`desk5: the shell did not start in ${maxFrames} frames`);
   env.bootFrames = env.frames;
   env.frames_(opts.settle ?? 12);
-  wr.armed = true;
+  const prog = opts.prog ?? 1;
+  if (prog !== 0) {
+    if (!launchByDoubleClick(env, prog)) throw new Error(`desk5: program ${prog} did not start from the shell (K_PROG ${m.ram[S.K_PROG]})`);
+    env.frames_(opts.settle ?? 12);
+  }
+  wr.armed = prog === 1;
   return env;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// The shell and the launcher, driven from outside (SHELL.md 4, 9, 10).
+/** SHELL 10.4: the window "Leap Desktop" (32, 24, 256, 80) and its two icons, K_PROG = 0. */
+export function shellUp(env) {
+  const { m, S } = env;
+  if (m.ram[S.K_PROG] !== 0) return false;
+  const v = allViews(m, S), win = v.find((x) => x.cls === S.CL_Window && x.x === 32 && x.y === 24 && x.w === 256 && x.h === 80);
+  return !!win && v.filter((x) => x.cls === S.CL_Icon && x.depth === win.depth + 1).length === 2;
+}
+/** The program's windows on the desk (W_SLOTS, slots 1..14): [{ a, cls, x, y, w, h, title }]. */
+export function openWindows(m, S) {
+  const out = [];
+  for (let s = 1; s < 15; s++) {
+    const a = rd16(m, S.W_SLOTS + 2 * s);
+    if (!a) continue;
+    out.push({ ...readView(m, S, a), slot: s, title: String.fromCharCode(...(readStr(m, rd16(m, a + S.Window_title)) || [])) });
+  }
+  return out;
+}
+/** Where each program's first window is, after its launch (SHELL 4, 5, 10.4; CALCULATOR 4). */
+export const PROG_WIN = { 0: { x: 32, y: 24, w: 256, h: 80, title: 'Leap Desktop', plain: true }, 1: { x: 160, y: 24, w: 176, h: 144, title: 'Calculator' },
+  2: { x: 176, y: 32, w: 144, h: 112, title: 'Controls' } };
+/** Program p is running: K_PROG = p and its window (class, rectangle, title) is on the desk, as the only one. */
+export function progUp(env, p) {
+  const { m, S } = env;
+  if (m.ram[S.K_PROG] !== p) return false;
+  const ws = openWindows(m, S), e = PROG_WIN[p];
+  return ws.length === 1 && ws[0].cls === (e.plain ? S.CL_Window : S.CL_CWindow) && ws[0].x === e.x && ws[0].y === e.y && ws[0].w === e.w && ws[0].h === e.h && ws[0].title === e.title;
+}
+/** Run frames until progUp(p) (at most `max`); returns the frames run, or -1. */
+export function waitProgram(env, p, max = 120) {
+  for (let i = 0; i <= max; i++) { if (progUp(env, p)) return i; if (i < max) env.frame(); }
+  return -1;
+}
+/** The icons of the shell (SHELL 10.4, 10.5): "Calculator" at (48, 40), "Controls" at (112, 40); 64 x 26. */
+export const ICON_RECT = { 1: { x: 48, y: 40, w: 64, h: 26 }, 2: { x: 112, y: 40, w: 64, h: 26 } };
+export const iconCentre = (p) => [ICON_RECT[p].x + 32, ICON_RECT[p].y + 13];
+/** CWindow's close box (SHELL 10.1): (x + w - 19, y + 1, 15, 7) of a window at (x, y, w). */
+export const closeBoxOf = (wx, wy, ww) => ({ x: wx + ww - 19, y: wy + 1, w: 15, h: 7 });
+/**
+ * A double click on program p's icon: two clicks 9 frames apart on the same icon (the second E_DOWN falls within 20 frames of the first, SHELL 4), then wait for the
+ * program's window.  Returns true when it runs.  Calculator's image-write watch is disarmed across the switch.
+ */
+export function launchByDoubleClick(env, p) {
+  const { m, S } = env;
+  env.wr.armed = false;
+  const [cx, cy] = iconCentre(p);
+  click(env, cx, cy, 3, 6); click(env, cx, cy, 3, 6);
+  const n = waitProgram(env, p);
+  if (n >= 0) env.wr.armed = p === 1;
+  return n >= 0;
+}
+/** Quit the running program (a CWindow program) by a click on the close box of its window: press, hold 3 frames, release; then wait for the shell. */
+export function quitByCloseBox(env, p = env.m.ram[env.S.K_PROG]) {
+  env.wr.armed = false;
+  const w = PROG_WIN[p], b = closeBoxOf(w.x, w.y, w.w);
+  click(env, b.x + (b.w >> 1), b.y + (b.h >> 1), 3, 6);
+  return waitShell(env);
+}
+/** Quit by SYMBOL SHIFT + Q (key code CLOSE = 17, SHELL 9.4). */
+export function quitBySSQ(env) {
+  env.wr.armed = false;
+  typeCode(env, 17, 3, 3);
+  return waitShell(env);
+}
+export function waitShell(env, max = 120) {
+  for (let i = 0; i <= max; i++) { if (progUp(env, 0)) return true; if (i < max) env.frame(); }
+  return false;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------
@@ -183,7 +270,7 @@ export function readView(m, S, a) {
 export function walkTree(m, S, a, out = [], depth = 0) {
   for (let v = a, n = 0; v && n < 64; v = rd16(m, v + S.View_next), n++) {
     const r = readView(m, S, v);
-    r.kind = r.cls === S.CL_Button ? 'Button' : r.cls === S.CL_Window ? 'Window' : r.cls === S.CL_CDisp ? 'CDisp' : `class ${hex(r.cls)}`;
+    r.kind = r.cls === S.CL_Button ? 'Button' : (r.cls === S.CL_Window || r.cls === S.CL_CWindow) ? 'Window' : (r.cls === S.CL_CDisp && m.ram[S.K_PROG] === 1) ? 'CDisp' : `class ${hex(r.cls)}`;
     if (r.kind === 'Button') r.text = readStr(m, rd16(m, v + S.Button_text));
     if (r.kind === 'Window') r.title = readStr(m, rd16(m, v + S.Window_title));
     r.depth = depth; out.push(r);
@@ -203,21 +290,29 @@ export const BUTTONS = (() => {
 export const centre = (b) => [b.x + (b.w >> 1), b.y + (b.h >> 1)];
 const codesOf = (s) => Array.from(s, (c) => c.charCodeAt(0));
 
+/** CWindow's close box (SHELL 10.1), drawn after the window's own look when it is the active one: CLR fill (x + w - 19, y + 1, 15, 7), SET frame (x + w - 18, y + 2, 13, 5);
+ * pressed: XOR fill (x + w - 17, y + 3, 11, 3). */
+export function closeBoxLook(g, x, y, w, pressed = false) {
+  g.setOp(OP_CLR); g.fill(x + w - 19, y + 1, 15, 7);
+  g.setOp(OP_SET); g.frame(x + w - 18, y + 2, 13, 5);
+  if (pressed) { g.setOp(OP_XOR); g.fill(x + w - 17, y + 3, 11, 3); }
+}
 /**
- * The screen as the contract draws it (section 4), as a Gfx6Model: the desk, the menu bar with "Calc", the active Window, CDisp showing `dstr`
- * (CLR fill, SET frame, the text right aligned at x + w - 4 - tw, y + 4) and the 20 buttons, the one at address `focusAddr` (or none) underlined.
- * `btnAddrs` maps button index -> address (for the focus), `flagsOf(i)` gives a button's flags (default 1).
+ * The screen as the contract draws it (section 4 of CALCULATOR.md, amended by SHELL 9.4 / 10.1): the desk, the empty menu bar (Calculator has no menu now), the active
+ * CWindow (window look plus the close box), CDisp showing `dstr` (CLR fill, SET frame, the text right aligned at x + w - 4 - tw, y + 4) and the 20 buttons, the one at
+ * index `focusIndex` (or none) underlined.  `flagsOf(i)` gives a button's flags (default 1).
  */
 export function renderScreen(dstr, focusIndex = -1, flagsOf = () => 1) {
   const g = new Gfx6Model();
   g.setOp(OP_CLR); g.fill(0, 8, 512, 184);
-  drawBar(g, [menuSpec(1, 'Calc', [[1, 0, 'Clear'], [2, 0, 'Clear entry']])], layoutOf([menuSpec(1, 'Calc', [[1, 0, 'Clear'], [2, 0, 'Clear entry']])]));
+  drawBar(g, null, null);
   windowLook(g, { x: WIN.x, y: WIN.y, w: WIN.w, h: WIN.h, title: { codes: codesOf(WIN.title) } }, true);
   const cs = codesOf(dstr), tw = g.textw(cs);
   g.setOp(OP_CLR); g.fill(DISP.x, DISP.y, DISP.w, DISP.h);
   g.setOp(OP_SET); g.frame(DISP.x, DISP.y, DISP.w, DISP.h);
   g.textp(DISP.x + DISP.w - 4 - tw, DISP.y + 4, cs);
   BUTTONS.forEach((b, i) => buttonLook(g, { x: b.x, y: b.y, w: b.w, h: b.h, flags: flagsOf(i), text: { codes: codesOf(b.text) } }, i === focusIndex));
+  closeBoxLook(g, WIN.x, WIN.y, WIN.w);
   return g;
 }
 /** Display bytes mask that leaves out the pointer: both byte rectangles (the position K_PX/K_PY and the drawn one PT_X/PT_Y), 3 byte columns by 16 rows. */

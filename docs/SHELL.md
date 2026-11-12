@@ -224,3 +224,44 @@ the step 3 tests' key-map readers. That is the only change to `kern3` and `kern4
 - When the selection moved on, the redraw, clipped to the view, left 7-pixel bars on screen.
 - At 64 the widest name box (tw + 4 = 62) fits, and the icons, 64 apart, still do not overlap.
 - **Binding on programs:** an icon's name is at most 60 pixels.
+
+## 11. As built (2026-11-12)
+
+**The shell slice is done on emulators.** `desk5` boots into the shell; Calculator and Controls launch from it and quit back
+by their close box or SYMBOL SHIFT + Q. **Every bound passes** (`tests/shell-perf.mjs`, seeds 1 and 2: 21 pass, 5 reported):
+
+| Measure | Measured | Bound |
+|---|---|---|
+| The launcher's bytes in the pool | 76 (82 with the program table) | 150 |
+| The shell's bytes in DOCK 2-3 | 1,115 | 1,600 |
+| Images: shell / Calculator / Controls | 483 / 205 / 81 | 1,024 |
+| Launch, from the second click to the window drawn: Calculator / Controls | 14 / 10 frames | 30 |
+| Quit, by the close box or SS+Q: Calculator / Controls | 9 / 9 frames | 30 |
+| 50 launch / quit cycles | exact: the arena top, windows, focus, capture, modal, posted queue and the shell's screen identical each time; the event loop's SP one value | exact |
+| `W_DRAWVIEW` of an icon, selected / not | 35,295 / 30,640 T | report |
+| `K_LAUNCH` to a program's start | 264,044 T | report |
+| `DI` / interrupts lost | none / 0 | none / 0 |
+
+- **Step 5's pool growth so far:** 1,688 bytes (the toolkit's T1, `CWindow`, `TK_DISPATCH` and the launcher), of 3,400.
+
+**Tests (Sonnet, from the contract; the main model re-ran them):**
+- **`tests/shell-s1.mjs`:** 13 of 13 groups on seeds 1 and 2:
+  - the launcher, by every way in and out;
+  - the shell's look, strict against the model;
+  - clicks, double clicks (opening at 20 frames, not at 21) and keys;
+  - `CWindow`'s look and close-box tracking, and `TK_DISPATCH`;
+  - the About dialog;
+  - SS+Q in the shell;
+  - the memory watch.
+- **The Calculator and toolkit suites,** adapted to launch through the shell, pass as before.
+  - `calc-c1` 5 of 5, `calc-perf` 9 of 9, `tk-t1` 8 of 8.
+  - `tk-perf`'s one open row is the bar draw: 47,605 T against 47,600, the owner's call.
+- **Cross-emulator:**
+  - ZEsarUX 13.0: 25 of 25 rows. Boot, the shell, Calculator by ENTER, 123.45 x 6 = 740.7, SS+Q back: every screen
+    identical to TSRun's, and DOCK unchanged.
+  - Fuse 1.9.1: 6 of 6 rows, the boot screen.
+- **Regression:** the step 3-4 suites pass. `kern-k2`'s hand-worked SS+Q now expects `CLOSE` (10.2).
+
+**Found and fixed:** the 48-pixel `Icon` (10.5).
+
+**For the owner to review on screen:** the two icons (`src/apps/icons.txt`).

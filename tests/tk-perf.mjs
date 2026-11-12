@@ -226,19 +226,20 @@ const textWidthCodes = (n) => { for (let k = 0; k < 4000; k++) { const c = []; f
 
 // ---- interrupts lost (V_FRAMES over every normally run frame) and DI -----------------------------------------------------------------------------------------------------------
 {
-  const e2 = L.bootDesk5(); const m2 = e2.m, S2 = e2.S;
+  // since SHELL.md 9-10 the demo is program 2 of the shell: bootDesk5 launches it by a double click on its icon.  Its window is at (176, 32) (SHELL 5), 176 left and 16 lower than TOOLKIT 9.4's.
+  const e2 = L.bootDesk5({ prog: 2 }); const m2 = e2.m, S2 = e2.S;
   e2.rng = rng;
   e2.frames_(30);
-  // open the demo, click its controls, hold the bar: the long handlers of the real program
-  L.moveTo(e2, 20, 4); m2.mouse.buttons = L.MOUSE_LEFT; e2.frames_(3); L.moveTo(e2, 30, 35); e2.frames_(2); m2.mouse.buttons = L.MOUSE_UP; e2.frames_(12);
-  const ok = rd16(m2, S2.D_WIN) !== 0;
-  for (const [x, y] of [[380, 36], [380, 48], [380, 64], [380, 76], [380, 88], [380, 36]]) L.click(e2, x, y, 3, 5);
+  // click its controls, hold the bar: the long handlers of the real program
+  const ok = rd16(m2, S2.D_WIN) !== 0 && L.progUp(e2, 2);
+  for (const [x, y] of [[204, 52], [204, 64], [204, 80], [204, 92], [204, 104], [204, 52]]) L.click(e2, x, y, 3, 5);
   for (const code of [32, 14, 32, 15, 32]) L.typeCode(e2, code, 3, 3);
-  L.moveTo(e2, 481, 36); e2.frames_(2); m2.mouse.buttons = L.MOUSE_LEFT; e2.frames_(60); m2.mouse.buttons = L.MOUSE_UP; e2.frames_(8);
-  L.moveTo(e2, 481, 108); e2.frames_(2); m2.mouse.buttons = L.MOUSE_LEFT; e2.frames_(40); m2.mouse.buttons = L.MOUSE_UP; e2.frames_(8);
-  L.moveTo(e2, 481, 60); e2.frames_(2); m2.mouse.buttons = L.MOUSE_LEFT; e2.frames_(2); L.moveTo(e2, 481, 90); L.moveTo(e2, 481, 40); m2.mouse.buttons = L.MOUSE_UP; e2.frames_(8);
+  L.moveTo(e2, 305, 52); e2.frames_(2); m2.mouse.buttons = L.MOUSE_LEFT; e2.frames_(60); m2.mouse.buttons = L.MOUSE_UP; e2.frames_(8);
+  L.moveTo(e2, 305, 124); e2.frames_(2); m2.mouse.buttons = L.MOUSE_LEFT; e2.frames_(40); m2.mouse.buttons = L.MOUSE_UP; e2.frames_(8);
+  L.moveTo(e2, 305, 76); e2.frames_(2); m2.mouse.buttons = L.MOUSE_LEFT; e2.frames_(2); L.moveTo(e2, 305, 106); L.moveTo(e2, 305, 56); m2.mouse.buttons = L.MOUSE_UP; e2.frames_(8);
+  L.quitByCloseBox(e2, 2); e2.frames_(10); L.launchByDoubleClick(e2, 2); e2.frames_(10);       // a quit and a launch among the frames
   e2.frames_(40);
-  row('frame interrupts lost over the demo machine\'s normal frames (V_FRAMES must rise by 1 a frame): idle, pointer moving, Check clicks, keys, a held arrow, a track hold, a thumb drag', e2.vf.bad, 0, `${e2.vf.checked} frames checked; demo opened: ${ok}${e2.vf.bad ? '; first ' + e2.vf.first : ''}; memory watch: ${e2.w.summary()}`);
+  row('frame interrupts lost over the demo machine\'s normal frames (V_FRAMES must rise by 1 a frame): idle, pointer moving, Check clicks, keys, a held arrow, a track hold, a thumb drag', e2.vf.bad, 0, `${e2.vf.checked} frames checked; demo launched from the shell: ${ok}${e2.vf.bad ? '; first ' + e2.vf.first : ''}; memory watch: ${e2.w.summary()}`);
   if (e2.w.n) { missed++; console.log('FAIL | the memory watch (BANKING 10.7) reported violations in the perf run'); }
 }
 {

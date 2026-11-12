@@ -2,7 +2,8 @@
 // tk-lib.mjs -- shared harness of the toolkit T1 tests (tests/tk-t1.mjs, tests/tk-perf.mjs).  Written from docs/TOOLKIT.md (sections 1-9), docs/WINDOWS.md
 // and docs/BANKING.md only; src/kernel/tk.asm and src/apps/demo.asm were never read.  It never builds: it loads the prebuilt build/desk5.dck and
 // build/desk5/out.sym through tests/calc-lib.mjs.
-//   - bootParked: desk5 booted, the pointer erased, the Calculator window closed and its arena reset: an empty desk for direct calls under K;
+//   - bootParked: desk5 booted (it runs the shell since SHELL.md 9-10), the pointer erased, the shell's window closed and the app arena reset: an empty desk for direct
+//     calls under K (the groups that build their own windows do not need a program, so none is launched; the Controls demo is launched through the shell by bootDesk5({ prog: 2 }));
 //   - runCall: a routine called under K with a sentinel return, stepped instruction by instruction, interrupts ON (so a DI is seen), with hooks:
 //     every W_DRAWVIEW (IX) and every K_POST is logged, a HALT is a frame boundary the test answers (V_FRAMES + 1, events put in the ring), the stack
 //     depth, the T-states, the preserved registers; user hooks at chosen addresses (a stub target, a method's entry);
@@ -22,7 +23,7 @@ export const TK_NEEDED = ['CL_Check', 'CL_VScroll', 'CL_Group', 'CL_Window', 'CL
   'VScroll_press', 'Window_slot', 'Window_title', 'Label_text', 'K_NEW', 'K_ADDCHILD', 'K_ARESET', 'K_AARENA', 'K_ARENA', 'W_OPEN', 'W_CLOSE', 'W_UPDATE', 'W_DRAWVIEW',
   'K_DISPATCH', 'K_EV', 'K_FOCUS', 'K_CAPTURE', 'K_FSCOPE', 'K_SETFOCUS', 'K_POST', 'K_PN', 'K_PHEAD', 'K_POSTQ', 'K_RING', 'K_RHEAD', 'K_RTAIL', 'K_GETEV', 'K_PX', 'K_PY', 'K_BTN',
   'TK_SETBAR', 'TK_CODE', 'TK_END', 'TK_EV', 'V_FRAMES', 'T_SEND', 'T_RET', 'E_SCROLL', 'E_CMD', 'M_EVENT', 'M_DRAW', 'P_SHIELD', 'P_UNSHIELD', 'GA', 'G_SETCLIP',
-  'D_WIN', 'D_VSTR', 'D_TGT', 'D_LBL', 'D_MENUS', 'C_WIN', 'W_DIRTY'];
+  'D_WIN', 'D_VSTR', 'D_TGT', 'D_LBL', 'S_WIN', 'CL_CWindow', 'W_DIRTY'];
 
 export const poke8 = (env, a, v) => { env.m.ram[a] = v & 0xFF; };
 export const poke16 = (env, a, v) => { env.m.ram[a] = v & 0xFF; env.m.ram[a + 1] = (v >> 8) & 0xFF; };
@@ -85,15 +86,15 @@ export function runCall(env, addr, regs = {}, o = {}) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------
-/** The pointer erased and parked out of the way, the Calculator closed, the app arena reset: an empty desk.  No frame is run afterwards. */
+/** The pointer erased and parked out of the way, the shell's window closed, the app arena reset: an empty desk.  No frame is run afterwards. */
 export function bootParked(opts = {}) {
-  const env = L.bootDesk5(opts), { m, S } = env;
+  const env = L.bootDesk5({ ...opts, prog: 0 }), { m, S } = env;
   env.rng = opts.rng || null;
   const missing = TK_NEEDED.filter((n) => S[n] === undefined);
   if (missing.length) throw new Error(`desk5 does not define: ${missing.join(', ')}`);
   poke16(env, S.GA, 0); poke16(env, S.GA + 2, 0); poke16(env, S.GA + 4, 512); poke16(env, S.GA + 6, 192);
   runCall(env, S.P_SHIELD, {}, { ints: false }); runCall(env, S.P_UNSHIELD, {}, { ints: false });
-  const cw = rd16(m, S.C_WIN);
+  const cw = rd16(m, S.S_WIN);
   runCall(env, S.W_CLOSE, { ix: cw }, { ints: false });
   runCall(env, S.W_UPDATE, {}, { ints: false });
   runCall(env, S.K_ARESET, { hl: S.K_AARENA }, { ints: false });

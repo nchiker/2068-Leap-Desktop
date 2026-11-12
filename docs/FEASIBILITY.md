@@ -404,6 +404,11 @@ cross-checked on ZEsarUX and Fuse. It shows:
    - **Where code lives:** contract `docs/BANKING.md` (owner approved, 2026-11-12). The toolkit stays always mapped; the apps go
      in DOCK 2-3. One `RST $28` far call crosses between the mappings K, A and R. **Slice B0 done on three emulators:**
      331-352 T a crossing (FEASIBILITY 4's "about 50 T" was optimistic), code in DOCK 6 drawing directly, every bound passing.
+   - **Calculator** (`docs/CALCULATOR.md`): the first banked program, 8-digit decimal arithmetic, tested against a BigInt model.
+   - **Toolkit T1** (`docs/TOOLKIT.md`): `Check` (and radio) and `VScroll` in the pool; the owner approved the look.
+   - **The shell** (`docs/SHELL.md`, owner's order: before T2 / T3): a launcher (one program at a time), a "Leap Desktop" window
+     of icons, `CWindow` close boxes and SS+Q to quit. Calculator and Controls run from it. Done on three emulators.
+   - **Next:** T2 (`List`) and T3 (`Field`), then Write.
 6. **Banking and SDK:** banked apps in DOCK 2-3, the third-party app header, the IDE SDK and templates, later a Leap-C cross-compiler and a visual designer.
 
 ## Open questions

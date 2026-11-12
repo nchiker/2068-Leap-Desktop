@@ -183,7 +183,7 @@ Any other code is not a Calculator key.
 
 | Measure | Measured | Bound |
 |---|---|---|
-| Bytes in DOCK 2-3 | 2,489 | 2,500 |
+| Bytes in DOCK 2-3 | 2,489 (2,430 after the shell slice: no menu) | 2,500 |
 | Slowest `=` seen (a division) | 103,660 T | 120,000 |
 | A digit key | at most 1,184 T | 3,000 |
 
