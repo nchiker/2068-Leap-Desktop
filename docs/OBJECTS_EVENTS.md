@@ -52,7 +52,7 @@ the cartridge.
 | -1 | byte | Pool: the offset of its free-list head in an arena record (section 4): 6, 8, 10, 12 for sizes 2-8, 9-16, 17-24, 25-32; 14 for larger (arena only) |
 | 0 | 2 x count | Method addresses, **flattened**: every inherited slot is filled. The table never crosses a 256-byte page |
 
-**Instance** (in RAM): word 0 is the class pointer, then the fields. Fields are reached only as `(IX + <Class>_<field>)`.
+**Instance** (in RAM): word 0 is the class pointer, then the fields. Fields are reached as `(IX + <Class>_<field>)` (the kernel's routing walks views through HL instead, 16.4, option D).
 
 **Generator** `tools/gen-classes.mjs` reads `src/kernel/classes.txt` and writes `src/kernel/classes.inc` (never hand-edited):
 descriptors, `M_<Name>` message numbers and `<Class>_<field>` offsets. A subclass's new messages are numbered after its parent's;
@@ -906,7 +906,7 @@ The owner took the main model's recommendations:
 |---|---|
 | `K_POLL` worst frame, whole frame ISR (16.2) | **C:** the measured figures become the bounds, 5,250 and 12,000 (section 8). Redesign only if a program measures a shortfall: the way to 2,000 is an ISR that records changed half-rows and leaves all decoding to `K_GETEV` |
 | Routing: `Group` hit testing (16.3) | **E**, built by the main model (below) |
-| Per event, bubble level, `E_DOWN` and `E_MOVE` through a `Group` | **D** (walk with pointers instead of IX), a bounded job for a Fable agent in its own worktree; the bounds stay as section 8 |
+| Per event, bubble level, `E_DOWN` and `E_MOVE` through a `Group` | **D** (walk with pointers instead of IX), a bounded job for a Fable agent in its own worktree; the bounds stay as section 8. **All four now pass** (below) |
 | `K_FOCUSNEXT` / `K_FOCUSPREV` (16.3) | **G:** the measured figures, rounded up, become the bounds, 11,000 / 18,000. F is not taken: an extra word in every view, and an invariant that a program writing `View_flags` directly would break without a sign |
 | Bytes (16.3) | Accepted: <= 2,400 (about 9.4 KB of the pool left, against 6-9 KB still to place) |
 | The review's two notes (16.2) | Left as they are. The usual fix for the event that waits a frame needs a `DI` window, and TSRun drops a frame interrupt that arrives under `DI`; a second `K_WARP` in one frame is a program's own choice |
@@ -940,3 +940,42 @@ down, or at column 63 scrolled up, across a third. It is fixed and recorded in G
 - The `K_SETFOCUS` `TBox` row in `tests/kern-perf.mjs` still carried the 500 bound. It now only reports the figure, as 15.5 was
   amended in K3.
 - The accepted bounds above are in the test.
+
+**Option D as built** (Fable agent, worktree `route-d`; reviewed and re-run by the main model, 2026-11-12). Only
+`src/kernel/focus.asm` changed. **Every step 3 bound now passes.**
+
+| Measure (kern-perf) | After E | After D | Bound |
+|---|---|---|---|
+| Per event, worse of ring / posted | 537 | **472** | <= 500 pass |
+| Bubble level (`View` ancestors) | 278 | **186** | <= 200 pass |
+| `E_DOWN` through 8 `TBox`, the last hit, focus moving from the first | 4,527 | **3,463** | <= 3,500 pass |
+| `E_MOVE` through 8 `TBox`, the last hit / no child hit | 3,315 / 2,799 | **2,443** / 2,001 | <= 2,500 pass |
+| `K_SETFOCUS` `View` -> `View` / `TBox` -> `TBox` | 498 / 1,172 | 456 / 1,130 | <= 500 pass / report |
+| `K_FOCUSNEXT` / `K_FOCUSPREV`, 32 views | 10,881 / 17,952 | 10,839 / 17,910 | <= 11,000 / 18,000 pass |
+| Stack: `E_DOWN` through 7 `Group`s / focus walk | 46 / 18 | 44 / 20 bytes | <= 128 pass |
+| Bytes, step 3 | 2,354 | **2,394** | <= 2,400 pass (6 left) |
+
+**What changed:**
+- **`k_sendhl` / `k_evto`:** a send for a caller that holds the view in HL. It sets IX, reads the class through HL and jumps to
+  the method, entered as `K_SEND` enters it. 75 T, against 119 for `PUSH HL / POP IX / LD A,n / RST $08`.
+- **`K_DISPATCH`:**
+  - the root send falls straight into `k_evto`;
+  - a bubble level reads the parent through IX after the send, since a method preserves IX (section 3);
+  - the six key defaults are one bit-mask loop. That saves 7 bytes and costs about 80 T on an unconsumed key, which no row
+    measures.
+- **`group_event` walks the children with HL**, in field order; BC holds x for the whole walk. A child the point misses costs
+  about 220 T, against 342 after E.
+  - IX caches the last class whose HitTest is `view_hittest`, so children of one class cost two compares, not the slot lookup.
+  - "No class known" is IX = the group itself: a class pointer is never a view's address.
+  - The flags are read only for a child the point is inside (the tests are pure, so their order does not change the result).
+  - A child with a HitTest of its own still has its flags tested before the send, as 15.2 says.
+- **`K_SETFOCUS`** is a wrapper around `k_setf` (blur, set, focus). On `E_DOWN` the group calls `k_setf` itself, since it has
+  already read the target's flags.
+
+**Readings:** `K_EV` is not changed by an `M_HITTEST` method; y is read again from `K_EV+2`.
+
+**Tests:**
+- The agent's runs: `kern-k3` seeds 1-4, `kern-hit` 1-2, `kern-k1` 6, `kern-k2` 1, `kern-perf` 1.
+- The main model's runs on new seeds: `kern-k3` 5-7, `kern-hit` 5-6, `kern-k1` 3, `kern-k2` 4 and 6, `kern-perf` 4.
+- `kern3demo`, cross-emulator: ZEsarUX 13.0 11 of 11 (TAB included), Fuse 1.9.1 4 of 4.
+- Margins are thin: `E_DOWN` 37 T, bytes 6. `E_DOWN` includes about 700 T of the test methods' own bodies (`t_blur`, `t_focus`).

@@ -2,20 +2,54 @@
 
 ; ---------------------------------------------------------------------------------------------------------------------------
 ; K_DISPATCH: routes the event in K_EV (section 6).  Preserves IX, IY.  Clobbers AF, BC, DE, HL.
+; The view being served is held in HL and handed to k_evto, which makes it IX for the method; a method preserves IX (section 3),
+; so after a send IX is still the receiver.
 K_DISPATCH:
     push ix
     call .route
     pop ix
     ret
+.key:
+    ld hl,(K_FOCUS)
+    ld a,h
+    or l
+    jr nz,.bubble
+    ld hl,(K_ROOT)
+    jr .more
+.bubble:
+    call k_evto
+    ret c                       ; consumed
+    ld l,(ix+View_parent)       ; IX = the view that did not consume it
+    ld h,(ix+View_parent+1)
+.more:
+    ld a,h
+    or l
+    jr nz,.bubble
+    ld a,(K_EV+1)               ; nobody consumed the key: TAB and the arrows move the focus
+    sub K_LEFT
+    cp K_BACKTAB - K_LEFT + 1
+    ret nc
+    ld b,a
+    inc b
+    ld hl,%1000100111001111     ; bit n is key K_LEFT + n.  L: the keys acted on; H: those that go to the previous view
+.bit:
+    rrc h
+    rrc l
+    djnz .bit
+    ret nc                      ; none of the six
+    ld a,h
+    rlca
+    and 1                       ; 0 = next, 1 = previous
+    jp k_focuswalk
 .route:
     ld a,(K_EV)
-    cp E_KEY
-    jr z,.key
     cp E_DOWN
     jr z,.down
-    cp E_MOVE
-    jr z,.capt
-    cp E_UP
+    dec a
+    jr z,.key                   ; E_KEY
+    dec a
+    jr z,.move                  ; E_MOVE
+    cp E_UP - E_MOVE
     jr nz,.root
     ld hl,(K_CAPTURE)           ; E_UP: to the capture, which ends
     ld a,h
@@ -24,62 +58,40 @@ K_DISPATCH:
     ld de,0
     ld (K_CAPTURE),de
     jr k_evto
-.down:
-    ld hl,0
-    ld (K_CAPTURE),hl
-.root:
-    ld hl,(K_ROOT)
-    jr k_evto
-.capt:
+.move:
     ld hl,(K_CAPTURE)           ; E_MOVE: to the capture, else routed from the root
     ld a,h
     or l
     jr z,.root
     jr k_evto
-.key:
-    ld hl,(K_FOCUS)
-    ld a,h
-    or l
-    jr nz,.bubble
+.down:
+    ld hl,0
+    ld (K_CAPTURE),hl
+.root:
     ld hl,(K_ROOT)
-.bubble:
     ld a,h
     or l
-    jr z,.default
-    push hl
-    call k_evto
-    pop ix
-    ret c                       ; consumed
-    ld l,(ix+View_parent)
-    ld h,(ix+View_parent+1)
-    jr .bubble
-.default:                       ; nobody consumed the key: TAB and the arrows move the focus
-    ld a,(K_EV+1)
-    cp K_TAB
-    jp z,K_FOCUSNEXT
-    cp K_DOWN
-    jp z,K_FOCUSNEXT
-    cp K_RIGHT
-    jp z,K_FOCUSNEXT
-    cp K_BACKTAB
-    jp z,K_FOCUSPREV
-    cp K_UP
-    jp z,K_FOCUSPREV
-    cp K_LEFT
-    jp z,K_FOCUSPREV
-    ret
+    ret z                       ; and on into k_evto
 
-; k_evto: HL = view or 0 -> M_EVENT (DE = K_EV) to it; carry = consumed.  Clobbers IX.
+; k_evto: HL = a view (not 0) -> M_EVENT (DE = K_EV) to it; carry = consumed.  IX = the view on return.
+; k_sendhl: HL = a view (not 0), A = 2 * the message, BC / DE = the arguments -> the method, entered as K_SEND enters it
+; (IX = the view; A, F, HL undefined).  The send for a caller that holds the view in HL: the class is read through HL, 75 T
+; against 112 for PUSH HL / POP IX / RST $08.  A method table never crosses a page, so the slot's low byte is one ADD.
 k_evto:
-    ld a,h
-    or l
-    ret z
+    ld de,K_EV
+    ld a,M_EVENT * 2
+k_sendhl:
     push hl
     pop ix
-    ld de,K_EV
-    ld a,M_EVENT
-    rst $08                     ; RST is a call: the method returns here
-    ret
+    add a,(hl)
+    inc hl
+    ld h,(hl)
+    ld l,a                      ; HL = the method's slot
+    ld a,(hl)
+    inc l
+    ld h,(hl)
+    ld l,a
+    jp (hl)
 
 ; Key codes the kernel acts on (14.4)
 K_LEFT      EQU 8
@@ -95,110 +107,171 @@ K_BACKTAB   EQU 15
 ; Carry = the child consumed it.  Other events: not consumed.
 ; A child whose HitTest slot holds view_hittest is tested here, in place, with the same arithmetic (option E, 16.4); any other
 ; child gets M_HITTEST.
+; The children are walked with HL (option D): BC = x for the whole walk, DE = scratch, and IX = the class last found to have
+; view_hittest, so that a run of children of one class costs two compares a child instead of the slot lookup.  The tests are
+; pure, so their order is free: class, x, width, y, height, flags (the fields in address order, y after the width).
 group_event:
     ld a,(K_EV)
     sub E_MOVE
     cp E_UP - E_MOVE + 1
-    jr c,.ptr                   ; E_MOVE, E_DOWN, E_UP
-    or a
-    ret
-.ptr:
-    ld bc,(K_EV+1)              ; C = x low, B = y
-    ld e,b
-    ld d,0
-    ld a,(K_EV+3)
-    and 1
-    ld b,a                      ; BC = x, DE = y, kept through the loop
+    ret nc                      ; not E_MOVE, E_DOWN, E_UP: not consumed
     push ix                     ; the group, on the stack until the end
     ld l,(ix+View_child)
     ld h,(ix+View_child+1)
-.loop:
+    ld bc,(K_EV+1)              ; C = x low
+    ld a,(K_EV+3)
+    and 1
+    ld b,a                      ; BC = x
     ld a,h
     or l
     jr z,.none
+    ld a,(hl)                   ; the first child: straight to the slot lookup.  IX (still the group) stands for "no class
+    jr .class                   ; known": a class pointer is never the address of a view
+.loop:                          ; HL = a child
+    ld a,(hl)
+    cp ixl
+    jr nz,.class
+    inc hl
+    ld a,(hl)
+    cp ixh
+    jr nz,.class1
+.geom:                          ; HL = the child + 1; its HitTest is view_hittest
+    ld de,View_x - 1
+    add hl,de
+    ld a,c
+    sub (hl)
+    ld e,a
+    inc hl
+    ld a,b
+    sbc a,(hl)
+    jr c,.left
+    ld d,a                      ; DE = x - View_x
+    inc hl
+    inc hl
+    ld a,e
+    sub (hl)                    ; View_w
+    inc hl
+    ld a,d
+    sbc a,(hl)
+    jr c,.xin
+    ld de,View_next - View_w - 1
+.next:                          ; HL + DE = the child's View_next
+    add hl,de
+    ld a,(hl)
+    inc hl
+    ld h,(hl)
+    ld l,a
+.test:
+    or h
+    jp nz,.loop
+.none:
+    pop ix                      ; no child hit (carry clear)
+    ret
+.left:
+    ld de,View_next - View_x - 1
+    jr .next
+.xin:                           ; x is inside; HL = View_w + 1
+    dec hl
+    dec hl
+    ld a,(K_EV+2)
+    sub (hl)                    ; y - View_y
+    inc hl
+    inc hl
+    inc hl                      ; View_h (the flags are kept)
+    jr c,.out13
+    cp (hl)
+    jr nc,.out13
+    inc hl
+    ld a,(hl)                   ; View_flags
+    and 6
+    jr z,.inside
+    dec hl                      ; hidden or disabled
+.out13:
+    ld de,View_next - View_h
+    jr .next
+.class1:
+    dec hl
+    ld a,(hl)
+.class:                         ; HL = the child, A = its class's low byte; not the class known
+    add a,M_HITTEST * 2
+    ld e,a
+    inc hl
+    ld d,(hl)                   ; DE = its HitTest slot (a method table never crosses a page)
+    ld a,(de)
+    cp view_hittest & $FF
+    jr nz,.send
+    inc e
+    ld a,(de)
+    cp view_hittest >> 8
+    jr nz,.send
+    ld a,e
+    sub M_HITTEST * 2 + 1
+    ld ixl,a
+    ld ixh,d                    ; this class is the one known
+    jr .geom
+.send:                          ; HL = the child + 1; its class has a HitTest of its own
+    dec hl
+    push ix
+    push bc
     push hl
     pop ix                      ; IX = the child
     ld a,(ix+View_flags)
     and 6
-    jr nz,.skip                 ; hidden or disabled
-    ld l,(ix+0)
-    ld h,(ix+1)                 ; HL = the class
-    ld a,l
-    add a,M_HITTEST * 2
-    ld l,a                      ; its HitTest slot (a method table never crosses a page)
-    ld a,(hl)
-    cp view_hittest & $FF
-    jr nz,.send
-    inc l
-    ld a,(hl)
-    cp view_hittest >> 8
-    jr nz,.send
-    ld a,c                      ; view_hittest in place: x - View_x, unsigned, below w; y - View_y below h (D is 0)
-    sub (ix+View_x)
-    ld l,a
-    ld a,b
-    sbc a,(ix+View_x+1)
-    jr c,.skip
-    ld h,a
-    ld a,l
-    sub (ix+View_w)
-    ld a,h
-    sbc a,(ix+View_w+1)
-    jr nc,.skip
-    ld a,e
-    sub (ix+View_y)
-    jr c,.skip
-    cp (ix+View_h)
-    jr c,.hit
-.skip:
-    ld l,(ix+View_next)
-    ld h,(ix+View_next+1)
-    jr .loop
-.send:
-    push bc
-    push de
+    jr nz,.pass                 ; hidden or disabled
+    ld a,(K_EV+2)
+    ld e,a
+    ld d,0                      ; BC = x, DE = y
     ld a,M_HITTEST
     rst $08
-    pop de
+    jr c,.sent
+.pass:
+    ld l,(ix+View_next)
+    ld h,(ix+View_next+1)
     pop bc
-    jr c,.hit
-    jr .skip
-.none:
     pop ix
-    or a
-    ret
-.hit:
+    ld a,l
+    jr .test
+.sent:                          ; it hit
+    pop bc
+    pop bc
+    ld c,(ix+View_flags)
+    push ix
+    pop hl
+    jr .hit
+.inside:
+    ld c,(hl)                   ; BC is x no longer
+    ld de,-View_flags
+    add hl,de
+.hit:                           ; HL = the target, C = its flags
     ld a,(K_EV)
     cp E_DOWN
     jr nz,.deliver
-    bit 0,(ix+View_flags)
-    jr z,.deliver
-    push ix
-    pop de
-    call K_SETFOCUS
+    ld a,c
+    and 7
+    dec a
+    jr nz,.deliver              ; it cannot take the focus
+    ex de,hl                    ; K_SETFOCUS, its flags test done
+    ld hl,(K_FOCUS)
+    sbc hl,de                   ; (the CP left carry clear)
+    add hl,de                   ; HL = the old focus, Z as the SBC left it
+    push de
+    call nz,k_setf
+    pop hl
 .deliver:
-    ld de,K_EV
-    ld a,M_EVENT
-    rst $08
-    pop hl                      ; the group (IX stays the child until the capture is set)
+    call k_evto                 ; IX = the target on return
     jr nc,.back
     ld a,(K_EV)
     cp E_DOWN
     jr nz,.cons
-    ld de,(K_CAPTURE)
-    ld a,d
-    or e
+    ld hl,(K_CAPTURE)
+    ld a,h
+    or l
     jr nz,.cons
     ld (K_CAPTURE),ix
 .cons:
-    push hl
-    pop ix
     scf
-    ret
 .back:
-    push hl
     pop ix
-    or a
     ret
 
 ; ---------------------------------------------------------------------------------------------------------------------------
@@ -217,34 +290,32 @@ K_SETFOCUS:
     add hl,de
     ld a,(hl)
     and 7
-    cp 1
+    dec a
     scf
     ret nz
 .ok:
-    push ix
-    push de
     ld hl,(K_FOCUS)
+    push ix
+    call k_setf
+    pop ix
+    or a
+    ret
+
+; k_setf: DE = the new focus (0, or a view that can take it), HL = the old one (0 or a view, not DE): M_BLUR to the old,
+; K_FOCUS = the new, M_FOCUS to the new.  Clobbers IX.
+k_setf:
+    push de
     ld a,h
     or l
-    jr z,.new
-    push hl
-    pop ix
-    ld a,M_BLUR
-    rst $08
-.new:
+    ld a,M_BLUR * 2
+    call nz,k_sendhl
     pop hl
     ld (K_FOCUS),hl
     ld a,h
     or l
-    jr z,.done
-    push hl
-    pop ix
-    ld a,M_FOCUS
-    rst $08
-.done:
-    pop ix
-    or a
-    ret
+    ret z
+    ld a,M_FOCUS * 2
+    jp k_sendhl
 
 ; ---------------------------------------------------------------------------------------------------------------------------
 ; K_FOCUSNEXT / K_FOCUSPREV (15.3): the next / previous view that can take focus (flags AND 7 = 1), in pre-order under K_ROOT,
