@@ -386,7 +386,7 @@ cross-checked on ZEsarUX and Fuse. It shows:
    - Write the gaps: mode 6 addressing, lines, clip rectangles, save-under, opaque blit.
    - Then add the mode 0 and 2 variants.
    - Test each piece against a reference model on TSRun, as Arcade does.
-3. **Objects and events:** class descriptors, message send, arenas and pools, the input ISR, the event queue, focus.
+3. **Objects and events:** class descriptors, message send, arenas and pools, the input ISR, the event queue, focus. Contract: `docs/OBJECTS_EVENTS.md` (draft 1, for the owner to approve); it includes the pointer redrawn with an ink hot spot (5a).
 4. **Window manager:** window list, damage repaint, menus, dialogs. Together with steps 2-3 this is the proof of concept, the first milestone.
 5. **First applications:** controls, the shell, Calculator, then Write (mode 6), Paint, tape file services.
 6. **Banking and SDK:** banked apps in DOCK 2-3, the third-party app header, the IDE SDK and templates, later a Leap-C cross-compiler and a visual designer.

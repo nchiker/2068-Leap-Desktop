@@ -1,0 +1,49 @@
+# keymap.txt -- the kernel's key map (docs/OBJECTS_EVENTS.md 14.4).  DRAFT for the owner's review (2026-11-12).
+# One line per key in matrix order (key index k = 5 r + b, half-rows $FE $FD $FB $F7 $EF $DF $BF $7F, bits 0-4).
+# Columns: key name, plain, CAPS SHIFT, SYMBOL SHIFT.  An entry is one printable character, '-' (no event), or a name:
+# ENTER LEFT RIGHT DOWN UP DELETE TAB BACKTAB MENU ESC BREAK CAPS SPACE HASH ('#') DASH ('-').
+# SS entries keep the TS2068 legend where it is an ASCII character; the rest of printable ASCII goes on the SS keys whose
+# legends are keywords: X (pound) `, A (STOP) ~, S (NOT) |, D (STEP) \, F (TO) {, G (THEN) }, Y (AND) [, U (OR) ].
+# Q (<=), W (<>), E (>=) and I (AT) have no SS character.
+#
+# key     plain   CS        SS
+CS        -       -         -
+Z         z       Z         :
+X         x       X         `
+C         c       C         ?
+V         v       V         /
+A         a       A         ~
+S         s       S         |
+D         d       D         \
+F         f       F         {
+G         g       G         }
+Q         q       Q         -
+W         w       W         -
+E         e       E         -
+R         r       R         <
+T         t       T         >
+1         1       ESC       !
+2         2       CAPS      @
+3         3       BACKTAB   HASH
+4         4       TAB       $
+5         5       LEFT      %
+0         0       DELETE    _
+9         9       MENU      )
+8         8       RIGHT     (
+7         7       UP        '
+6         6       DOWN      &
+P         p       P         "
+O         o       O         ;
+I         i       I         -
+U         u       U         ]
+Y         y       Y         [
+ENTER     ENTER   ENTER     -
+L         l       L         =
+K         k       K         +
+J         j       J         DASH
+H         h       H         ^
+SPACE     SPACE   BREAK     SPACE
+SS        -       -         -
+M         m       M         .
+N         n       N         ,
+B         b       B         *

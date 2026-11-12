@@ -1,0 +1,40 @@
+# Test classes for the kern3 cartridge (docs/OBJECTS_EVENTS.md 13.6).
+class TLog : View               # size 17
+  field tag 1
+  method Destroy t_destroy
+  method Draw    t_draw
+  method Event   t_event
+  method HitTest t_hittest
+  method Focus   t_focus
+  method Blur    t_blur
+  method Poke    t_poke
+
+class TLog2 : TLog
+  method Draw  t_draw2
+  method Poke2 t_poke2
+
+# plain Objects of a given size, for the pool and allocation tests
+class TSz8 : Object
+  field pad 6
+
+class TSz9 : Object
+  field pad 7
+
+class TSz16 : Object
+  field pad 14
+
+class TSz24 : Object
+  field pad 22
+
+class TSz32 : Object
+  field pad 30
+
+class TSz33 : Object
+  field pad 31
+
+class TSz40 : Object
+  field pad 38
+
+class TSz255 : Object
+  field pad 253
+

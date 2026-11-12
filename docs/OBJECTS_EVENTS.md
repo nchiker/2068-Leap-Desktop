@@ -1,0 +1,629 @@
+# Objects and events: contract (draft 2, 2026-11-11, owner approved)
+
+Roadmap step 3 (`docs/FEASIBILITY.md` sections 6 and 7). Binding for step 3's code, generators and tests once approved. An
+"As built" section is added when it is done. Marks as in FEASIBILITY: **EMU** measured, **EST** estimated.
+
+Style as `docs/GRAPHICS_SPIKE.md`: every number in section 8 is a bound. **A missed bound is reported with its numbers before
+anything is changed, and the engineer never weakens a bound.** Figures marked **report** are measured and written down, not judged.
+
+## 1. What step 3 builds
+
+The kernel's middle layer, between gfx6 and the window manager (step 4):
+
+1. **Classes and message send:** class descriptors in the cartridge, single inheritance flattened at build time, `RST $08` send.
+2. **Arenas and pools:** a kernel arena and an app arena, each with free-list pools for small objects.
+3. **The input ISR:** keyboard, joystick 1 and the pointer read every frame by the frame interrupt, after `P_ISR`.
+4. **The event queue:** 16 entries of 4 bytes filled by the ISR, plus a small queue for events the program posts.
+5. **Views and focus:** a view tree (first child / next sibling), hit testing, pointer capture, keyboard focus and TAB navigation.
+6. **The pointer redrawn with an ink hot spot** (FEASIBILITY 5a, S5 finding 2).
+
+**Out:** windows, damage repaint, menus and dialogs (step 4); the jump table and `desktop.json` (step 6; section 5's tables are its
+source); banked classes in DOCK 2-3 (step 6: the dispatcher touches no port, so nothing here blocks it); timers (the event type is
+reserved); the mode 0 and mode 2 variants (deferred, owner 2026-11-11); contention.
+
+## 2. Memory and cartridge
+
+Cartridge shape of `spike6`: DOCK chunks 0, 1, 4, 5; `$F4 = $33`; stack `$FB00-$FEFF` (top `$FF00`), record at `$FF00`.
+
+| Where | What |
+|---|---|
+| Chunk 0 | `RST $08` (the dispatcher, may run on into `$0010-$0017`: RST `$10` is then unused); the ISR entry at `$0038` |
+| Chunk 5 from `$A000` | Kernel code `K_CODE..K_CODE_END` (step 3's routines, base classes, key map), then the test cartridge's own code |
+| `$E000-$E0FF`, `$E100-$E6FF`, `$E700-$E7FF`, `$E800-$EFFF` | gfx6, pointer, `GCODE`, save-under: unchanged (GRAPHICS_SPIKE 12.1, 14.1, 15.1) |
+| `$F000-$F03F` | `K_RING`: the event ring, 16 x 4 bytes, 64-byte aligned (an index steps with `ADD 4` / `AND $3F` on `L`) |
+| `$F040-$F04F` | `K_POSTQ`: the posted queue, 4 x 4 bytes |
+| `$F050-$F0FF` | Kernel variables (`K_VARS`): ring indices, input state, `K_EV`, `K_FOCUS`, `K_CAPTURE`, `K_ROOT`, the two arena records, port shadows |
+| `$F100-$FAFF` | Kernel arena (2,560 bytes) |
+| `$C000-$DFFF` | App arena in the test cartridge (8 KB). The final heap map is step 4's |
+
+Boot initialises every variable above (TSRun fills RAM with random bytes). The key-map, class and acceleration tables are in
+the cartridge.
+
+## 3. Classes and message send
+
+**Descriptor** (in the cartridge; the class pointer points at method 0, the header is below it):
+
+| Offset | Size | What |
+|---|---|---|
+| -6 | word | Parent class (0 for `Object`) |
+| -4 | byte | Class id (unique, for tests and debugging) |
+| -3 | byte | Method count (1..127) |
+| -2 | byte | Instance size in bytes, class pointer included (2..255) |
+| -1 | byte | Pool: the offset of its free-list head in an arena record (section 4): 6, 8, 10, 12 for sizes 2-8, 9-16, 17-24, 25-32; 14 for larger (arena only) |
+| 0 | 2 x count | Method addresses, **flattened**: every inherited slot is filled. The table never crosses a 256-byte page |
+
+**Instance** (in RAM): word 0 is the class pointer, then the fields. Fields are reached only as `(IX + <Class>_<field>)`.
+
+**Generator** `tools/gen-classes.mjs` reads `src/kernel/classes.txt` and writes `src/kernel/classes.inc` (never hand-edited):
+descriptors, `M_<Name>` message numbers and `<Class>_<field>` offsets. A subclass's new messages are numbered after its parent's;
+a message name is defined once in the hierarchy (siblings may reuse numbers under different names). The generator fails the build
+on an unknown method label, a page-crossing table, a duplicate name or an instance over 255 bytes.
+
+**Send** (`RST $08`, `K_SEND`): IX = self, A = message number, BC and DE = arguments.
+- Reads the class pointer from `(IX+0)`, indexes the table and jumps to the method. No check of A against the count: messages are
+  sent only to objects known to have them (the count byte is for tests and a later debug build).
+- The method starts with IX, IY, BC, DE as the caller left them; A, HL and F are undefined. It returns with a plain `RET` to the
+  sender.
+- Methods follow FEASIBILITY 7: they clobber AF, BC, DE, HL and preserve IX, IY and the alternate set. Results in carry, A or HL.
+- A send to a known class, or to the parent's method ("super"), is a direct `CALL <label>`.
+
+**Standard messages** (`Object`, numbers fixed):
+
+| # | Name | In | Out | `Object` default | `View` default |
+|---|---|---|---|---|---|
+| 0 | `M_DESTROY` | | | `K_FREE` self | Destroy each child, unlink from the parent, clear `K_FOCUS` / `K_CAPTURE` if they are self, `K_FREE` self |
+| 1 | `M_DRAW` | | | nothing | nothing (step 4 defines drawing) |
+| 2 | `M_EVENT` | DE = `K_EV` | carry = consumed | not consumed | not consumed |
+| 3 | `M_HITTEST` | BC = x, DE = y | carry = hit | no hit | hit when (x, y) is inside the view's rectangle |
+| 4 | `M_FOCUS` | | | nothing | nothing |
+| 5 | `M_BLUR` | | | nothing | nothing |
+
+**Base classes** (kernel, chunk 5):
+- **`Object`:** the class pointer only.
+- **`View` (Object), 16 bytes:**
+
+  | Field | Size | What |
+  |---|---|---|
+  | `View_parent` | word | Parent view (0 for the root) |
+  | `View_child` | word | First child (front-most) |
+  | `View_next` | word | Next sibling (behind this one) |
+  | `View_x` | word | Rectangle x (0..511) |
+  | `View_y` | byte | Rectangle y (0..191) |
+  | `View_w` | word | Rectangle width (0..512) |
+  | `View_h` | byte | Rectangle height (0..192) |
+  | `View_flags` | byte | Bit 0 focusable, bit 1 hidden, bit 2 disabled; bits 3-7 belong to the class |
+  | `View_id` | byte | Free for the app |
+
+  Coordinates are absolute screen pixels in step 3; step 4 decides whether they become window-relative.
+- **`Group` (View):** its `M_EVENT` routes pointer events to its children (section 6). Same fields.
+
+## 4. Arenas and pools
+
+An **arena** is a bump allocator over [base, end) with four pools (free lists of 8-, 16-, 24- and 32-byte blocks). Base and end are
+page aligned (low byte 0), so an address's arena is found from its high byte. Record (16 bytes, in `K_VARS`): +0 top, +2 end, +4
+base, +6 / +8 / +10 / +12 the free-list heads of the 8- / 16- / 24- / 32-byte pools (0 = empty), +14 a word that is always 0. Two arenas: **kernel** (`K_KARENA`, `$F100-$FAFF`) and **app** (`K_AARENA`).
+One is **current**; `K_NEW` and `K_ALLOC` take from it.
+
+- **`K_NEW`:** takes a block from the current arena's pool for the class's size (the head of its free list; if empty, a fresh block
+  of the pool's size from the arena top), writes the class pointer, zeroes the other bytes of the instance size. A class with pool
+  14 is bump-allocated exactly (its "head", +14, is always 0).
+- **`K_FREE`:** puts the block on the head of the right pool of the arena whose range holds it (the free list's link is the block's
+  first word). A pool 14 block is not reclaimed until its arena is reset. It sends no message.
+- **`K_ALLOC`:** raw bytes from the current arena top, never freed singly (buffers, documents).
+- **`K_ARESET`:** top = base, free lists empty. Clears `K_FOCUS`, `K_CAPTURE` and `K_ROOT` when they point into the arena. Sends
+  no `M_DESTROY` (the app is quitting).
+
+Allocation is deterministic: the model predicts every returned address (free lists are LIFO).
+
+## 5. Routines
+
+All preserve IY and the alternate set; IX is preserved unless it is an output. None executes `DI` or `EI`. Stack: at most 32
+bytes below the return address, except the routing routines and `View`'s `M_DESTROY` (128 bytes at tree depth 8).
+
+| Routine | In | Out / effect | Clobbers |
+|---|---|---|---|
+| `K_SEND` (`RST $08`) | IX self, A message, BC, DE | the method (section 3) | AF, HL before the method |
+| `K_AINIT` | HL = arena record, DE = base, BC = end | an empty arena | AF, BC, DE, HL |
+| `K_ARENA` | HL = arena record | the current arena | |
+| `K_ARESET` | HL = arena record | section 4 | AF, BC, DE, HL |
+| `K_NEW` | HL = class | IX = the instance, carry clear; carry set (IX unchanged) when the arena is full | AF, BC, DE, HL |
+| `K_FREE` | IX = instance | section 4 | AF, BC, DE, HL |
+| `K_ALLOC` | BC = bytes | HL = block, carry clear; carry set when full | AF, BC, DE |
+| `K_ADDCHILD` | IX = parent, DE = child | the child becomes the parent's **last** child (back-most); its `View_parent` is set | AF, BC, DE, HL |
+| `K_UNLINK` | IX = view | removed from its parent's list (no-op for a root); its own children stay | AF, BC, DE, HL |
+| `K_SETROOT` | DE = view or 0 | `K_ROOT` = DE; focus and capture cleared (no `M_BLUR`) | AF, DE, HL |
+| `K_POST` | A = type, C, E, D = data 1-3 | appended to the posted queue; carry set (dropped) when it is full | AF, HL |
+| `K_GETEV` | | carry set: no event. Else the next event is copied to `K_EV` (4 bytes), A = its type. Posted events come first, then the ring | AF, BC, DE, HL |
+| `K_DISPATCH` | `K_EV` | routes the event (section 6) | AF, BC, DE, HL |
+| `K_SETFOCUS` | DE = view or 0 | if DE differs from `K_FOCUS` and is 0 or focusable (not hidden, not disabled): `M_BLUR` to the old, `K_FOCUS` = DE, `M_FOCUS` to the new. Carry set (nothing changed) when DE cannot take focus | AF, BC, DE, HL |
+| `K_FOCUSNEXT` / `K_FOCUSPREV` | | the next / previous view that can take focus in pre-order under `K_ROOT`, wrapping; a hidden or disabled view's subtree is skipped. Nothing when none can | AF, BC, DE, HL |
+| `K_WARP` | HL = x, DE = y | the input's pointer position becomes the clamped (x, y) at the next frame (section 7); no event | AF, HL |
+| `K_POLL` | | the input part of the frame ISR (section 7); not called by programs | AF, BC, DE, HL |
+
+**The event loop** of a program: `K_GETEV`; if carry, `HALT` and repeat; else `K_DISPATCH` (or handle `K_EV` itself) and repeat.
+
+## 6. Events and routing
+
+**Record** (4 bytes): type, then data 1-3.
+
+| Type | Name | Data | Source |
+|---|---|---|---|
+| 1 | `E_KEY` | 1: key code (section 7); 2: bit 0 CAPS SHIFT, bit 1 SYMBOL SHIFT, bit 2 caps lock, bit 7 auto-repeat; 3: 0 | ISR |
+| 2 | `E_MOVE` | 1: x bits 0-7; 2: y; 3: bit 0 x bit 8, bit 1 button held | ISR |
+| 3 | `E_DOWN` | as `E_MOVE` | ISR |
+| 4 | `E_UP` | as `E_MOVE` | ISR |
+| 5 | `E_TIMER` | reserved | — |
+| 6, 7, 8 | `E_REDRAW`, `E_MENU`, `E_QUIT` | the poster's | `K_POST` |
+| 9 | `E_MODE` | 1: 1 = keyboard-pointer mode on, 0 = off; 2, 3: 0 | ISR |
+| 16-255 | the app's | the poster's | `K_POST` |
+
+**Queues.** The ring is filled only by the ISR and emptied only by `K_GETEV`: one producer, one consumer, no lock and no `DI`.
+The ISR writes the record, then advances the tail; `K_GETEV` copies the record, then advances the head. Programs post into the
+separate 4-entry posted queue, which the ISR never touches, so no producer races another. When the ring holds 16 events, a new
+ISR event is dropped and `K_LOST` (byte, saturating) counts it.
+
+**Move coalescing.** When the ring's last record is an `E_MOVE` and it is not the record at the head (which `K_GETEV` may be
+copying), a new `E_MOVE` overwrites it instead of being appended. So a slow program sees at most one move between other events,
+and moves never fill the ring.
+
+**Routing (`K_DISPATCH`):**
+- **`E_KEY`:** `M_EVENT` to `K_FOCUS` (to `K_ROOT` when there is no focus). Not consumed: to its parent, and so up to the root.
+  Still not consumed: the kernel's defaults. TAB and the down / right arrows: `K_FOCUSNEXT`. Back-TAB and up / left:
+  `K_FOCUSPREV`. Other keys are dropped.
+- **`E_DOWN`:** `M_EVENT` to `K_ROOT`. A `Group` sends `M_HITTEST` to its children front to back (hidden and disabled ones
+  skipped); the first hit child, if focusable, gets `K_SETFOCUS`, then the event. When a child consumes a DOWN and `K_CAPTURE` is
+  still 0, `K_CAPTURE` = that child (so the innermost view that consumed it wins).
+- **`E_MOVE`:** to `K_CAPTURE` when set; else routed as `E_DOWN` without the focus change and without capture.
+- **`E_UP`:** to `K_CAPTURE` when set, then `K_CAPTURE` = 0; else as `E_MOVE`.
+- **Others:** `M_EVENT` to `K_ROOT`.
+- Nothing is delivered when the target is 0. Routing depth is at most 8 views.
+
+## 7. The input ISR and the pointer
+
+**Frame ISR** (IM 1, `$0038`), in this order:
+1. save the registers; increment `V_FRAMES`;
+2. `$F4 = $33`; `P_ISR` (unchanged: the pointer deadline depends only on what comes before it);
+3. `K_POLL`;
+4. write the shadows back: `$F4`, and the AY register latch (`V_AYREG`);
+5. restore, `EI`, `RET`. Stack: at most 32 bytes with the return address (binding: `G_CLS`).
+
+**AY rule.** Boot sets AY register 7 bit 6 = 0 once. `K_POLL` selects register 14 to read the joystick; the ISR's item 4 puts
+the shadow latch back. Any other code that selects an AY register stores `V_AYREG` before the `OUT` (as `$F4`), so the ISR may arrive
+between select and access.
+
+**Keyboard** (port `$FE`):
+- One read with all rows selected; if no key is down and none was down last frame, the keyboard part ends (the idle path).
+- Otherwise all 8 half-rows are read and compared with last frame's 8 bytes. Each key that went down this frame gives an `E_KEY`,
+  in half-row order (`$FEFE` first, A8..A15), bit 0 to bit 4.
+- CAPS SHIFT and SYMBOL SHIFT are modifiers only. CS + SS pressed together with no other key toggles **keyboard-pointer mode**
+  and gives an `E_MODE` event (section 6), so the program can show the mode.
+- **Codes** come from a 3 x 40-byte table (plain, CS, SS) written by `tools/gen-keymap.mjs` from `src/kernel/keymap.txt`:
+  - plain: lower-case letters, digits, space, ENTER = 13;
+  - CS: upper-case letters; CS+5/6/7/8 = left 8, down 10, up 11, right 9; CS+0 = DELETE 12; CS+1 = ESC 27; CS+2 toggles caps lock (no event);
+    CS+3 = back-TAB 15; CS+4 = TAB 14; CS+9 = MENU 16; CS+SPACE = BREAK 3;
+  - SS: the TS2068 symbol where the key's legend shows an ASCII character; the rest of printable ASCII 33-126 spread over the
+    remaining SS keys. Every printable character is reachable with at most one modifier. The main model drafts `keymap.txt`; the
+    owner reviews it.
+  - Caps lock makes plain letters upper case.
+- **Auto-repeat:** the most recently pressed non-modifier key repeats after 30 frames held, then every 4 frames (bit 7 of data 2).
+  Releasing it stops the repeat; another held key does not take over.
+- In keyboard-pointer mode, no `E_KEY` is made: Q / A / O / P move the pointer and SPACE is the button.
+
+**Joystick 1** (AY register 14, active low, as `spike6`'s `live_input`, `docs/PROVENANCE.md`): all four directions at once reads
+as no input, fire included.
+
+**Pointer motion:** the directions of the joystick ORed with keyboard-pointer mode's keys. Acceleration exactly as `spike6` 17.5
+step 3 (`S_STEP[hold] = min(1 + floor(hold / 6), 6)`, hold 0..30, x moves 2s, y moves s, opposite directions cancel), clamped to
+0..511 x 0..191. The button is fire ORed with SPACE in keyboard-pointer mode. Per frame: a pending `K_WARP` replaces the position;
+then `E_MODE` if the mode toggled, the `E_KEY` events, `E_MOVE` if the position changed, `E_DOWN` or `E_UP` if the button changed
+(at the new position). The exact steps are 14.3.
+
+**Handing the position to the pointer.** The input owns the position (`K_PX`, `K_PY`). `K_POLL` hands it on with a new pointer
+routine, **`P_ISRMOVE`** (HL = x, DE = y, already clamped): called only from the ISR, after `P_ISR`; if `PT_LOCK` is held it
+returns carry and changes nothing, and `K_POLL` tries again next frame. Otherwise it sets the position and `PT_DIRTY`, so the next
+`P_ISR` draws it. Latency: input read in frame n's ISR is drawn by frame n+1's ISR. **Amends GRAPHICS_SPIKE 16.3:** from step 3
+on, programs call `K_WARP`, not `P_MOVE` (which stays internal to `P_INIT`).
+
+**The arrow (amends GRAPHICS_SPIKE 16.1).** `P_ARROW` is redrawn so the hot spot pixel (0, 0) is **ink**:
+- column 0 is ink for at least rows 0-10, so a pointer at x = 511 shows a line;
+- row 0 is ink at columns 0 and 1, so a pointer at y = 191 shows two thin pixels (one square pixel's width);
+- the paper outline stays on the right and lower sides (the left and top would fall outside the bitmap).
+
+Same size, format and pointer code, so the S4 bounds and tests carry over. The main model draws it; the owner reviews it by eye.
+
+## 8. Bounds (TSRun, T-states, direct call with a sentinel return, interrupts off unless stated)
+
+**The three headline numbers:**
+
+| Measure | Bound |
+|---|---|
+| **Bytes in the always-mapped pool:** `K_CODE_END - K_CODE` plus the chunk 0 bytes (`RST $08`, ISR) and the class, key-map and acceleration tables; **report** each part and the pool's free bytes after (11,739 before, CODE_SIZE 0) | <= 2,048 (**EST** about 1,500) |
+| **Message send:** `RST $08` to the method's first instruction | <= 100 (**EST** 87) |
+| **Per event:** an `E_KEY` through `K_GETEV` + `K_DISPATCH` to the focused view's handler (its first instruction), the event in the ring | <= 500 (**EST** 350) |
+
+**The rest:**
+
+| Measure | Bound |
+|---|---|
+| `K_NEW` of a 16-byte class: from the free list / from the arena top | <= 450 / <= 550 |
+| `K_FREE` | <= 250 |
+| `K_ALLOC` | <= 200 |
+| `K_POST` / `K_GETEV` (posted or ring) / `K_GETEV` empty | <= 200 / <= 250 / <= 100 |
+| `K_DISPATCH` `E_KEY`, each bubble level to a parent | <= 200 |
+| `K_DISPATCH` `E_DOWN` through a root `Group` of 8 `View` children, the last one hit (focusable, consumes), to its handler | <= 3,500 |
+| `K_SETFOCUS` (handlers that `RET`) | <= 500 |
+| `K_FOCUSNEXT` / `K_FOCUSPREV`, tree of 32 views, the worst start | <= 5,000 / <= 8,000 |
+| `K_POLL`: nothing pressed, joystick idle / a key held (no change) / the worst frame (a move, a button change, two new keys) | <= 300 / <= 900 / <= 2,000 |
+| Whole frame ISR, worst (`P_ISR` moving + `K_POLL` worst) | <= 9,500 |
+| Pointer deadline with the kernel ISR (GRAPHICS_SPIKE 16.7) | <= 8,960 |
+| S4's pointer bounds with the new `P_ARROW` | unchanged (16.7) |
+| ISR stack, return address included | <= 32 bytes |
+| `DI` in step 3 code (outside boot) | none |
+| Frame interrupts lost in every frame test | 0 |
+| Events lost with at most 16 in the ring | 0; the 17th is dropped and counted |
+| Kernel RAM: `$F000-$F0FF` used | **report** (bound: it fits) |
+| `P_ISRMOVE`, `K_WARP`, `K_ARESET`, direct `CALL` send | **report** |
+
+## 9. Tests (TSRun headless, Node, the pattern of `tests/gfx6-s4.mjs`)
+
+Written from this contract, never from the code. Each comparison is against a reference model, `tests/kern-model.mjs`: classes,
+arenas, queues, input decoding (key map, repeat, acceleration, keyboard-pointer mode), routing and focus.
+
+1. **Send:** every message to every class of the test cartridge; the method reached, IX / BC / DE intact, IY unchanged.
+2. **Allocation:** at least 5,000 random `K_NEW` / `K_FREE` / `K_ALLOC` / `K_ARENA` / `K_ARESET` steps a seed; every address
+   equals the model's; instances zeroed; out-of-memory carry at the exact step; RAM outside the arenas and `K_VARS` poisoned and
+   unchanged.
+3. **Queues:** interrupt injection at every instruction boundary of `K_GETEV`, `K_POST` and `K_DISPATCH`, with an ISR that adds an
+   event (and a coalescing move): no event lost, duplicated, torn or reordered. 17 events: one dropped, `K_LOST` = 1.
+4. **Input over frames:** keys pressed through TSRun's keyboard matrix and joystick, scripted over frames: each of the 40 keys
+   plain / CS / SS, caps lock, repeat timing, rollover order, keyboard-pointer mode, warp, acceleration paths to all four
+   edges. The event stream equals the model's exactly; the pointer is drawn at the model's position one frame later.
+5. **Routing and focus:** random trees (up to 32 views, depth up to 8, random flags) and random events, focus calls and
+   `M_DESTROY`s; the log of methods called (each test class records self, message and data) equals the model's.
+6. **Pointer with the ISR moving it:** injection at every boundary of `P_SHIELD`, `P_UNSHIELD` and a shielded `G_FILL` while the
+   joystick moves the pointer (`P_ISRMOVE` refused, then retried); after two more frames the display equals the model. The S4 flicker
+   test re-run with the position from the joystick.
+7. **Regression:** S1-S4, `gfx6-cls`, `hello`, `probe23` and `spike6` pass with the new `P_ARROW` (their models read it from the
+   image); `gfx6-perf` unchanged apart from reported pointer rows.
+8. **Frames:** `V_FRAMES` rises by exactly 1 per frame in every frame test.
+9. **Bounds:** section 8 as checks in `tests/kern-perf.mjs`, printed as a table (measured, bound, pass / MISSED / reported).
+10. **Cross-emulator:** the test cartridge's self-test (below) on ZEsarUX 13.0 and Fuse 1.9.1, its result screen identical to
+    TSRun's; on ZEsarUX also typed keys through ZRCP if it can send them (else reported as not run).
+
+## 10. Test cartridge `kern3` (`src/kern3.asm`, build target `kern3`, `web/?cart=kern3`)
+
+- **Boot** as `spike6` 17.3 with the kernel ISR, `K_AINIT` of both arenas, `P_INIT` (256, 96).
+- **Self-test** (runs at boot, the same on every emulator): builds a tree of test views, runs a fixed script of `K_POST`ed events,
+  focus calls and allocations, and draws a result screen (the log's checksum and PASS / FAIL in text). The record holds the state.
+- **Then live:** a few framed views drawn with gfx6 (the focused one inverted), a status line showing the last event, the pointer
+  on joystick 1 or keyboard-pointer mode. For the owner to try the keys, the focus moves and the new arrow.
+- **Script runner and symbols** as `gfx6t` 16.5, for direct calls.
+
+## 11. Slices and who does what (CLAUDE.md)
+
+| Slice | Content | Who |
+|---|---|---|
+| **K1** | `gen-classes.mjs`, `classes.txt`; `RST $08`; `Object` / `View` / `Group` with the non-routing defaults; arenas and pools; tests 1-2 | Z80: main model. Generator, model and tests: Sonnet, from this contract |
+| **K2** | Kernel ISR, `K_POLL`, `gen-keymap.mjs` and `keymap.txt` (draft by the main model), the queues, `P_ISRMOVE`, `K_WARP`, the new `P_ARROW`; tests 3, 4, 6, 7, 8 | as K1 |
+| **K3** | `K_DISPATCH`, routing, focus; `kern3`; tests 5, 9, 10; "As built"; FEASIBILITY updated | as K1; cross-emulator runners Sonnet; test runs Haiku |
+
+Each slice passes its tests before the next starts. The main model re-runs every agent's tests before reporting.
+
+## 12. Decisions (owner, 2026-11-11)
+
+1. **The posted queue** stays beside the 16-entry ring, so the ring has one producer and needs no `DI`. Posted events overtake
+   ring events already waiting; they are mostly consequences of input already handled.
+2. **Keyboard-pointer mode** (CS + SS toggles; Q / A / O / P / SPACE), with an `E_MODE` event so the program shows the mode.
+3. **The edit keys and the SS map** are a draft, judged by the owner in `kern3` after K2 (one generated text file).
+4. **A Fable review after K2**, narrow: `K_POLL`, `P_ISRMOVE` and the two queues, given the code and this contract.
+5. **Overnight run:** K1, K2, the review, K3. Each slice is committed once its tests pass and the main model has re-run them. A
+   missed bound is recorded with its numbers in "As built", the bound unchanged, and work that does not depend on it goes on.
+
+## 13. K1 interface (designed 2026-11-11, binding for the K1 code, generator and tests)
+
+Fills in what sections 2-5 leave open for slice K1. The tests are written from sections 2-5, 8 and this section, never from the code.
+
+### 13.1 Files and build
+
+| File | What |
+|---|---|
+| `src/kernel/kernel.asm` | Kernel code and variable `EQU`s. Included by `kern3.asm` in chunk 5 between `K_CODE` and `K_CODE_END` |
+| `src/kernel/send.asm` | The dispatcher, assembled at `$0008` (`K_SEND`, 14 bytes, runs into `$0010-$0015`) |
+| `src/kernel/classes.txt` | The kernel's classes (`Object`, `View`; `Group` comes in K3) |
+| `src/kern3.asm`, `src/kern3-classes.txt` | The test cartridge and its test classes |
+| `tools/gen-classes.mjs` | The generator (13.2). `tools/build.mjs` runs it for a target with a `classes` list, as it runs the table generators |
+
+Build target `kern3`: `{ src: 'src/kern3.asm', chunks: [0, 1, 4, 5], tables: true, classes: ['src/kernel/classes.txt',
+'src/kern3-classes.txt'] }`. For each listed file the generator writes `build/kern3/<basename>.inc` (`kernel/classes.txt` gives
+`classes.inc`, `kern3-classes.txt` gives `kern3-classes.inc`) and one `build/kern3/classes.json` for all of them. `build.mjs` adds
+`-I build/<target>` to sjasmplus's include paths. Generated files are never hand-edited and not committed.
+
+### 13.2 The class file and the generator
+
+```
+# comment (also after any line)
+class Object                     # a root class: no parent
+  method Destroy obj_destroy     # a new message, or an override when an ancestor defines the name
+  method Draw    k_nop
+class View : Object              # single parent, defined earlier (in this file or an earlier file of the list)
+  field parent 2                 # name, size in bytes (1..253)
+  method HitTest view_hittest    # override
+```
+
+- **Fields** are laid out in order after the parent's (offset 0 is the class pointer). Instance size = 2 + all fields of the class
+  and its ancestors; over 255 is an error.
+- **Messages:** a `method` whose name no ancestor defines is a new message, numbered after the parent's count (the root's first
+  is 0). A name defined twice on one path, or as a new message in two classes (siblings included), is an error. Numbers may repeat
+  across siblings under different names.
+- **Pool** (the descriptor's byte -1, section 3): 6 / 8 / 10 / 12 for sizes up to 8 / 16 / 24 / 32, else 14.
+- **Class id:** 1, 2, 3, ... in order of definition over the whole list of files.
+
+**Output** for each class, in order of definition (sjasmplus):
+
+```
+; class View : Object
+    IF ((($ + 6) & $FF) + 2 * 6) > 256    ; the method table must not cross a page
+    ALIGN 256, 0
+    ENDIF
+    DW CL_Object                          ; -6 parent (DW 0 for a root)
+    DB 2, 6, 16, 8                        ; -4 id, -3 count, -2 size, -1 pool
+CL_View:
+    DW obj_destroy, k_nop, k_nop, view_hittest, k_nop, k_nop
+```
+
+and in the same `.inc`, after the classes: `M_<NAME> EQU n` for each message defined in this file (the name in upper case:
+`Destroy` gives `M_DESTROY`), `<Class>_<field> EQU offset` for each field the class defines, `<Class>_SIZE EQU size` for each
+class. `classes.json`: `{ messages: { NAME: n }, classes: [{ name, id, parent, size, pool, fields: [{ name, offset, size }],
+methods: [{ n, name, label }] }] }` (methods flattened, in slot order).
+
+### 13.3 The kernel classes (`src/kernel/classes.txt`)
+
+- **`Object`:** no fields. Messages 0-5 of section 3 in that order. Destroy `obj_destroy` (= `K_FREE`), the others `k_nop`
+  (`OR A`, `RET`: carry clear).
+- **`View : Object`:** fields `parent` 2, `child` 2, `next` 2, `x` 2, `y` 1, `w` 2, `h` 1, `flags` 1, `id` 1 (offsets 2, 4, 6, 8,
+  10, 11, 13, 14, 15; size 16). Destroy `view_destroy`, HitTest `view_hittest`.
+
+**`view_destroy`**, exactly: while `View_child` is not 0, send `M_DESTROY` to that child (a child's destroy unlinks it, so the
+loop ends); then `K_UNLINK` self; then each of `K_FOCUS`, `K_CAPTURE`, `K_ROOT` that equals self becomes 0; then `K_FREE` self.
+**Rule:** a View subclass that overrides `M_DESTROY` ends by jumping to `view_destroy`.
+
+**`view_hittest`:** BC = x, DE = y (unsigned words). Hit (carry set) when `x - View_x` is in 0..`View_w`-1 and `y - View_y` is in
+0..`View_h`-1, as unsigned 16-bit differences (y with D = 0; D > 0 is a miss). Flags are not consulted.
+
+### 13.4 Exactly what each routine writes (the model predicts every byte)
+
+| Routine | Writes |
+|---|---|
+| `K_AINIT` | The 16-byte record: top = base, end, base, all heads and +14 = 0. Base and end are page aligned, base <= end. All of [base, end) = 0 |
+| `K_ARENA` | `K_CURA` |
+| `K_ARESET` | top = base, the four heads = 0; all of [base, end) = 0; `K_FOCUS` / `K_CAPTURE` / `K_ROOT` = 0 when their high byte is in [base high, end high) |
+| `K_NEW` | From a non-empty free list: the head = the block's first word; the block's first `size` bytes = class pointer, then zeros. From the arena: top += block size (the pool's 8 / 16 / 24 / 32, or exactly `size` for pool 14); the block's first word = the class pointer (the rest is already 0, below). Full (the block size > end - top): nothing |
+| `K_FREE` | Pool 14: nothing. Else the block's first word = the head, the head = the block, in the record of the app arena when the block's high byte is in [app base high, app end high), else the kernel arena's |
+| `K_ALLOC` | top += BC (the block is already 0). Full (BC > end - top): nothing |
+| `K_ADDCHILD` | Child: `View_parent` = parent, `View_next` = 0. The last link of the parent's list (its `View_child` when empty, else the last child's `View_next`) = child |
+| `K_UNLINK` | No parent: nothing. Else the link that pointed at the view (the parent's `View_child` or the previous sibling's `View_next`) = the view's `View_next`; then the view's `View_parent` and `View_next` = 0. The view must be in its parent's list |
+| `K_SETROOT` | `K_ROOT` = DE, `K_FOCUS` = `K_CAPTURE` = 0 |
+
+**Invariant (amended in K1, so `K_NEW` from the top meets its bound):** every byte in [top, end) of an arena is 0. `K_AINIT`
+and `K_ARESET` zero the arena; nothing else writes above top. So `K_NEW` from the top writes only the class pointer, and
+`K_ALLOC` returns zeroed memory. A program that writes past its block breaks this, as it would corrupt a neighbour anyway.
+
+### 13.5 Memory (`$F050-$F07F` in K1)
+
+| Address | Name | What |
+|---|---|---|
+| `$F050` | `K_KARENA` | The kernel arena's record |
+| `$F060` | `K_AARENA` | The app arena's record |
+| `$F070` | `K_CURA` | Word: the current arena's record |
+| `$F072` | `K_FOCUS` | Word |
+| `$F074` | `K_CAPTURE` | Word |
+| `$F076` | `K_ROOT` | Word |
+| `$F078-$F07F` | | Kernel scratch (K1 may write it) |
+
+### 13.6 Test cartridge `kern3` (K1)
+
+- **Boot** as `gfx6t` (12.4: clears `$E000-$FFFF` and the display, mode 6, `G_INIT`, the same ISR), then `K_AINIT` kernel arena
+  [`$F100`, `$FB00`) and app arena [`$C000`, `$E000`), `K_ARENA` app, record state 1, `T_IDLE`. No `P_INIT`.
+- **Symbols** (from `build/kern3/out.sym`): `K_SEND`, `K_AINIT`, `K_ARENA`, `K_ARESET`, `K_NEW`, `K_FREE`, `K_ALLOC`,
+  `K_ADDCHILD`, `K_UNLINK`, `K_SETROOT`, `K_KARENA`, `K_AARENA`, `K_CURA`, `K_FOCUS`, `K_CAPTURE`, `K_ROOT`, `K_CODE`,
+  `K_CODE_END`, `obj_destroy`, `view_destroy`, `view_hittest`, `k_nop`, every `CL_*`, `M_*` and field `EQU`, `T_SEND`, `T_LOG`,
+  `T_LOGN`, `T_IDLE`, `T_RET`, `RESULT`, `V_FRAMES`, and the test methods below.
+- **`T_SEND`:** `RST $08`, `RET`. Tests call it to send (IX, A, BC, DE as for `K_SEND`).
+- **Test classes** (`src/kern3-classes.txt`):
+
+  | Class | Parent | Fields | Methods |
+  |---|---|---|---|
+  | `TLog` | `View` | `tag` 1 (size 17) | Destroy `t_destroy`, Draw `t_draw`, Event `t_event`, HitTest `t_hittest`, Focus `t_focus`, Blur `t_blur`, new `Poke` `t_poke` |
+  | `TLog2` | `TLog` | | Draw `t_draw2`, new `Poke2` `t_poke2` |
+  | `TSz8`, `TSz9`, `TSz16`, `TSz24`, `TSz32`, `TSz33`, `TSz40`, `TSz255` | `Object` | `pad` of size - 2 | none |
+
+- **The log** (`T_LOG` = `$E800`, 256 records of 8 bytes, `$E800-$EFFF`; `T_LOGN` a word at `$E090`, records written so far,
+  record k at `T_LOG + 8 * (k mod 256)`): each test method writes one record and increments `T_LOGN`: +0 a code, +1 IX low, +2 IX
+  high, +3 C, +4 B, +5 E, +6 D, +7 `TLog_tag` of self. The code is the message number, plus `$80` for `t_draw2` and `t_poke2`.
+  - `t_event` returns carry = tag bit 0, `t_hittest` carry = tag bit 1, the others carry clear.
+  - `t_destroy` logs, then jumps to `view_destroy`.
+  - Test methods preserve IX and IY.
+
+### 13.7 How the K1 bounds are measured (section 8)
+
+| Measure | How |
+|---|---|
+| Message send | Call `T_SEND` with interrupts off; step until PC = the method's address; the T-states from `T_SEND`'s first instruction. The worst over every class and message of `kern3` |
+| `K_NEW` 16-byte class (`TSz16`), from the free list / the arena top | Direct call; the worst over 20 calls each, in both arenas |
+| `K_FREE`, `K_ALLOC` | Direct call; the worst over 20 calls each (`K_FREE` of blocks of every pool in both arenas, and of `TSz40`; `K_ALLOC` of 0, 1, 255, 4,000 bytes, and a full arena) |
+| Report | `K_NEW` of `TSz255`; `K_AINIT`, `K_ARESET`, `K_ADDCHILD` (at child counts 0, 1, 8), `K_UNLINK` (first, last of 8), `view_hittest` (hit, miss), `view_destroy` of a leaf and of a tree of 8 |
+| Bytes | `K_CODE_END - K_CODE` plus 14 (`K_SEND`): report, with K1's share of section 8's 2,048 |
+| Stack | Poison below the return address: 32 bytes for all K1 routines; 128 for `view_destroy` of a tree of depth 8 |
+
+## 14. K2 interface (designed 2026-11-11, binding for the K2 code, generator and tests)
+
+Fills in what sections 6 and 7 leave open for slice K2: the queues, the input ISR, the pointer hand-over and the new arrow. The
+tests are written from sections 2, 5-9, 13 and this section, never from the code.
+
+### 14.1 Memory (adds to 13.5)
+
+| Address | Name | What |
+|---|---|---|
+| `$F000-$F03F` | `K_RING` | 16 records. Record of index i at `K_RING + (i AND $3F)` |
+| `$F040-$F04F` | `K_POSTQ` | 4 records |
+| `$F080` | `K_RHEAD` | Byte, written only by `K_GETEV`: the ring's head, free running in steps of 4 (mod 256) |
+| `$F081` | `K_RTAIL` | Byte, written only by the ISR: the tail, the same way. Empty when head = tail; full when tail - head = 64 (mod 256). All 16 records are usable |
+| `$F082` | `K_PHEAD` | Byte 0..3: the posted queue's first record |
+| `$F083` | `K_PN` | Byte 0..4: records in the posted queue. Record k (k < `K_PN`) at `K_POSTQ + 4 ((K_PHEAD + k) AND 3)` |
+| `$F084` | `K_LOST` | Byte: ISR events dropped because the ring was full, saturating at 255 |
+| `$F085` | `K_AYREG` | The AY register latch's shadow (section 7) |
+| `$F086-$F089` | `K_EV` | The event `K_GETEV` returned |
+| `$F08A` | `K_PX` | Word: the input's pointer x (0..511) |
+| `$F08C` | `K_PY` | Byte: y (0..191) |
+| `$F08D` | `K_BTN` | Byte: the button, 0 or 1, as of the last `K_POLL` |
+| `$F08E` | `K_KPMODE` | Byte: 1 in keyboard-pointer mode, else 0 |
+| `$F08F` | `K_CAPS` | Byte: 1 with caps lock on, else 0 |
+| `$F090-$F0BF` | | `K_POLL`'s and `K_WARP`'s internal state (not part of the interface) |
+
+Boot sets `K_PX` / `K_PY` to the position it gives `P_INIT`, and everything else here to 0 (internal state to its idle values).
+
+### 14.2 The queues
+
+- **`K_GETEV`:** if `K_PN` > 0, copies record `K_PHEAD` of the posted queue to `K_EV`, `K_PHEAD` = (+1) AND 3, `K_PN` -= 1.
+  Else if `K_RHEAD` != `K_RTAIL`, copies the ring record at `K_RHEAD` to `K_EV`, then `K_RHEAD` += 4. Else carry set, nothing
+  written. A = `K_EV`'s type when an event is returned.
+- **`K_POST`:** if `K_PN` = 4, carry set, nothing written. Else the record at `K_POSTQ + 4 ((K_PHEAD + K_PN) AND 3)` = A, C, E,
+  D; `K_PN` += 1.
+- **ISR append** (`K_POLL`): when tail - head = 64, `K_LOST` += 1 (not past 255) and nothing else. Else the record at `K_RTAIL` is
+  written, then `K_RTAIL` += 4.
+- **Coalescing** (section 6): an `E_MOVE` overwrites data 1-3 of the record at `K_RTAIL - 4` instead of being appended when
+  tail - head >= 8 and that record's type is `E_MOVE`. The type byte is not rewritten and `K_RTAIL` does not change.
+
+### 14.3 `K_POLL`, exactly
+
+State kept between frames: the 8 half-rows seen last time (`old`), the button, hold (0..30), the repeat (key, code, modifiers,
+count), keyboard-pointer mode, caps lock, and whether the pointer still has to be told the position (`pend`).
+
+1. **Warp:** if a `K_WARP` (x, y) is pending, (`K_PX`, `K_PY`) = (x, y) and `pend` = 1. No event.
+2. **Keyboard.** Half-row r = 0..7 is port `$FE` read with the address high byte `$FE`, `$FD`, `$FB`, `$F7`, `$EF`, `$DF`,
+   `$BF`, `$7F`; bit b = 0..4 down when 0. Key index k = 5 r + b (the Spectrum matrix: 0 CAPS SHIFT, 1 Z, 2 X, 3 C, 4 V, 5 A ...
+   9 G, 10 Q ... 14 T, 15 1 ... 19 5, 20 0, 21 9, 22 8, 23 7, 24 6, 25 P, 26 O, 27 I, 28 U, 29 Y, 30 ENTER, 31 L, 32 K, 33 J,
+   34 H, 35 SPACE, 36 SYMBOL SHIFT, 37 M, 38 N, 39 B).
+   - If no key is down now and none was down last time, skip to step 3 (`new` = all up).
+   - CS = key 0 down now, SS = key 36 down now. **Newly down** = down now and not in `old`.
+   - **Mode toggle:** if CS and SS are both down, no other key is down, and at least one of them is newly down: `K_KPMODE` ^= 1,
+     append `E_MODE` (data 1 = the new mode, data 2, 3 = 0), and cancel the repeat.
+   - **Keys** (only when `K_KPMODE` = 0): for each newly down key k other than 0 and 36, in increasing k: the plane is SS if SS is
+     down, else CS if CS is down, else plain; code = `KEYMAP[plane][k]` (14.4).
+     - Code 0: nothing. Code 1 (caps lock): `K_CAPS` ^= 1, no event, the repeat is cancelled.
+     - Otherwise: if the plane is plain, `K_CAPS` = 1 and the code is `a`..`z`, the code becomes upper case. Append `E_KEY`
+       (data 1 = code, data 2 = bit 0 CS, bit 1 SS, bit 2 `K_CAPS`, data 3 = 0). The repeat becomes (k, code, data 2, count 30).
+   - **Repeat:** if a repeat is set and no key was newly down this frame (other than CS and SS): if its key is not down now, it is
+     cancelled; else count -= 1, and at 0 append `E_KEY` (its code, its data 2 OR `$80`) and count = 4. (So a key first seen
+     down in frame n repeats in frames n + 30, n + 34, ...)
+   - `old` = now.
+3. **Joystick:** AY register 14 read with the address high byte 1 (port `$F6`), active low: bit 0 up, 1 down, 2 left, 3 right,
+   7 fire. All four directions down reads as nothing (fire included). `K_POLL` selects register 14 itself; the ISR puts
+   `K_AYREG` back afterwards (section 7).
+4. **Directions and button:** u, d, l, r, fire from the joystick, ORed in keyboard-pointer mode with Q (key 10), A (5), O (26),
+   P (25), SPACE (35) down now.
+5. **Move:** if any of u, d, l, r: s = min(1 + floor(hold / 6), 6), hold = min(hold + 1, 30); else s = 0 and hold = 0.
+   x = clamp(`K_PX` + 2 s (r - l), 0, 511), y = clamp(`K_PY` + s (d - u), 0, 191). If (x, y) differs from (`K_PX`, `K_PY`):
+   store it, `pend` = 1, append `E_MOVE` (coalescing, 14.2).
+6. **Button:** if fire differs from `K_BTN`: `K_BTN` = fire, append `E_DOWN` (fire = 1) or `E_UP`.
+   Data of `E_MOVE`, `E_DOWN` and `E_UP`: 1 = `K_PX` low, 2 = `K_PY`, 3 = bit 0 `K_PX` bit 8, bit 1 `K_BTN` **after step 6**.
+7. **Pointer:** if `pend`: `P_ISRMOVE` (`K_PX`, `K_PY`); `pend` = 0 unless it returned carry.
+
+**Event order within a frame:** `E_MODE`, the `E_KEY`s in key order, a repeat `E_KEY`, `E_MOVE`, `E_DOWN` / `E_UP`. (This
+replaces section 7's order: the keys are read first so the mode toggle applies to the same frame's motion.)
+
+### 14.4 The key map (`src/kernel/keymap.txt` -> `build/<target>/keymap.inc`)
+
+`tools/gen-keymap.mjs` (run by `build.mjs` for a target with `keymap: 'src/kernel/keymap.txt'`) writes `KEYMAP`: 120 bytes, plain
+codes for k = 0..39, then CS, then SS (`KEYMAP + 40 plane + k`). The text file has one line per key in matrix order (40 lines,
+`#` comments): the key's name, then the plain, CS and SS entries. An entry is a single printable character (itself), `-` (code 0),
+or a name: `ENTER` 13, `LEFT` 8, `RIGHT` 9, `DOWN` 10, `UP` 11, `DELETE` 12, `TAB` 14, `BACKTAB` 15, `MENU` 16, `ESC` 27,
+`BREAK` 3, `CAPS` 1, `SPACE` 32, `HASH` 35 (`#`), `DASH` 45 (`-`). The generator checks 40 lines in matrix order, keys 0 and 36
+all `-`, and that every printable ASCII character 32..126 appears at least once. Codes are the kernel's own (`K_` names in
+`desktop.json` later), not ASCII below 32.
+
+### 14.5 Routines (adds to section 5)
+
+| Routine | In | Effect | Clobbers |
+|---|---|---|---|
+| `K_WARP` | HL = x, DE = y (signed words) | clamps; the next `K_POLL` takes it (14.3 step 1). Lock-free: it clears its own pending flag, writes x and y, then sets the flag | AF, HL |
+| `K_POLL` | | 14.3. Called only by the ISR, after `P_ISR`, with the display mapped; uses at most 20 bytes of stack below its return address | AF, BC, DE, HL |
+| `P_ISRMOVE` | HL = x (0..511), E = y (0..191) | if `PT_LOCK` is set: carry, nothing. Else the pointer's position = (x, y) and `PT_DIRTY` set, carry clear. Only from the ISR, after `P_ISR` | AF |
+
+`P_MOVE` stays (it is `P_INIT`'s second half) but programs no longer call it (section 7).
+
+### 14.6 The arrow
+
+`P_ARROW` becomes (pair format, `#` ink, `o` paper, `.` transparent):
+
+```
+##o.............    #######o........    #####ooooooo....    ...o###o........
+###o............    ########oo......    ##o###o.........    ....o###o.......
+####o...........    ##########o.....    #oo###o.........    ....ooooo.......
+#####oo.........    ###########o....    o.oo###o........    ................
+```
+
+(rows 0-3 in the first column, 4-7 in the second, and so on). Ink at (0, 0), column 0 ink for rows 0-10, row 0 ink at columns
+0-1.
+
+### 14.7 Test cartridge `kern3` (K2 additions)
+
+- **Boot** adds: `P_INIT` (256, 96), `K_PX` = 256, `K_PY` = 96, `K_AYREG` = 0 (boot's AY loop leaves register 0 selected).
+- **ISR:** saves AF, BC, DE, HL; `V_FRAMES` += 1; `$F4 = $33`; `P_ISR`; `T_ISRP:` `K_POLL`; `T_POLLD:` writes `V_SHADOW_F4` to
+  `$F4` and `K_AYREG` to the AY latch; restores; `EI`; `RET`.
+- **`T_EVLOOP`:** `EI`, then forever: `K_GETEV`; on an event, append `K_EV` to `T_EVLOG` (`$5800`, 512 records of 4 bytes,
+  record n at `$5800 + 4 (n mod 512)`) and increment the word `T_EVN` (`$E092`); with no event, `HALT`.
+- **Symbols** add: `K_POLL`, `K_WARP`, `K_GETEV`, `K_POST`, `P_ISRMOVE`, `KEYMAP`, `T_ISRP`, `T_POLLD`, `T_EVLOOP`, `T_EVLOG`,
+  `T_EVN`, and those of 14.1.
+
+### 14.8 How the K2 bounds are measured (section 8)
+
+| Measure | How |
+|---|---|
+| Per event (`E_KEY`) | K3 (it includes `K_DISPATCH`). K2 reports `K_GETEV` |
+| `K_POST` / `K_GETEV` | Direct call; the worst over every queue state (posted 0-4 records, ring 0-16, both wrapping) |
+| `K_POLL` idle / key held / worst | Direct call, interrupts off, input set in TSRun's keyboard and joystick state first, `K_POLL`'s state prepared by earlier calls. Idle: no key, joystick idle, nothing pending. Held: one key held since an earlier call, its repeat count not at 1. Worst: the worst over frames that move at full speed into an edge, change the button and press two keys at once, with the pointer locked and unlocked |
+| Whole ISR / deadline | Over the frame tests (section 9 test 4 and 6): the ISR's T and the `T_ISRP` offset, as GRAPHICS_SPIKE 16.6 |
+| `P_ISR` bounds with the new arrow | GRAPHICS_SPIKE 16.7, re-run |
+
+## 16. As built
+
+### 16.1 Slice K1 (2026-11-12)
+
+**Result: every K1 bound passes.** Interface: section 13, with one amendment made during K1 (13.4: arenas are kept zeroed, so
+`K_NEW` from the arena top writes only the class pointer; without it that path was estimated, not measured, at about 600 T against 550).
+
+| Measure (13.7) | Measured | Bound | Result |
+|---|---|---|---|
+| Message send, `RST $08` to the method | 87 | <= 100 | pass |
+| `K_NEW` 16-byte class, from the free list / from the arena top | 437 / 351 | <= 450 / <= 550 | pass (13 T margin on the free list) |
+| `K_FREE` | 243 | <= 250 | pass |
+| `K_ALLOC` | 181 | <= 200 | pass |
+| `K_AINIT` / `K_ARESET` of the 8 KB app arena (they zero it with `LDIR`) | 172,424 / 172,669 | report | about 3 frames, interrupts on |
+| `view_hittest` hit / miss in x | 186 / 76 | report | |
+| `view_destroy` of a leaf / of a root with 7 children | 594 / 7,944 | report | |
+| Stack: every K1 routine / `view_destroy` of a chain of depth 8 | at most 4 / 32 bytes | 32 / 128 | pass |
+| Bytes: `K_CODE_END - K_CODE` + `K_SEND` | 588 + 14 = **602** | report (2,048 for step 3) | |
+
+**How K1 is built** (`src/kernel/kernel.asm`, `send.asm`):
+- `K_SEND` is 10 instructions at `$0008`: the class pointer, `ADD A,A`, `ADD A,L`, two loads, `JP (HL)`. The page rule on method
+  tables makes `INC L` enough.
+- `K_NEW` zeroes a reused block by jumping into an unrolled chain of 30 `LD (DE),A` / `INC DE` (13 T a byte) at the start of
+  `K_CODE` (`ZCHAIN`, page aligned). The descriptor's pool byte is the head's offset in the arena record, so the head is one
+  `ADD A,L` away. A class over 32 bytes has offset 14, a head that is always 0, so it always takes the arena-top path.
+- `K_FREE` finds the arena from the block's high byte against the app arena's page-aligned base and end.
+
+**Tests** (`tests/kern-model.mjs`, `kern-lib.mjs`, `kern-k1.mjs`, `kern-perf.mjs`; `tests/gen-classes.mjs` for the generator):
+- Written by a Sonnet agent from sections 2-5, 8 and 13, without reading the Z80.
+- Every call runs with interrupts on and random registers. After every call the machine's RAM (display, `$C000` up to the stack
+  guard, the record) is compared byte for byte with the model.
+- About 115,000 assertions a seed: 5,000 allocation steps, random trees with destroys, every message to every class, hit-test
+  edges.
+- Passes on seeds 1, 2, 3 (20,000 steps) for the agent and seed 4 for the main model.
+- **Mutations** (the main model): `K_FREE` always to the kernel arena gave 10 failures in 3 tests; `view_hittest` comparing with
+  the wrong byte gave 4. Both were caught.
+
+**Readings the test agent made** (they match the code):
+- A nested `M_DESTROY` leaves BC and DE unspecified in the log.
+- `K_ARENA` preserves every register.
+- "A tree of 8" is a root with 7 children.

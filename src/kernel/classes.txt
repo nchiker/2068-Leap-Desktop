@@ -1,0 +1,21 @@
+# Kernel classes (docs/OBJECTS_EVENTS.md 13.3). Read by tools/gen-classes.mjs.
+class Object
+  method Destroy obj_destroy
+  method Draw    k_nop
+  method Event   k_nop
+  method HitTest k_nop
+  method Focus   k_nop
+  method Blur    k_nop
+
+class View : Object             # 16 bytes
+  field parent 2
+  field child  2
+  field next   2
+  field x      2
+  field y      1
+  field w      2
+  field h      1
+  field flags  1                # bit 0 focusable, bit 1 hidden, bit 2 disabled
+  field id     1
+  method Destroy view_destroy
+  method HitTest view_hittest
