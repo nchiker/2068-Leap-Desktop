@@ -1,4 +1,4 @@
-# The shell and the launcher: contract (draft 1, 2026-11-12, for the owner)
+# The shell and the launcher: contract (draft 2, 2026-11-12, owner approved)
 
 Roadmap step 5 (`docs/FEASIBILITY.md`), moved ahead of the toolkit's T2 and T3 (owner, 2026-11-12) so that a complete desktop
 with Calculator comes first. One application at a time (FEASIBILITY 3; BANKING 9 decision 4). Marks as in FEASIBILITY:
@@ -125,14 +125,90 @@ Programs call both through `KFAR`. Interrupts stay on throughout. There is no `D
    - the shell's boot screen identical on TSRun, ZEsarUX 13.0 and Fuse 1.9.1;
    - on ZEsarUX, a key-driven launch of Calculator, a calculation, and Quit back to the shell, each screen identical to TSRun's.
 
-## 9. Decisions for the owner
+## 9. Decisions (owner, 2026-11-12)
 
-1. **A window of icons now; icons on the desk itself later** (section 1). **Recommended.** It needs no kernel change.
-2. **One program at a time, nothing kept across a switch.** Calculator starts at 0 again each time. **Recommended:** it is what
-   was decided for programs, and it keeps the launcher small.
-3. **Opening:** double-click (within 20 frames), ENTER, or the "Leap" menu. **Recommended:** all three.
-4. **Quitting:** a "Quit" item in each program's menu (no close boxes yet). **Recommended.**
-5. **Icons:** 32 x 16 bitmaps that the main model draws in `icons.txt` (a Calculator and a "controls" picture). The owner
-   reviews them on screen.
-6. **The Controls demo becomes a program** (program 2), out of Calculator's menu. **Recommended:** each program owns its
-   menu, and the demo grows with T2 and T3.
+1. **A window of icons now;** icons on the desk itself later.
+2. **One program at a time,** nothing kept across a switch.
+3. **Opening:** double-click (within 20 frames), ENTER, or the "Leap" menu.
+4. **Quitting: a close box,** not a menu item (the owner's question: "would adding a close box make it easier").
+   - **Calculator and Controls have no menu.** Calculator's "Clear" and "Clear entry" only repeated its C and CE buttons. While
+     they run the menu bar is empty.
+   - The close box is `CWindow`, a toolkit `Window` subclass (10.1). The kernel's `Window` is unchanged, so `kern3` / `kern4`
+     are too.
+   - **From the keyboard: SYMBOL SHIFT + Q** ("Quit") closes the front `CWindow`. A new key code `CLOSE` (17) goes in the key
+     map's free SS slot of Q.
+   - SYMBOL SHIFT + X (the owner's other choice) holds `` ` ``. X's £ legend is not ASCII, and the key map must hold every
+     printable ASCII character, so X would cost one.
+5. **Icons:** 32 x 16 bitmaps that the main model draws in `src/apps/icons.txt`; the owner reviews them on screen.
+6. **The Controls demo becomes program 2.**
+
+Sections 1, 4 and 5 above are amended by 10: no "Quit" menu items; Calculator and Controls have no menu.
+
+## 10. Shell slice interface (designed 2026-11-12, binding for the code and the tests)
+
+### 10.1 `CWindow` (`Window`; no new fields; flags bit 5 = the close box pressed, internal) and `TK_DISPATCH`, in `tk.asm`
+
+- **Draw:**
+  1. `window_draw` (WINDOWS 14.3, 17.5): the frame, the title bar, the content, then the children.
+  2. Then, only when the window has the **active** look (it is in front), the close box at the right end of the title bar,
+     with (x, y, w) the window's:
+     - `CLR` fill (x + w - 19, y + 1, 15, 7);
+     - `SET` frame (x + w - 18, y + 2, 13, 5).
+
+  The title must end before x + w - 21 (binding on programs).
+- **Pressed look:** `XOR` fill (x + w - 17, y + 3, 11, 3). It is drawn directly by the event handler with the clip set to the
+  box, shielded, then the clip set back to the whole screen, as `W_DRAG` does (WINDOWS 17.4).
+- **`E_DOWN`** on the front `CWindow` inside (x + w - 19, y + 1, 15, 7) starts **tracking**, a loop like `W_DRAG`'s:
+  - the box is pressed;
+  - `E_MOVE`: the pressed look follows whether the point is inside the box;
+  - `E_UP`: if it is pressed, it is released and the window is **closed by the user**;
+  - anything else is dropped.
+
+  Consumed. Every other event goes to `window_event`.
+- **Closed by the user:** `E_CMD` is posted as `Button`'s (WINDOWS 17.3): C = the window's `View_id`, E = its slot. The
+  program decides what closing means. Calculator and Controls quit to the shell.
+- **`TK_DISPATCH`** (in place of `K_DISPATCH`, for programs):
+  - an `E_KEY` with code `CLOSE` (17), when `W_FRONT` is a `CWindow`: closed by the user, as above;
+  - otherwise not consumed, so it is dropped;
+  - every other event: `K_DISPATCH`.
+
+### 10.2 The key map
+
+`src/kernel/keymap.txt`: Q's SYMBOL SHIFT entry becomes `CLOSE`. `tools/gen-keymap.mjs` learns the name `CLOSE` = 17, and so do
+the step 3 tests' key-map readers. That is the only change to `kern3` and `kern4`: one byte of `KEYMAP`.
+
+### 10.3 The launcher (`src/kernel/launch.asm`; section 3)
+
+- **`K_LAUNCH`:** A = a program number, below `K_NPROGS`.
+- **`K_PROGS`:** the cartridge's table, a word per program. The first is the shell's start.
+- **`K_QUIT`:** `K_LAUNCH` 0.
+- **The stack:** SP = `$FF00` (the stack's top) at step 1.
+- **A program's start** (in DOCK 2-3, under A):
+  1. copy its image to `$C000`;
+  2. `MB_SET` (its menu, or 0);
+  3. build and `W_OPEN` its windows;
+  4. `K_MSET` 1;
+  5. run its event loop, which uses `TK_DISPATCH`.
+
+### 10.4 The shell
+
+- **The window** "Leap Desktop" is a plain `Window` (the shell is not closed) at (32, 24, 256, 80).
+- **Icons**, `Icon` views 48 x 26:
+  - "Calculator" at (48, 40), program 1;
+  - "Controls" at (112, 40), program 2.
+- **An icon's bitmap** is drawn at (x + 8, y) by `G_BLIT`. The set is built by `tools/gen-icons.mjs` from `src/apps/icons.txt`:
+  - 32 x 16 pixels, `#` ink and `.` paper;
+  - opaque: mask 0;
+  - copy 0 only (ws = 5 pairs a row, 160 bytes).
+- **The name** is centred at (x + floor((48 - tw) / 2), y + 17).
+- **Selected** (= focused, `K_FOCUS` = the icon): `XOR` fill of (tx - 2, y + 17, tw + 4, 9), the name's box.
+- **`Icon` fields** after `View`'s: `prog` 1, `name` 2. Its flags bit 0 is focusable. The class is in the shell's image.
+- **`E_DOWN`:** routing focuses it (Focus and Blur draw it). If the last `E_DOWN` on an icon was on this one, and
+  `V_FRAMES` - its frame <= 20, it opens. Otherwise the frame and the icon are remembered. Consumed.
+- **`E_KEY` ENTER:** it opens. Other keys are not consumed (TAB and the arrows move the focus).
+- **Open:** `KFAR K_LAUNCH` with `prog`.
+- **The menu** "Leap" (id 1):
+  - "About Leap Desktop..." (1) opens a `Dialog` at (128, 64, 256, 64): a `Label` "Leap Desktop, step 5" at (144, 76, 200, 9)
+    and an OK `Button` at (304, 100, 64, 16), which is the default and the cancel.
+  - A separator (2).
+  - "Calculator" (3) and "Controls" (4) launch those programs.
