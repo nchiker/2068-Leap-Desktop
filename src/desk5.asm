@@ -17,9 +17,10 @@ RESULT      EQU $FF00
 
 KARENA_BASE EQU $F500
 KARENA_END  EQU $FB00
-C_IMG_ADDR  EQU $C000           ; Calculator's RAM image (docs/CALCULATOR.md 2)
-D_IMG_ADDR  EQU $C100           ; the toolkit demo's (docs/TOOLKIT.md 9.4)
-AARENA_BASE EQU $C200
+PROG_IMG    EQU $C000           ; the running program's RAM image, at most 1 KB (docs/SHELL.md 2)
+C_IMG_ADDR  EQU PROG_IMG        ; Calculator's
+D_IMG_ADDR  EQU PROG_IMG        ; Controls'
+AARENA_BASE EQU $C400
 AARENA_END  EQU $E000
 
     ORG $0000
@@ -97,9 +98,7 @@ ENTRY:
     ld (RESULT+2),a
     ld hl,$5AA5
     ld (RESULT),hl              ; marker: booted
-; The launch (docs/CALCULATOR.md 2): the image, the app arena, then the program (it never returns).
-    KFAR C_INIT
-    KFAR D_INIT                 ; the toolkit demo's image (docs/TOOLKIT.md 9.4)
+; The app arena, then the shell (docs/SHELL.md 3): K_LAUNCH never returns.
     ld hl,K_AARENA
     ld de,AARENA_BASE
     ld bc,AARENA_END
@@ -107,7 +106,8 @@ ENTRY:
     ld hl,K_AARENA
     call K_ARENA
     ei
-    KFAR C_MAIN
+    xor a
+    jp K_LAUNCH
 T_IDLE:
     halt
     jr T_IDLE
@@ -163,11 +163,15 @@ ISR_BODY:
     INCLUDE "kernel/kernel.asm"
     INCLUDE "kernel/tk.asm"     ; the toolkit (docs/TOOLKIT.md)
     INCLUDE "tk-classes.inc"
+    INCLUDE "kernel/launch.asm" ; the launcher (docs/SHELL.md 3)
+K_PROGS:                        ; the programs (SHELL 10.3): 0 the shell, 1 Calculator, 2 Controls
+    DW S_START, C_START, D_START
     ASSERT $ <= $C000           ; chunk 5 only
 
     INCLUDE "apps/calc.asm"     ; DOCK chunks 2-3
-    ASSERT C_IMG_ADDR + C_IMG_LEN <= D_IMG_ADDR
+    ASSERT C_IMG_LEN <= 1024
     INCLUDE "apps/demo.asm"
+    INCLUDE "apps/shell.asm"
     ASSERT $ <= $8000
 
     SAVEBIN "mem.bin", 0, 65536

@@ -9,19 +9,13 @@ NM          EQU 2               ; M, 32 bits little-endian (< 10^8)
 
     ORG $4000
 
-; C_INIT: the RAM image to its address (boot, under A).
-C_INIT:
+; C_START: program 1 (docs/SHELL.md 5, 10.3): the image, the window (a CWindow: its close box quits to the shell; no menu), the
+; mouse, then the event loop.  Never returns.
+C_START:
     ld hl,C_IMG
     ld de,C_IMG_ADDR
     ld bc,C_IMG_LEN
     ldir
-    ret
-
-; ---------------------------------------------------------------------------------------------------------------------------
-; C_MAIN (section 3): the menu, the window, the mouse, then the event loop.  Never returns.
-C_MAIN:
-    ld hl,D_MENUS               ; the desktop's menu (demo.asm)
-    KFAR MB_SET
     call c_build
     ld ix,(C_WIN)
     KFAR W_OPEN
@@ -44,31 +38,21 @@ c_loop:
     jr .key
 .notkey:
     cp E_CMD
-    jr nz,.notcmd
-    ld a,(K_EV+1)
-    jr .key
-.notcmd:
-    cp E_MENU
     jr nz,.disp
     ld a,(K_EV+1)
-    cp 1
-    jr nz,c_loop
-    ld a,(K_EV+2)
-    cp 1
-    ld a,27
-    jr z,.key
-    ld a,(K_EV+2)
-    cp 2
-    jp nz,D_MENU                ; item 3: the toolkit demo (demo.asm)
-    ld a,'e'
+    cp C_WINID
+    jr nz,.key
+    KFAR K_QUIT                 ; the close box (or SYMBOL SHIFT + Q): back to the shell
 .key:
     call C_KEY
     ld ix,(C_DISP)
     KFAR W_DRAWVIEW
     jr c_loop
 .disp:
-    KFAR K_DISPATCH
+    KFAR TK_DISPATCH
     jr c_loop
+
+C_WINID     EQU 255             ; the window's View_id: its close posts E_CMD with it
 
 ; c_iskey: A = a key code -> carry when it is a Calculator key (section 5).  Clobbers F, BC, HL.
 c_iskey:
@@ -88,8 +72,9 @@ C_KEYS_N    EQU $ - C_KEYS
 
 ; c_build (section 4): the window, the display and the 20 buttons in the app arena.
 c_build:
-    ld hl,CL_Window
+    ld hl,CL_CWindow
     call K_NEW
+    ld (ix+View_id),C_WINID
     ld (ix+View_x),160
     ld (ix+View_x+1),0
     ld (ix+View_y),24

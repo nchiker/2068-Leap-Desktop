@@ -1,30 +1,18 @@
-; demo.asm -- the toolkit demo (docs/TOOLKIT.md 9.4): the "Controls" window, built by banked code (DOCK 2-3, mapping A) from
-; the "Calc" menu's item 3, and the desktop's menu table.  Its RAM image is assembled for D_IMG_ADDR ($C100), copied by D_INIT.
+; demo.asm -- "Controls", program 2 (docs/SHELL.md 5; the toolkit demo of docs/TOOLKIT.md 9.4, moved to (176, 32)).  Code in
+; DOCK 2-3 (mapping A); its RAM image is assembled for D_IMG_ADDR ($C000), copied by D_START.
 
-; D_INIT: the image to its address (boot, under A).
-D_INIT:
+; D_START: program 2 (docs/SHELL.md 5): the image, the window (a CWindow at (176, 32, 144, 112); its close box quits to the
+; shell; no menu), the controls, then the event loop.  Never returns.
+D_START:
     ld hl,D_IMG
     ld de,D_IMG_ADDR
     ld bc,D_IMG_LEN
     ldir
-    ret
-
-; D_MENU: A = the item of the Calc menu (not 1 or 2).  Item 3 builds and opens the window once, then raises it.
-D_MENU:
-    cp 3
-    jp nz,c_loop
-    ld ix,(D_WIN)
-    ld a,ixh
-    or ixl
-    jr z,.build
-    KFAR W_RAISE
-    jp c_loop
-.build:
-    ld hl,CL_Window
+    ld hl,CL_CWindow
     call K_NEW
-    ld (ix+View_x),LOW 352
-    ld (ix+View_x+1),HIGH 352
-    ld (ix+View_y),16
+    ld (ix+View_id),D_WINID
+    ld (ix+View_x),176
+    ld (ix+View_y),32
     ld (ix+View_w),144
     ld (ix+View_h),112
     ld (ix+Window_title),LOW D_TITLE
@@ -82,9 +70,9 @@ D_MENU:
     ld (D_TGT),ix
     ld hl,CL_VScroll
     call K_NEW
-    ld (ix+View_x),LOW 476
-    ld (ix+View_x+1),HIGH 476
-    ld (ix+View_y),32
+    ld (ix+View_x),LOW 300
+    ld (ix+View_x+1),HIGH 300
+    ld (ix+View_y),48
     ld (ix+View_w),12
     ld (ix+View_h),80
     ld (ix+View_id),133
@@ -97,7 +85,25 @@ D_MENU:
     call d_add
     ld ix,(D_WIN)
     KFAR W_OPEN
-    jp c_loop
+    ld a,1
+    KFAR K_MSET
+d_loop:
+    call K_GETEV
+    jr nc,.ev
+    halt
+    jr d_loop
+.ev:
+    cp E_CMD
+    jr nz,.disp
+    ld a,(K_EV+1)
+    cp D_WINID
+    jr nz,d_loop                ; the controls' own E_CMD: nothing to do
+    KFAR K_QUIT
+.disp:
+    KFAR TK_DISPATCH
+    jr d_loop
+
+D_WINID     EQU 255
 
 d_add:                          ; IX = a new view -> the window's last child
     push ix
@@ -108,28 +114,28 @@ d_add:                          ; IX = a new view -> the window's last child
 
 D_TBL:
     DW CL_Check
-    DW 360
-    DB 32, 72, 9, 1, 128
+    DW 184
+    DB 48, 72, 9, 1, 128
     DW D_SSOUND
     DW CL_Check
-    DW 360
-    DB 44, 72, 9, 1, 129
+    DW 184
+    DB 60, 72, 9, 1, 129
     DW D_SGRID
     DW CL_Check
-    DW 360
-    DB 60, 72, 9, $11, 130
+    DW 184
+    DB 76, 72, 9, $11, 130
     DW D_SSMALL
     DW CL_Check
-    DW 360
-    DB 72, 72, 9, $19, 131      ; checked
+    DW 184
+    DB 88, 72, 9, $19, 131      ; checked
     DW D_SMED
     DW CL_Check
-    DW 360
-    DB 84, 72, 9, $11, 132
+    DW 184
+    DB 100, 72, 9, $11, 132
     DW D_SLARGE
     DW CL_Label
-    DW 360
-    DB 100, 100, 9, 0, 134
+    DW 184
+    DB 116, 100, 9, 0, 134
     DW D_VSTR
 D_TBL_N     EQU ($ - D_TBL) / 11
 
@@ -202,14 +208,6 @@ D_SSMALL:   DB 5, "Small"
 D_SMED:     DB 6, "Medium"
 D_SLARGE:   DB 5, "Large"
 D_VSTR:     DB 9, "Value: 10", 0
-D_MENUS:                        ; the desktop's menu: Calc (1): Clear (1), Clear entry (2), Controls... (3)
-    DB 1
-    DW D_M1
-D_M1:
-    DB 1, 4, "Calc", 3
-    DB 1, 0, 5, "Clear"
-    DB 2, 0, 11, "Clear entry"
-    DB 3, 0, 11, "Controls..."
 D_WIN:      DW 0
 D_LBL:      DW 0
 D_TGT:      DW 0

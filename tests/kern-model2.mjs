@@ -31,7 +31,7 @@ export const sStep = (hold) => Math.min(1 + Math.floor(hold / 6), 6);
 
 // ---------------------------------------------------------------------------------------------------------------------------
 // The key map (14.4): parse keymap.txt.
-const NAMED = { ENTER: 13, LEFT: 8, RIGHT: 9, DOWN: 10, UP: 11, DELETE: 12, TAB: 14, BACKTAB: 15, MENU: 16, ESC: 27, BREAK: 3, CAPS: 1,
+const NAMED = { ENTER: 13, LEFT: 8, RIGHT: 9, DOWN: 10, UP: 11, DELETE: 12, TAB: 14, BACKTAB: 15, MENU: 16, CLOSE: 17, ESC: 27, BREAK: 3, CAPS: 1,
   SPACE: 32, HASH: 35, DASH: 45 };
 
 /** Parse the text of keymap.txt: returns { names: [40], planes: [plain[40], cs[40], ss[40]] }. */

@@ -15,3 +15,7 @@ class VScroll : View            # 23 bytes (9.3)
   field pad    1
   method Draw  vs_draw
   method Event vs_event
+
+class CWindow : Window          # 21 bytes (docs/SHELL.md 10.1): a Window with a close box; flags bit 5 the box pressed
+  method Draw  cw_draw
+  method Event cw_event

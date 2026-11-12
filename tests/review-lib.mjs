@@ -108,7 +108,7 @@ export function runIsr(m, S, rng) {
 // ---------------------------------------------------------------------------------------------------------------------------
 // The key map, parsed from src/kernel/keymap.txt by 14.4's rules (independent of tools/gen-keymap.mjs).
 export function readKeymap() {
-  const NAMES = { ENTER: 13, LEFT: 8, RIGHT: 9, DOWN: 10, UP: 11, DELETE: 12, TAB: 14, BACKTAB: 15, MENU: 16, ESC: 27, BREAK: 3, CAPS: 1, SPACE: 32, HASH: 35, DASH: 45 };
+  const NAMES = { ENTER: 13, LEFT: 8, RIGHT: 9, DOWN: 10, UP: 11, DELETE: 12, TAB: 14, BACKTAB: 15, MENU: 16, CLOSE: 17, ESC: 27, BREAK: 3, CAPS: 1, SPACE: 32, HASH: 35, DASH: 45 };
   const planes = [[], [], []];
   for (let line of readFileSync(join(ROOT, 'src/kernel/keymap.txt'), 'utf8').split('\n')) {
     if (line.trimStart().startsWith('#')) continue;

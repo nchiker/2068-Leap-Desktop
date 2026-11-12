@@ -16,7 +16,7 @@
 // Readings of the contract (also in the report):
 //  R1. Ring full and the new record an E_MOVE whose predecessor is an E_MOVE (tail - head >= 8): the move COALESCES (14.2 says a move
 //      overwrites "instead of being appended"; section 6: "moves never fill the ring"), so nothing is lost and K_LOST stays.
-//  R2. A newly pressed key whose code is 0 (SS + Q / W / E / I / ENTER) makes no event and leaves the repeat as it was, but it counts as
+//  R2. A newly pressed key whose code is 0 (SS + W / E / I / ENTER; SS + Q was one until it became CLOSE, docs/SHELL.md 9.4) makes no event and leaves the repeat as it was, but it counts as
 //      "a key newly down" for the repeat rule of 14.3 (so the old repeat skips that frame).
 //  R3. Injection into K_GETEV from the ring: the frame ISR may fall before or after the instruction that reads K_RTAIL / K_RHEAD, so the
 //      result must equal one of two models: "the ISR first, then K_GETEV" or "K_GETEV first, then the ISR" (K_RHEAD advanced or not at the
@@ -629,13 +629,13 @@ function part4() {
     console.log(`  all keys: ${frames.length} frames, ${FR.keyEv} E_KEY events so far`);
   }
   // hand-worked expectations, independent of the model: exact events for known keys (section 7 / 14.4), compared with the machine's log
-  // (CS+1 = TAB 14 and CS+4 = ESC 27 since the owner's swap of 2026-11-12, docs/WINDOWS.md 13)
+  // (CS+1 = TAB 14 and CS+4 = ESC 27 since the owner's swap of 2026-11-12, docs/WINDOWS.md 13; SS+Q = CLOSE 17 since docs/SHELL.md 9.4)
   {
     const hand = [
       [[KIDX('A')], [[1, 97, 0, 0]]], [[0, KIDX('A')], [[1, 65, 1, 0]]], [[36, KIDX('Z')], [[1, 58, 2, 0]]], [[KIDX('ENTER')], [[1, 13, 0, 0]]],
       [[0, KIDX('5')], [[1, 8, 1, 0]]], [[0, KIDX('6')], [[1, 10, 1, 0]]], [[0, KIDX('7')], [[1, 11, 1, 0]]], [[0, KIDX('8')], [[1, 9, 1, 0]]],
       [[0, KIDX('0')], [[1, 12, 1, 0]]], [[0, KIDX('SPACE')], [[1, 3, 1, 0]]], [[KIDX('SPACE')], [[1, 32, 0, 0]]], [[0, KIDX('4')], [[1, 27, 1, 0]]],
-      [[0, KIDX('3')], [[1, 15, 1, 0]]], [[0, KIDX('1')], [[1, 14, 1, 0]]], [[0, KIDX('9')], [[1, 16, 1, 0]]], [[36, KIDX('Q')], []], [[0, KIDX('2')], []], [[0, 36, KIDX('A')], [[1, 126, 7, 0]]],
+      [[0, KIDX('3')], [[1, 15, 1, 0]]], [[0, KIDX('1')], [[1, 14, 1, 0]]], [[0, KIDX('9')], [[1, 16, 1, 0]]], [[36, KIDX('Q')], [[1, 17, 2, 0]]], [[0, KIDX('2')], []], [[0, 36, KIDX('A')], [[1, 126, 7, 0]]],
     ];
     const frames = [];
     for (const [keys, expect] of hand) frames.push(F(keys, 0xFF, { expect }), F());

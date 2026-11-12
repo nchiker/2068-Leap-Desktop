@@ -2,10 +2,10 @@
 # CS+1 = TAB and CS+4 = ESC (owner, 2026-11-12, docs/WINDOWS.md 13: PC Tab gives CS+1 on the web page).
 # One line per key in matrix order (key index k = 5 r + b, half-rows $FE $FD $FB $F7 $EF $DF $BF $7F, bits 0-4).
 # Columns: key name, plain, CAPS SHIFT, SYMBOL SHIFT.  An entry is one printable character, '-' (no event), or a name:
-# ENTER LEFT RIGHT DOWN UP DELETE TAB BACKTAB MENU ESC BREAK CAPS SPACE HASH ('#') DASH ('-').
+# ENTER LEFT RIGHT DOWN UP DELETE TAB BACKTAB MENU CLOSE ESC BREAK CAPS SPACE HASH ('#') DASH ('-').
 # SS entries keep the TS2068 legend where it is an ASCII character; the rest of printable ASCII goes on the SS keys whose
 # legends are keywords: X (pound) `, A (STOP) ~, S (NOT) |, D (STEP) \, F (TO) {, G (THEN) }, Y (AND) [, U (OR) ].
-# Q (<=), W (<>), E (>=) and I (AT) have no SS character.
+# Q (<=) is CLOSE (SS+Q "Quit": closes the front CWindow, docs/SHELL.md 9.4); W (<>), E (>=) and I (AT) have no SS character.
 #
 # key     plain   CS        SS
 CS        -       -         -
@@ -18,7 +18,7 @@ S         s       S         |
 D         d       D         \
 F         f       F         {
 G         g       G         }
-Q         q       Q         -
+Q         q       Q         CLOSE
 W         w       W         -
 E         e       E         -
 R         r       R         <

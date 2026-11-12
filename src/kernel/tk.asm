@@ -702,4 +702,178 @@ TK_SETBAR:
 .ok:
     ld (ix+VScroll_value),a
     jp W_DRAWVIEW
+
+; ---------------------------------------------------------------------------------------------------------------------------
+; CWindow (docs/SHELL.md 10.1): a Window with a close box at the right of its title bar, shown with the active look.
+KC_CLOSE    EQU 17              ; SYMBOL SHIFT + Q (10.2)
+CW_PRESSED  EQU 5
+
+; cw_draw: window_draw, then the box when the look is active (W_ACT = 0, set by window_draw).
+cw_draw:
+    call window_draw
+    ld a,(W_ACT)
+    or a
+    ret nz
+    inc a
+    call G_SETOP                ; CLR
+    ld bc,1
+    ld de,15 * 256 + 7
+    call cw_ga
+    call G_FILL
+    xor a
+    call G_SETOP
+    ld bc,1 * 256 + 2
+    ld de,13 * 256 + 5
+    call cw_ga
+    jp G_FRAME
+
+; cw_ga: GA = (x + w - 19 + B, y + C, D, E) of the window IX.  Clobbers AF, HL.
+cw_ga:
+    push de
+    ld l,(ix+View_x)
+    ld h,(ix+View_x+1)
+    ld e,(ix+View_w)
+    ld d,(ix+View_w+1)
+    add hl,de
+    ld e,b
+    ld d,0
+    add hl,de
+    ld de,-19
+    add hl,de
+    ld (GA),hl
+    ld a,(ix+View_y)
+    add a,c
+    ld l,a
+    ld h,0
+    ld (GA+2),hl
+    pop de
+    ld l,d
+    ld (GA+4),hl
+    ld l,e
+    ld (GA+6),hl
+    ret
+
+; cw_event: E_DOWN in the front window's close box tracks it (a loop like W_DRAG's); the rest is window_event's.
+cw_event:
+    ld a,(K_EV)
+    cp E_DOWN
+    jp nz,window_event
+    call W_FRONT
+    call w_cpix
+    jp nz,window_event
+    call w_point
+    call cw_in
+    jp nc,window_event
+    set CW_PRESSED,(ix+View_flags)
+    call cw_xor
+.loop:
+    call K_GETEV
+    jr nc,.ev
+    halt
+    jr .loop
+.ev:
+    cp E_UP
+    jr z,.up
+    cp E_MOVE
+    jr nz,.loop
+    call w_point
+    call cw_in                  ; carry: inside
+    sbc a,a
+    xor (ix+View_flags)
+    and 1 << CW_PRESSED
+    jr z,.loop
+    xor (ix+View_flags)
+    ld (ix+View_flags),a
+    call cw_xor
+    jr .loop
+.up:
+    bit CW_PRESSED,(ix+View_flags)
+    scf
+    ret z
+    res CW_PRESSED,(ix+View_flags)
+    call cw_xor
+    jp b_post                   ; closed by the user: E_CMD, C = the window's View_id
+
+; cw_in: BC = x, DE = y -> carry when inside the box (x + w - 19, y + 1, 15, 7).  Clobbers AF, HL.
+cw_in:
+    push bc
+    push de
+    ld bc,1
+    ld de,15 * 256 + 7
+    call cw_ga
+    pop de
+    pop bc
+    push de
+    ld h,b
+    ld l,c
+    ld de,(GA)
+    or a
+    sbc hl,de
+    pop de
+    jr c,.no
+    ld a,h
+    or a
+    jr nz,.no
+    ld a,l
+    cp 15
+    jr nc,.no
+    ld a,e
+    ld hl,GA+2
+    sub (hl)
+    jr c,.no
+    cp 7
+    ret
+.no:
+    or a
+    ret
+
+; cw_xor: the pressed look toggled: XOR fill (x + w - 17, y + 3, 11, 3), the clip the whole screen, shielded.
+cw_xor:
+    push bc
+    push de
+    ld hl,0
+    ld (GA),hl
+    ld (GA+2),hl
+    ld hl,512
+    ld (GA+4),hl
+    ld hl,192
+    ld (GA+6),hl
+    call G_SETCLIP
+    ld bc,2 * 256 + 3
+    ld de,11 * 256 + 3
+    call cw_ga
+    call P_SHIELD
+    ld a,2
+    call G_SETOP
+    call G_FILL
+    call P_UNSHIELD
+    pop de
+    pop bc
+    ret
+
+; TK_DISPATCH (10.1): K_DISPATCH, except that E_KEY CLOSE closes the front window when it is a CWindow (else it is dropped).
+TK_DISPATCH:
+    ld hl,(K_EV)
+    ld a,l
+    cp E_KEY
+    jp nz,K_DISPATCH
+    ld a,h
+    cp KC_CLOSE
+    jp nz,K_DISPATCH
+    call W_FRONT
+    ld a,h
+    or l
+    ret z
+    push ix
+    push hl
+    pop ix
+    ld a,(ix+0)
+    cp LOW CL_CWindow
+    jr nz,.no
+    ld a,(ix+1)
+    cp HIGH CL_CWindow
+    call z,b_post
+.no:
+    pop ix
+    ret
 TK_END:
