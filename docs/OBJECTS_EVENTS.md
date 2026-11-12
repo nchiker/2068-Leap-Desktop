@@ -586,6 +586,101 @@ all `-`, and that every printable ASCII character 32..126 appears at least once.
 | Whole ISR / deadline | Over the frame tests (section 9 test 4 and 6): the ISR's T and the `T_ISRP` offset, as GRAPHICS_SPIKE 16.6 |
 | `P_ISR` bounds with the new arrow | GRAPHICS_SPIKE 16.7, re-run |
 
+## 15. K3 interface (designed 2026-11-12, binding for the K3 code and tests)
+
+Fills in what sections 5, 6 and 10 leave open for slice K3: routing, `Group`, focus, and the `kern3` self-test and demo. The tests
+are written from sections 2-10, 13, 14 and this section, never from the code.
+
+### 15.1 Classes
+
+- **Kernel** (`src/kernel/classes.txt`): `Group : View`, no fields, Event `group_event`.
+- **Test** (`src/kern3-classes.txt`): `TBox : View`, field `tag` 1 (size 17), Destroy `t_destroy`, Draw `t_draw`, Event `t_event`,
+  Focus `t_focus`, Blur `t_blur`; HitTest is `View`'s (geometric). Its log records are as `TLog`'s (13.6; `TBox_tag` = 16).
+
+### 15.2 `K_DISPATCH`, exactly
+
+Preserves IX and IY. Uses at most 128 bytes of stack at tree depth 8. "Send to v" means: nothing when v = 0, else `M_EVENT` with
+DE = `K_EV`; its carry is "consumed".
+
+| Type | Routing |
+|---|---|
+| `E_KEY` | v = `K_FOCUS`, or `K_ROOT` when it is 0. While v != 0: send to v; consumed: stop; else v = v's `View_parent`. Not consumed by anyone: data 1 = `TAB` (14), `DOWN` (10) or `RIGHT` (9): `K_FOCUSNEXT`; `BACKTAB` (15), `UP` (11) or `LEFT` (8): `K_FOCUSPREV`; others: nothing |
+| `E_DOWN` | `K_CAPTURE` = 0, then send to `K_ROOT` |
+| `E_MOVE` | send to `K_CAPTURE` when it is not 0, else to `K_ROOT` |
+| `E_UP` | when `K_CAPTURE` != 0: v = `K_CAPTURE`, `K_CAPTURE` = 0, send to v. Else send to `K_ROOT` |
+| any other | send to `K_ROOT` |
+
+**`group_event`** (Group's `M_EVENT`): for `E_MOVE`, `E_DOWN`, `E_UP` only (others: not consumed, nothing sent). The point is x =
+data 1 + 256 (data 3 AND 1), y = data 2. For each child from `View_child` along `View_next`: skip it when its flags AND 6 != 0;
+send it `M_HITTEST` (BC = x, DE = y); the first that hits is the target, and no later child is tested. No target: not consumed.
+Else:
+1. if the event is `E_DOWN` and the target's flags bit 0 is set: `K_SETFOCUS` (target);
+2. send `M_EVENT` to the target;
+3. if it consumed it and the event is `E_DOWN` and `K_CAPTURE` = 0: `K_CAPTURE` = the target;
+4. the group returns the target's carry.
+
+### 15.3 Focus
+
+- **Can take focus:** flags AND 7 = 1 (focusable, not hidden, not disabled).
+- **Pre-order step** from view n: if n's flags AND 6 = 0 and n has a child: the child. Else the first `View_next` found on n, n's
+  parent, its parent, ... ; when that runs off the root (parent 0), the walk **wraps** to `K_ROOT`.
+- **`K_FOCUSNEXT`:** the start s = `K_FOCUS`; with no focus, s = `K_ROOT` and the root itself is tested first. Step from s and
+  test each view until a view can take focus (it gets `K_SETFOCUS`), the walk returns to s (nothing), or it would wrap a second time
+  (nothing).
+- **`K_FOCUSPREV`:** the same walk to its end (back at s, or a second wrap), remembering the last view that can take focus (with no
+  focus, the root counts when it can). If there is one: `K_SETFOCUS` (it).
+- With `K_ROOT` = 0, `K_FOCUSNEXT` and `K_FOCUSPREV` do nothing.
+- **Stack:** `K_SETFOCUS`, `K_FOCUSNEXT` and `K_FOCUSPREV` count as routing routines (128 bytes, section 5), as they send messages.
+- `K_SETFOCUS` as section 5: same view: nothing (carry clear); cannot take focus: carry, nothing; else `M_BLUR` (old, if any),
+  `K_FOCUS` = new, `M_FOCUS` (new, if any).
+
+### 15.4 `kern3` K3 additions
+
+- **The self-test** `T_SELFTEST` (called with interrupts on; the pointer may be on), in the current arena:
+  1. `K_ARESET` the app arena, `K_ARENA` app, `T_LOGN` = 0.
+  2. Build this tree with `K_NEW` and `K_ADDCHILD` in this order (fields set after `K_NEW`; x, y, w, h in pixels):
+
+     | View | Class | Parent | x, y, w, h | Flags | Tag | Id |
+     |---|---|---|---|---|---|---|
+     | R | `Group` | none (`K_SETROOT`) | 0, 16, 512, 176 | 0 | — | 0 |
+     | A | `TBox` | R | 16, 24, 112, 24 | 1 | 0 | 1 |
+     | B | `TBox` | R | 144, 24, 112, 24 | 1 | 0 | 2 |
+     | C | `TBox` | R | 272, 24, 112, 24 | 3 | 0 | 3 |
+     | D | `TBox` | R | 400, 24, 96, 24 | 5 | 0 | 4 |
+     | G | `Group` | R | 16, 64, 480, 112 | 0 | — | 5 |
+     | E | `TBox` | G | 32, 80, 200, 24 | 1 | 1 | 6 |
+     | F | `TBox` | G | 256, 80, 200, 24 | 1 | 0 | 7 |
+
+  3. Run the script: each line is `K_POST` then `K_GETEV` and `K_DISPATCH` until `K_GETEV` returns carry (pointer events at
+     (x, y) carry data 3 bit 1 = 1 for `E_DOWN` and `E_MOVE` while "held", else 0):
+     (`E_KEY` lines carry data 2 = data 3 = 0; type 16 carries 1, 2, 3) `E_KEY TAB`; `E_KEY TAB`; `E_KEY TAB`; `E_KEY TAB`; `E_DOWN` (356, 92); `E_MOVE` (360, 95) held; `E_UP` (360, 95);
+     `E_KEY BACKTAB`; `E_DOWN` (100, 92); `E_MOVE` (40, 30) held; `E_UP` (40, 30); `E_MOVE` (40, 30); `E_KEY 'x'`; type 16
+     (data 1, 2, 3); `M_DESTROY` sent to G (directly, not an event); `E_KEY TAB`; then `K_FOCUSPREV` called directly.
+  4. The record: +3 = `T_LOGN` low byte, +4 = the 16-bit sum of bytes +0, +1, +2 and +7 (code, IX, tag) of records 0 ..
+     `T_LOGN` - 1 (BC and DE are not fixed for messages the kernel sends itself, so they are left out), +6 = the id of the
+     focused view (or `$FF`), state (+2) = 3.
+- **Build target `kern3demo`:** `kern3.asm` assembled with `DEMO = 1` (`build.mjs` gains a `defs` field for a target). After boot it
+  runs `T_SELFTEST`, then the demo: `T_BUILD` (the self-test's steps 1 and 2 again, so the tree is whole), `D_SCENE` draws
+R's children and E, F (`G_FRAME`, the id in `G_TEXT8`, a focused
+  view's frame drawn twice as thick), a status line at the top (row 0: "LEAP KERNEL K3", the self-test's sum in hex and PASS when it
+  equals `T_EXPECT`, the last event's 4 bytes in hex), then loops: `K_GETEV`, `K_DISPATCH`, and after each event redraws the status
+  line and, when `K_FOCUS` changed, the old and new focused frames (shielded). `T_EXPECT` is the sum the model computes, written in
+  `kern3.asm` as a constant once the model has it.
+- With `DEMO` undefined (`kern3`), boot is as K2 (idle at `T_IDLE`); `T_SELFTEST` is still in the image for the tests.
+- **Symbols** add: `K_DISPATCH`, `K_SETFOCUS`, `K_FOCUSNEXT`, `K_FOCUSPREV`, `group_event`, `CL_Group`, `CL_TBox`, `T_SELFTEST`,
+  `T_EXPECT`.
+
+### 15.5 How the K3 bounds are measured (section 8)
+
+| Measure | How |
+|---|---|
+| Per event (`E_KEY`) | Event in the ring (or posted: the worse), `K_FOCUS` = a `TBox` that consumes: direct call of a stub `T_EVONE` (`CALL K_GETEV`, `CALL K_DISPATCH`, `RET`), stepped until PC = `t_event`; T from `T_EVONE`'s first instruction |
+| Bubble level | The same with a focus k levels deep that does not consume, a consuming ancestor: (T(k) - T(0)) / k, the worst for k = 1..7 |
+| `E_DOWN`, `Group` of 8 `TBox` children | Root `Group` with 8 children side by side, the point in the last (focusable, consumes), focus elsewhere: to `t_event` of the last |
+| `K_SETFOCUS` | Old and new both `TBox` (their methods log and return): the whole call |
+| `K_FOCUSNEXT` / `K_FOCUSPREV`, 32 views | Trees of 32 views (a root `Group` and 31 `TBox` in chains and fans, depth <= 8), every start, the candidates placed for the longest walk: the worst |
+| Bytes | `K_CODE_END - K_CODE` + 14: <= 2,048 (section 8) |
+
 ## 16. As built
 
 ### 16.1 Slice K1 (2026-11-12)
@@ -627,3 +722,74 @@ all `-`, and that every printable ASCII character 32..126 appears at least once.
 - A nested `M_DESTROY` leaves BC and DE unspecified in the log.
 - `K_ARENA` preserves every register.
 - "A tree of 8" is a root with 7 children.
+
+### 16.2 Slice K2 (2026-11-12)
+
+**Result: two bounds missed, both in the ISR's input part; everything else passes.** Interface: section 14 (one amendment during
+K2: 14.3's event order, keys before the move, also written into section 7). The bounds are unchanged; options for the owner are
+below.
+
+| Measure (14.8) | Measured | Bound | Result |
+|---|---|---|---|
+| `K_POST` | 166 | <= 200 | pass |
+| `K_GETEV` posted / ring / empty | 218 / 207 / 63 | <= 250 / 250 / 100 | pass |
+| `K_POLL` idle | 291 | <= 300 | pass |
+| `K_POLL` a key held | 862 | <= 900 | pass |
+| `K_POLL` worst frame (full-speed move, button change, two new keys; 1,296 frames) | **4,560** | <= 2,000 | **MISSED** |
+| Whole frame ISR, worst (`P_ISR` moving + `K_POLL`; 2,508 frames) | **10,898** | <= 9,500 | **MISSED** |
+| Pointer deadline (largest `T_ISRP` offset + 1,500) | 8,194 | <= 8,960 | pass (unchanged: `K_POLL` runs after `P_ISR`) |
+| ISR stack, return address included | 26 bytes | <= 32 | pass |
+| `K_POLL`: one new key / a repeat fires / mode toggle / joystick move only / button only | 2,046 / 1,072 / 2,418 / 1,266 / 668 | report | |
+| `K_WARP` / `P_ISRMOVE` unlocked / locked | 184 / 93 / 32 | report | |
+| S4 pointer bounds with the new arrow | 6,779 / 50 / deadline 8,194 | unchanged | pass |
+| Bytes, K1 + K2: `K_CODE_END - K_CODE` + 14 (with the 120-byte `KEYMAP`) | 1,793 | report | |
+
+**Why the worst frame misses.** Decoding one new key in the ISR costs about 1,750 T:
+- reading and storing the half-rows, about 400;
+- the modifiers and the plane, about 200;
+- the key-map lookup, caps lock, the repeat state and the append, about 1,100.
+
+A full-speed move with its event costs about 975, and a button change about 380. Two new keys, a move and a button in one
+frame come to about 4,500. The bound of 2,000 was an estimate (section 8) made before the decode was written. The first version
+measured 5,308 / 11,612. Merging the half-row compare with the decode, and skipping unchanged rows, brought it to the figures above.
+
+**Options (the owner decides; estimates, not measured):**
+
+| Change | Effect |
+|---|---|
+| **A.** The ISR appends a raw key event (key index, CS / SS, caps lock, repeat bit); `K_GETEV` decodes it through `KEYMAP` | About 700 T less per key in the ISR; `K_GETEV` about 150 T more per key event. Events seen by programs are unchanged; the ring's contents change (14.3 and the K2 tests' ring checks are amended) |
+| **B.** At most one new key decoded per frame; further new keys wait a frame | The worst frame drops by about 1,750 T. A second key held down together appears a frame later |
+| **C.** Keep the code; replace the bound with the measured worst | No change. Programs lose up to about 4,500 T (8 %) of a frame in the worst input frame, and the pointer is unaffected |
+
+**How K2 is built** (`src/kernel/events.asm`; `P_ISRMOVE` and `P_ARROW` in `src/gfx6/pointer.asm`):
+- **Ring:** head and tail are bytes next to each other, read together with one `LD HL,(K_RHEAD)`, so `K_GETEV` and the ISR
+  each see a consistent pair. The ISR writes the record and then the tail; `K_GETEV` copies and then moves the head.
+- **Keyboard:** one read of all rows decides whether to look further. Then an unrolled pass reads each half-row and compares it with
+  last frame's. Only a changed half-row is stored and decoded. The modifiers and the plane are read once, at the first change.
+- **Joystick:** an idle port (`$FF`) skips the decode.
+- **Keyboard-pointer keys** are worked out only in frames where the keys change.
+
+**A fault the tests found:** `K_POLL` clamped y between adding the down step and subtracting the up step, so up + down at the bottom
+edge drifted upward with a spurious `E_MOVE` (against 14.3 step 5). Fixed: up and down together leave y alone. The main model's
+smoke run found a second fault before the tests ran: the mode toggle never fired, because `INC L` after the `OR (HL)` chain set
+the zero flag.
+
+**Tests** (`tests/kern-model2.mjs`, `tests/kern-k2.mjs`, K2 rows in `tests/kern-perf.mjs`): written by a Sonnet agent from
+sections 2, 5-9, 13 and 14 without reading the code.
+- About 70,000 assertions a seed, covering:
+  - every queue state;
+  - interrupt injection at every boundary of `K_GETEV` and `K_POST` (2,046 runs), and of `P_SHIELD`, `P_UNSHIELD` and a shielded
+    `G_FILL` while the joystick moves the pointer (about 15,900 runs, `P_ISRMOVE` refused in about 10,000);
+  - 3,000 random `K_POLL` steps;
+  - 3,700 frames of keys, joystick, modes and warps against the model;
+  - a 401-frame flicker test.
+- `V_FRAMES` rose by exactly 1 in every frame.
+- Passes on seeds 1, 2 (the agent; before the fix only the y-clamp checks failed) and 1, 3, 4 (the main model, after the fix and
+  the rewrite).
+- Eight deliberate model mutations were each caught.
+- S1-S4, `gfx6-cls`, `hello`, `spike6`, `probe23` and `kern-k1` pass with the new arrow.
+
+**Readings the test agent made** (they match the code):
+- A full ring whose last record is a move still coalesces.
+- A key with code 0 counts as newly down for the repeat rule.
+- An interrupt during `K_GETEV` from the ring may land before or after the copy; either order is correct.

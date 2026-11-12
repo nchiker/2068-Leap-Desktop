@@ -1,5 +1,5 @@
 ; kernel.asm -- Leap Desktop kernel, roadmap step 3 (docs/OBJECTS_EVENTS.md).  Slice K1: arenas and pools, the view tree, the
-; base classes' methods.  K_SEND is in send.asm (at $0008).  Included by the cartridge in DOCK chunk 5, starting on a page boundary
+; base classes' methods.  K2: events.asm (queues, input).  K_SEND is in send.asm (at $0008).  Included by the cartridge in DOCK chunk 5, starting on a page boundary
 ; (ZCHAIN must not cross a page).
 ;
 ; Conventions (section 5): IY and the alternate set preserved; IX preserved unless an output; no DI or EI.
@@ -454,6 +454,8 @@ view_hittest:
     ret
 
 ; ---------------------------------------------------------------------------------------------------------------------------
+    INCLUDE "kernel/events.asm"
+    INCLUDE "keymap.inc"
     INCLUDE "classes.inc"
 
 K_CODE_END:

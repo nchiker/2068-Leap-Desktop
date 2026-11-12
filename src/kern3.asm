@@ -16,6 +16,8 @@ V_SHADOW_FF EQU $E082
 V_SHADOW_F4 EQU $E083
 T_LOGN      EQU $E090           ; word: log records written
 T_LOG       EQU $E800           ; 256 records of 8 bytes ($E800-$EFFF)
+T_EVN       EQU $E092           ; word: events T_EVLOOP has logged
+T_EVLOG     EQU $5800           ; 512 records of 4 bytes ($5800-$5FFF)
 RESULT      EQU $FF00
 R_STATE     EQU RESULT+2
 
@@ -83,6 +85,14 @@ ENTRY:
     call K_AINIT
     ld hl,K_AARENA
     call K_ARENA
+    xor a
+    ld (K_AYREG),a              ; the AY loop above left register 0 selected
+    ld hl,256
+    ld (K_PX),hl
+    ld a,96
+    ld (K_PY),a
+    ld de,96
+    call P_INIT                 ; interrupts are still off: the first frame draws it
     ld a,1
     ld (R_STATE),a
     ld hl,$5AA5
@@ -100,7 +110,33 @@ T_SEND:
     rst $08
     ret
 
-; The frame ISR (as gfx6t 16.5, without the $FF fill): count the frame, map the display, P_ISR, put the shadow back.
+; T_EVLOOP (14.7): EI, then logs every event K_GETEV returns to T_EVLOG; HALT when there is none.
+T_EVLOOP:
+    ei
+.loop:
+    call K_GETEV
+    jr c,.wait
+    ld hl,(T_EVN)
+    ld a,h
+    and 1
+    ld h,a                      ; record n mod 512
+    add hl,hl
+    add hl,hl
+    ld de,T_EVLOG
+    add hl,de
+    ex de,hl
+    ld hl,K_EV
+    ld bc,4
+    ldir
+    ld hl,(T_EVN)
+    inc hl
+    ld (T_EVN),hl
+    jr .loop
+.wait:
+    halt
+    jr .loop
+
+; The frame ISR (14.7): count the frame, map the display, P_ISR, K_POLL, put the shadows back ($F4 and the AY latch).
 ISR_BODY:
     push af
     push hl
@@ -113,8 +149,12 @@ ISR_BODY:
     out (PORT_HSR),a
     call P_ISR
 T_ISRP:
+    call K_POLL
+T_POLLD:
     ld a,(V_SHADOW_F4)
     out (PORT_HSR),a
+    ld a,(K_AYREG)
+    out (PORT_AY_REG),a
     pop de
     pop bc
     pop hl
