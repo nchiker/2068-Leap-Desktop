@@ -165,14 +165,15 @@ ISR_BODY:
     INCLUDE "kernel/tk.asm"     ; the toolkit (docs/TOOLKIT.md)
     INCLUDE "tk-classes.inc"
     INCLUDE "kernel/launch.asm" ; the launcher (docs/SHELL.md 3)
-K_PROGS:                        ; the programs (SHELL 10.3): 0 the shell, 1 Calculator, 2 Controls
-    DW S_START, C_START, D_START
+K_PROGS:                        ; the programs (SHELL 10.3): 0 the shell, 1 Calculator, 2 Controls, 3 Write (docs/WRITE.md)
+    DW S_START, C_START, D_START, WR_START
     ASSERT $ <= $C000           ; chunk 5 only
 
     INCLUDE "apps/calc.asm"     ; DOCK chunks 2-3
     ASSERT C_IMG_LEN <= 1024
     INCLUDE "apps/demo.asm"
     INCLUDE "apps/shell.asm"
+    INCLUDE "apps/write.asm"     ; program 3 (docs/WRITE.md)
     ASSERT $ <= $8000
 
     SAVEBIN "mem.bin", 0, 65536

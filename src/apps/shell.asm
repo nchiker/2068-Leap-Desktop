@@ -82,7 +82,7 @@ s_loop:
     jr z,.cmd
     KFAR TK_DISPATCH
     jr s_loop
-.menu:                          ; Leap (1): About (1), Calculator (3), Controls (4)
+.menu:                          ; Leap (1): About (1), Calculator (3), Controls (4), Write (5)
     ld a,(K_EV+2)
     cp 1
     jr z,.about
@@ -301,17 +301,19 @@ S_ABOUTT:   DB 20, "Leap Desktop, step 5"
 S_OK:       DB 2, "OK"
 S_NCALC:    DB 10, "Calculator"
 S_NCTRL:    DB 8, "Controls"
-S_NAMES:    DW S_NCALC, S_NCTRL
-S_SETS:     DW ICON_CALC, ICON_CTRL
+S_NWRITE:   DB 5, "Write"
+S_NAMES:    DW S_NCALC, S_NCTRL, S_NWRITE
+S_SETS:     DW ICON_CALC, ICON_CTRL, ICON_WRITE
 S_MENUS:
     DB 1
     DW S_M1
 S_M1:
-    DB 1, 4, "Leap", 4
+    DB 1, 4, "Leap", 5
     DB 1, 0, 21, "About Leap Desktop..."
     DB 2, 2, 0                  ; a separator
     DB 3, 0, 10, "Calculator"
     DB 4, 0, 8, "Controls"
+    DB 5, 0, 5, "Write"
 S_WIN:      DW 0
 S_ABOUT:    DW 0
 S_LAST:     DW 0                ; the icon last pressed
@@ -321,7 +323,7 @@ S_I:        DB 0
     INCLUDE "icons.inc"
     ENT
 S_IMG_LEN   EQU $ - S_IMG
-S_NICONS    EQU 2
+S_NICONS    EQU 3
 Icon_prog   EQU 16
 Icon_name   EQU 17
 Icon_SIZE   EQU 19
