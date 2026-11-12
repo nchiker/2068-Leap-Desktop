@@ -457,3 +457,61 @@ three runs.
 5. **Bounds:** 10.6 as a table (`tests/tk-perf.mjs` extended).
 6. **Cross-emulator:** on ZEsarUX, the Controls window after a key-driven session (a `List` selection, typed text) identical to
    TSRun's.
+
+### 10.9 As built (2026-11-12)
+
+**T2 and T3 are done on emulators.** The owner has not yet reviewed the grown demo.
+
+**Bytes:**
+- `tk2.asm` is 1,290 (`List` 666, `Field` 466, shared helpers 158); the two descriptors add 36: 1,326, against the bound 1,382.
+- The descriptors cost 51 bytes of chunk 5 with their page alignment.
+- Chunk 1 has 224 bytes left after `tk2.asm`; chunk 5 about 394.
+- **Step 5's pool growth is now 3,029 of 3,400** (1,688 before, + 1,290 + 51).
+
+**Bounds** (TSRun T-states; `tests/tk-perf.mjs`, seeds 1 and 2: 52 pass, 0 missed, 30 reported):
+
+| Measure | Measured | Bound |
+|---|---|---|
+| `W_DRAWVIEW` `List` 128 x 146, proportional, 16 lines | 233,181 | report |
+| `W_DRAWVIEW` `List` 132 x 130, cell lines, 16 lines | 142,687 | report |
+| `List` scrolled by one line (DOWN past the bottom, includes the bar): proportional / cell lines | 303,420 / 209,355 | report; the bound is set when the owner has seen it (proposed: 303,500 / 209,400) |
+| Selection moved within the lines shown: proportional / cell lines | 86,047 / 72,967 | report |
+| `W_DRAWVIEW` `Field` 160 x 12, 30 codes, focused | 47,092 | report |
+| A typed code | 55,778 | <= 58,000 |
+| `E_MOVE` over one of each control | 3,772 | <= 3,900 |
+| Stack: deepest `M_EVENT` / `M_DRAW` | 42 / 24 bytes | <= 64 |
+| `DI` / interrupts lost | none / 0 | none / 0 |
+
+**Where the time goes** (profiling one draw):
+- The proportional `List`'s full draw: `w_box` (clear and frame of 128 x 146) about 53 k; `G_TEXTP` about 8.2 k a line (132 k
+  for 16); the selection about 5 k.
+- A one-line draw is about 47 k, of which about 17 k is `W_DRAWVIEW` scanning the whole `List`'s cell rows.
+- The 150 k estimate of 9.8 left out the box and the bar (the 12 x 146 bar redraw is about 70 k of the scroll).
+
+**Tests (Sonnet, from the contract; the main model re-ran them on seeds 1 and 2):**
+- `tests/tk-t2.mjs` 10 of 10 groups; `tests/tk-t3.mjs` 9 of 9.
+- `tests/tk-demo.mjs` 7 of 7: the demo over real frames, all 33 SYMBOL SHIFT characters typed.
+- `tests/tk-t1.mjs` 8 of 8 on the grown window.
+- Model `tests/tk-model2.mjs` (45 hand-worked cases); harness `tests/tk-lib2.mjs`.
+- **Regression:** shell and Calculator suites pass (`shell-s1` 13 of 13, `shell-perf` 21 pass, `calc-c1` 5 of 5, `calc-perf` 9 of 9);
+  the step 3-4 suites, `bank-b0` and `gfx6-s1` pass.
+
+**Cross-emulator:**
+- ZEsarUX 13.0: 42 of 42 rows. 17 are new: Controls opened by keys, the `List` scrolled by DOWN, the `Field` edited with SS+P,
+  SS+Z and DELETE, ENTER's status line, SS+Q back. Every screen identical to TSRun's.
+- Fuse 1.9.1: its 6 boot rows (the runner sends no keys).
+
+**Found and fixed:** the `List` read a pointer event's y from `K_EV` instead of through DE (10.1); found by `tk-t2` group 9.
+Same bytes.
+
+**Clarifications the tests adopted (binding from now on):**
+- The click memory is one for all `List`s: a press on another control does not clear it; `TK_SETITEMS` does.
+- A click on the selected line draws it once.
+- Focus / Blur draw nothing when `sel` is `$FF` or the `List` is not shown.
+- `V_FRAMES` differences are mod 65,536.
+
+**For the owner:**
+1. The scroll figures and their proposed bounds. If 303 k (about 5 frames) is too slow, the alternative of 9.8 option (b),
+   `G_SCROLLV` of the inside plus one new line, is now estimated at about 105 k plus the bar.
+2. In cell-lines mode the unfocused selection's outline shares its top row with the 8 x 8 glyphs' top row (the Leap V2 font
+   inks row 0), so capitals touch the box. The owner judges it on screen.

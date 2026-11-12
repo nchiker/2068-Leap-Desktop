@@ -36,13 +36,14 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
 - Kernel layout: the main part is in DOCK chunk 5 from `$A000`; the menus are a second part, `src/kernel/kernel1.asm`,
   assembled by each cartridge in chunk 1 after the gfx6 tables. Step 5 cartridges add, after the kernel in chunk 5, the toolkit
   (`src/kernel/tk.asm`, classes in `tk-classes.txt`) and the launcher (`launch.asm`); `far.asm` sits in page 0's hole at
-  `$0068`. The pool had 4,483 bytes free before step 5 (`docs/BANKING.md` 1); step 5 has used 1,688 of its 3,400.
+  `$0068`. `List` and `Field` are in `src/kernel/tk2.asm`, assembled in chunk 1 after `kernel1.asm`. The pool had 4,483 bytes
+  free before step 5 (`docs/BANKING.md` 1); step 5 has used 3,029 of its 3,400.
   `kern3` / `kern4` / `bank5` keep their own layouts and stay as they were (one `KEYMAP` byte changed: SS+Q).
 - Input: CAPS SHIFT + 1 = TAB, CS + 4 = ESC; BREAK counts as ESC in the window manager. A Kempston mouse (ports `$xxDF`) is
   read when `K_MSET` turns it on; TSRun emulates it as `m.mouse`, and the test page has a Mouse switch.
 - Step 5 placement (owner, 2026-11-12): toolkit always mapped; shell, Calculator, Write in DOCK 2-3; DOCK 6 for resources and
-  later Paint's drawing core. Step 5's pool growth <= 3,400 bytes (1,688 used after the shell slice).
-- Step 5 cartridge `desk5` (DOCK 0-5): boots into the shell (`docs/SHELL.md`). Programs: 0 shell, 1 Calculator, 2 Controls; one
+  later Paint's drawing core. Step 5's pool growth <= 3,400 bytes (3,029 used after T2 / T3).
+- Step 5 cartridge `desk5` (DOCK 0-5): boots into the shell (`docs/SHELL.md`). Programs: 0 shell, 1 Calculator, 2 Controls (window (176, 32, 320, 144), with a `List` and a `Field`); one
   at a time through `K_LAUNCH` / `K_QUIT`; each copies its RAM image to `$C000` (<= 1 KB); app arena `$C400-$DFFF`. Windows
   that programs close are `CWindow`s (close box; SYMBOL SHIFT + Q = key code `CLOSE` 17). Programs dispatch with `TK_DISPATCH`.
 - Tests that use `desk5` boot through the shell (`tests/calc-lib.mjs` `bootDesk5`, `tests/shell-lib.mjs`).
@@ -85,12 +86,11 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
   - Calculator (`docs/CALCULATOR.md`);
   - toolkit T1: `Check`, `VScroll`, and `CWindow` (`docs/TOOLKIT.md`);
   - the shell and the launcher (`docs/SHELL.md`).
+- **Toolkit T2 (`List`) and T3 (`Field`) are done on emulators** (ZEsarUX 42 of 42; Fuse boot rows), awaiting the owner's
+  review of the grown Controls demo (`docs/TOOLKIT.md` 10.9).
 - **The owner approved the desktop's look,** icons included (2026-11-12: "desktop looks great").
-- **The `VScroll` 12 x 80 draw bound is 47,700 T** (owner, 2026-11-12): nothing waits on the owner.
+- **The `VScroll` 12 x 80 draw bound is 47,700 T** (owner, 2026-11-12).
 - **Next:**
-  - toolkit T2 (`List`) and T3 (`Field`), in one run, starting with their interface sections in `docs/TOOLKIT.md`. T2 has
-    three settled points (TOOLKIT 9.8):
-    - full redraw, with section 7's 40,000 T scroll bound replaced by the measured figure;
-    - the owner's tile idea, a "cell lines" flag drawing with `G_TEXT8`;
-    - the Controls program grows a `List` and a `Field`, and the owner tries the SYMBOL SHIFT layout there.
-  - Then Write.
+  - the owner's review of the demo: the SYMBOL SHIFT layout by typing in the Field; the scroll bounds; the cell-lines outline
+    (`docs/TOOLKIT.md` 10.9);
+  - then Write.
