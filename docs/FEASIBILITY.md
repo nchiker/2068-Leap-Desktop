@@ -386,7 +386,15 @@ cross-checked on ZEsarUX and Fuse. It shows:
    - Write the gaps: mode 6 addressing, lines, clip rectangles, save-under, opaque blit.
    - Then add the mode 0 and 2 variants.
    - Test each piece against a reference model on TSRun, as Arcade does.
-3. **Objects and events:** class descriptors, message send, arenas and pools, the input ISR, the event queue, focus. Contract: `docs/OBJECTS_EVENTS.md` (draft 1, for the owner to approve); it includes the pointer redrawn with an ink hot spot (5a).
+3. **Objects and events:** class descriptors, message send, arenas and pools, the input ISR, the event queue, focus. Contract: `docs/OBJECTS_EVENTS.md` (owner approved). **Built on emulators (2026-11-12):** slices K1-K3, the `kern3`
+   test cartridge and the `kern3demo` demo; the pointer has an ink hot spot (5a).
+   - K1's bounds pass: send 87 T, `K_NEW` 437 T.
+   - Speed bounds missed and recorded with options for the owner (OBJECTS_EVENTS 16.2, 16.3):
+     - the ISR's worst input frame, 4,560 T against 2,000;
+     - the per-event path, 537 T against 500;
+     - hit-test routing through 8 children, 5,142 T against 3,500;
+     - the focus walk at 32 views, 10,881 / 17,952 T against 5,000 / 8,000.
+   - Step 3 takes 2,272 bytes of the always-mapped pool (bound 2,048), leaving about 9.5 KB.
 4. **Window manager:** window list, damage repaint, menus, dialogs. Together with steps 2-3 this is the proof of concept, the first milestone.
 5. **First applications:** controls, the shell, Calculator, then Write (mode 6), Paint, tape file services.
 6. **Banking and SDK:** banked apps in DOCK 2-3, the third-party app header, the IDE SDK and templates, later a Leap-C cross-compiler and a visual designer.

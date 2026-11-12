@@ -857,6 +857,18 @@ sections 2-10 and 13-15 without reading the code.
   - K2 test 3c assumed the pointer could move right, and seed 6 left it at the right edge. It now moves away from the nearer edge.
   - The generator self-test listed the class set before `Group` and `TBox`.
 
+**Cross-emulator (section 9 test 10)**, runners by a Sonnet agent, re-run by the main model:
+- **TSRun reference:** `node tools/xemu/kern3-ref.mjs`.
+- **ZEsarUX 13.0:** `python3 tools/xemu/zesarux-kern3.py`, 11 of 11 rows pass.
+  - The self-test record (`a5 5a 03 1a 7e 1d 02`) equals TSRun's.
+  - The settled demo screen is identical in all 12,288 bytes to TSRun's and stays so for 20 frames.
+  - A TAB (CAPS SHIFT + 4) sent through ZRCP `send-keys-event` moves the focus to view A, and the screen then equals TSRun's after
+    the same key, also in all 12,288 bytes.
+  - The DOCK chunks are unchanged.
+- **Fuse 1.9.1:** `sh tools/xemu/fuse-kern3.sh`, 4 of 4 rows pass.
+  - The settled screen is in every hi-res frame from #136 to #1200.
+  - Fuse gets no keys, so the TAB row is not run there.
+
 **The demo** (`kern3demo`, `web/?cart=kern3demo`):
 - The status line reads `LEAP K3 SUM 1D7E PASS` and then the last event's bytes and the keyboard-pointer mode.
 - Views 0-2 and 4-7 are framed; 3 is hidden.
