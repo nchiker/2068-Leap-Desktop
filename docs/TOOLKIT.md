@@ -230,3 +230,24 @@ It holds:
 
 The owner tried the "Controls" demo (`web/?cart=desk5`, Calc -> Controls...): **"The controls look good."** T1's looks
 (9.2-9.3) are approved. T2 and T3 follow in one run (decision 5).
+
+### 9.7 Amendments after T1's tests (2026-11-12)
+
+Found by Sonnet's tests and fixed in `tk.asm`:
+1. **The repeat keeps its cadence.** The deadlines are the press's frame + 15, then each deadline + 6, whatever a step costs.
+   - Before, each step's time was added: 16, then 7, 7, ... frames.
+   - On the demo it is now: the first step 2 frames after the press (the poll and one draw), then +17, +23, +29.
+2. **`target` = 0: one `E_CMD` when tracking ends,** if the value changed during it. Posting one per change could not work:
+   the tracking loop's own `K_GETEV` takes posted records first and drops them.
+3. **The press is drawn once:** the arrow pressed and the first step together. An arrow click went from about 108 k to 58 k T.
+4. **A radio does not clear itself:** "every sibling" excludes self, so it is drawn once.
+5. **"Inside that part" means the part's rectangle:** x within the bar, and the part's rows.
+6. **`VScroll` needs w >= 12** (binding on programs): its widest arrow row is 9 pixels.
+
+**Missed bound, for the owner (not changed):** `W_DRAWVIEW` of a `Check` with a 40-pixel text, focused, takes 26,007 T, which
+is 50,696 T per 1,000 pixels. That is 1.80 x `Button`'s, against the 1.5 x bound of section 7.
+- Fixed costs dominate a view this small: `W_DRAWVIEW`'s setup, the fill, the frame, `G_TEXTW` and the text's line setup
+  (about 2,760 T).
+- So a per-area ratio judges small views unfairly. The bar 12 x 146 passes (1.31 x).
+- **Proposed:** absolute bounds at the measured figures (`Check` 72 x 9, checked and focused: 31,185 T; the bar 12 x 80:
+  47,574 T), in place of the ratio.

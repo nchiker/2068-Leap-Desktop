@@ -14,6 +14,7 @@ TK_GRAB     EQU $F0E4           ; py - ty at the press on the thumb
 TK_TL       EQU $F0E5           ; vs_geom: the track's rows
 TK_TH       EQU $F0E6           ; the thumb's rows (0: none)
 TK_TY       EQU $F0E7           ; the thumb's top row
+TK_CHG      EQU $F0E8           ; tracking with target 0: the value changed (E_CMD at the end)
 
 CHK_CHECKED EQU 3               ; Check flags (9.2)
 CHK_RADIO   EQU 4
@@ -223,6 +224,15 @@ chk_act:
     jr z,.end
     push hl
     pop ix
+    pop de                      ; DE = self
+    push de
+    ld a,e
+    cp l
+    jr nz,.other
+    ld a,d
+    cp h
+    jr z,.next                  ; self is not its own sibling
+.other:
     ld a,(ix+0)
     cp LOW CL_Check
     jr nz,.next
@@ -435,6 +445,8 @@ vs_event:
     ld (TK_GRAB),a
     ld a,5
     ld (TK_PART),a
+    xor a
+    ld (TK_CHG),a
     jr .loop0
 .track:
     ld bc,4 * 256 + 1
@@ -451,12 +463,17 @@ vs_event:
     ld (TK_PART),a
     ld a,c
     ld (TK_DIR),a
-    call W_DRAWVIEW             ; the arrow drawn pressed (or no change)
-    call vs_step
-    ld hl,(V_FRAMES)
+    xor a
+    ld (TK_CHG),a
+    ld hl,(V_FRAMES)            ; the first repeat 15 frames after the press
     ld de,15
     add hl,de
     ld (TK_NEXT),hl
+    call vs_step                ; NZ: the value changed
+    push af
+    call W_DRAWVIEW             ; once: the arrow pressed and the new value
+    pop af
+    call nz,vs_tell
 .loop0:
 .loop:
     call K_GETEV
@@ -471,8 +488,13 @@ vs_event:
     sbc hl,de
     jp m,.loop
     call vs_inside
-    call c,vs_step
-    ld hl,(V_FRAMES)
+    jr nc,.later
+    call vs_step
+    jr z,.later
+    call W_DRAWVIEW
+    call vs_tell
+.later:
+    ld hl,(TK_NEXT)             ; every 6 frames, counted from the deadline
     ld de,6
     add hl,de
     ld (TK_NEXT),hl
@@ -494,6 +516,9 @@ vs_event:
     ld (ix+VScroll_press),0
     call W_DRAWVIEW
 .end:
+    ld a,(TK_CHG)               ; target 0: one E_CMD for the whole tracking
+    or a
+    jp nz,b_post
     scf
     ret
 
@@ -560,7 +585,7 @@ vs_inside:
     or a
     ret
 
-; vs_step: value moved by TK_AMT in TK_DIR, clamped to 0..max; when it changed, drawn and told.
+; vs_step: value moved by TK_AMT in TK_DIR, clamped to 0..max.  NZ when it changed (not drawn, not told).
 vs_step:
     ld a,(TK_DIR)
     or a
@@ -568,28 +593,39 @@ vs_step:
     ld hl,TK_AMT
     jr nz,.inc
     sub (hl)
-    jr nc,vs_set
+    jr nc,.new
     xor a
-    jr vs_set
+    jr .new
 .inc:
     add a,(hl)
     jr c,.max
     cp (ix+VScroll_max)
-    jr c,vs_set
-    jr z,vs_set
+    jr c,.new
+    jr z,.new
 .max:
     ld a,(ix+VScroll_max)
-; vs_set: value = A; when it changed: W_DRAWVIEW, then the target told with E_SCROLL (E_CMD posted when there is none).
+.new:
+    cp (ix+VScroll_value)
+    ret z
+    ld (ix+VScroll_value),a
+    ret                         ; NZ
+; vs_set: value = A; when it changed: W_DRAWVIEW, then told.
 vs_set:
     cp (ix+VScroll_value)
     ret z
     ld (ix+VScroll_value),a
     call W_DRAWVIEW
+; vs_tell: the target gets E_SCROLL through M_EVENT; with no target, TK_CHG is set (E_CMD when tracking ends).
+vs_tell:
     ld l,(ix+VScroll_target)
     ld h,(ix+VScroll_target+1)
     ld a,h
     or l
-    jp z,b_post
+    jr nz,.target
+    inc a
+    ld (TK_CHG),a
+    ret
+.target:
     ld a,E_SCROLL
     ld (TK_EV),a
     ld a,(ix+VScroll_value)
