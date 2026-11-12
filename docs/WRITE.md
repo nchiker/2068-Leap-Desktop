@@ -216,8 +216,8 @@ The tests are written from sections 1-10 and this section, never from the code.
 - **Shown:** after each of these, when the caret's line is above top, top = that line; when it is at or below top + 16, top =
   that line - 15.
 - **The bar** (its fields are bytes): with M = max(0, lines - 16), the scale k is the smallest of 1, 2, 4 with
-  ceil(M / k) <= 255. Value = floor(top / k), max = ceil(M / k), page = 16 / k, set (`TK_SETBAR`) whenever one of them
-  changes. Its `E_SCROLL`: top = min(value x k, M); the caret does not move.
+  ceil(M / k) <= 255. Value = floor(top / k), max = ceil(M / k), page = 16 / k, set (`TK_SETBAR`, which makes the
+  value at most max: top can be past M after lines are deleted) whenever one of them changes. Its `E_SCROLL`: top = min(value x k, M); the caret does not move.
 - **Changed:** any insert or delete sets it; the start and "New" clear it.
 - Keys not listed are not consumed (TAB has no other view to go to).
 
