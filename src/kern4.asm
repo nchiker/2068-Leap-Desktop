@@ -23,7 +23,33 @@ R_STATE     EQU RESULT+2
 
 KARENA_BASE EQU $F500
 KARENA_END  EQU $FB00
+    IFDEF BANK5
+AARENA_BASE EQU $C100           ; bank5: the RAM image at $C000-$C0FF (docs/BANKING.md 10.2)
+B_IMG_ADDR  EQU $C000
+B5_N        EQU 400             ; self-test iterations (10.5)
+V_IRQA      EQU $E0A0           ; word: frame interrupts taken with the shadow F4_A
+V_IRQR      EQU $E0A2           ; word: ... F4_R
+T_IN        EQU $E0A4           ; 14 bytes: t_regs's record (HL, AF, BC, DE, IX, IY, shadow, 0)
+T_OUT       EQU $E0B2           ; 10 bytes: what t_regs returns (HL, AF, BC, DE, IX)
+B_GOT       EQU $E0BC           ; 10 bytes: what b_matrix got back
+T_STUB      EQU $E0C6           ; 4 bytes: rst $28 / DW caller / ret
+B_IDX       EQU $E0CA
+B_EXP       EQU $E0CB
+B_FAILK     EQU $E0CC           ; byte: the first failure's kind (0 none)
+B_FAILP     EQU $E0CD           ; byte: its pair index
+B_ITER      EQU $E0CE           ; word: self-test iterations done
+R_KIND      EQU RESULT+3
+R_ITER      EQU RESULT+4
+R_FRAMES    EQU RESULT+6
+R_IRQA      EQU RESULT+8
+R_IRQR      EQU RESULT+10
+R_LOGN      EQU RESULT+12
+R_LSUM      EQU RESULT+14
+R_DSUM      EQU RESULT+16
+R_PAIR      EQU RESULT+18
+    ELSE
 AARENA_BASE EQU $C000
+    ENDIF
 AARENA_END  EQU $E000
 
     ORG $0000
@@ -35,12 +61,23 @@ AARENA_END  EQU $E000
     INCLUDE "kernel/send.asm"
     ASSERT $ <= $0038
 
+    IFDEF BANK5
+    ORG $0028
+    jp K_FAR                    ; RST $28: the far call (docs/BANKING.md 5.1)
+    ENDIF
+
     ORG $0038
 ISR:
     jp ISR_BODY
 
     ORG $0066
     retn
+
+    IFDEF BANK5
+    ORG $0068
+    INCLUDE "kernel/far.asm"
+    ASSERT $ <= $0100
+    ENDIF
 
     ORG $0100
 ENTRY:
@@ -74,6 +111,11 @@ ENTRY:
     out (PORT_SCLD),a
     ld a,F4_RUN
     ld (V_SHADOW_F4),a
+    IFDEF BANK5
+    ld a,$C3
+    ld (K_FJP),a                ; JP: K_FAR's indirect call
+    KFAR B_INIT                 ; the RAM image to $C000
+    ENDIF
     call G_INIT
     ld hl,K_KARENA
     ld de,KARENA_BASE
@@ -99,6 +141,9 @@ ENTRY:
     ld hl,$5AA5
     ld (RESULT),hl              ; marker last
     ei
+    IFDEF BANK5
+    jp B5_START                 ; bank5's self-test (docs/BANKING.md 10.5)
+    ENDIF
     IFDEF DEMO
     jp D_MAIN                   ; kern4demo (docs/WINDOWS.md 18.6)
     ENDIF
@@ -183,6 +228,21 @@ ISR_BODY:
     ld hl,(V_FRAMES)
     inc hl
     ld (V_FRAMES),hl
+    IFDEF BANK5
+    ld a,(V_SHADOW_F4)          ; count the interrupts taken under A and R
+    cp F4_A
+    jr nz,.nota
+    ld hl,(V_IRQA)
+    inc hl
+    ld (V_IRQA),hl
+.nota:
+    cp F4_R
+    jr nz,.notr
+    ld hl,(V_IRQR)
+    inc hl
+    ld (V_IRQR),hl
+.notr:
+    ENDIF
     push bc
     push de
     ld a,F4_RUN
@@ -385,6 +445,9 @@ T_TITLEL:
     INCLUDE "kern4-classes.inc"
 
     INCLUDE "kernel/kernel1.asm"
+    IFDEF BANK5
+    INCLUDE "bank5k.asm"
+    ENDIF
     ASSERT $ <= $4000           ; chunks 0-1 only
 
     ORG $8000                   ; DOCK chunk 4: page-aligned tables
@@ -401,5 +464,9 @@ T_TITLEL:
     ENDIF
 
     ASSERT $ <= $C000           ; chunk 5 only
+
+    IFDEF BANK5
+    INCLUDE "bank5.asm"
+    ENDIF
 
     SAVEBIN "mem.bin", 0, 65536

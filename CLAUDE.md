@@ -21,9 +21,12 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
 - Never map a DOCK chunk over the stack. Keep RAM shadows of `$F4` and `$FF`; never read the ports back. Store the shadow
   **before** each `OUT`.
 - An ISR that touches the display maps the display (`$F4 = $33`) itself, then writes the **shadow** back to the port. It never
-  assumes the port equals the shadow. Safe at every instruction boundary by reasoning; exercised by `docs/PROBE_DOCK23.md` (about
-  900 interrupts per emulator), not yet by interrupt injection at every instruction.
-- Application code may run in DOCK 2-3 (`$F4 = $3F`); it reaches the display only through kernel trampolines.
+  assumes the port equals the shadow. Proven by interrupt injection at every instruction boundary of the far call
+  (`docs/BANKING.md` 11.1).
+- Three mappings (`docs/BANKING.md`, owner approved): K `$33` (kernel: display and heap), A `$3F` (+ DOCK 2-3: heap, no
+  display), R `$73` (+ DOCK 6: display, no heap). Banked code crosses with `rst $28 / DW target` (`KFAR`, `src/kernel/far.asm`;
+  331-352 T a round trip); the kernel reaches banked methods through 4-byte RAM thunks (`KTHUNK`). Every pointer handed to K
+  code is in RAM, never in DOCK 2-3 or 6; a banked program's classes, strings and menu tables live in its RAM image.
 - TSRun fills RAM with random bytes at power-on: initialise every variable, and give test records a marker
   (see `RESULT` in `src/hello.asm`).
 - TSRun drops a frame interrupt that arrives under `DI`: never hold `DI` across a frame boundary.
@@ -35,8 +38,9 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
   chunk 1 too. About 4.5 KB of the always-mapped pool is left (`docs/WINDOWS.md` 16.8).
 - Input: CAPS SHIFT + 1 = TAB, CS + 4 = ESC; BREAK counts as ESC in the window manager. A Kempston mouse (ports `$xxDF`) is
   read when `K_MSET` turns it on; TSRun emulates it as `m.mouse`, and the test page has a Mouse switch.
-- Step 5 starts with a short contract on what stays always mapped and what runs banked (chunks 2-3, 6), with the trampoline
-  cost measured, before any toolkit or app code.
+- Step 5 placement (owner, 2026-11-12): toolkit always mapped; shell, Calculator, Write in DOCK 2-3; DOCK 6 for resources and
+  later Paint's drawing core. Step 5's pool growth <= 3,400 bytes. Slice B0 (the crossing) is done; the toolkit contract is next,
+  after the owner reviews the SYMBOL SHIFT layout (the text field control needs it).
 
 ## Working method
 

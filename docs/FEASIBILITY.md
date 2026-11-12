@@ -401,6 +401,9 @@ cross-checked on ZEsarUX and Fuse. It shows:
    - **Speed:** a Fable pass (B) cut the overhead. The window operations' bounds are the measured figures (C): raise and open about 89 k T, close 62 k, move 167 k. Seven other bounds are missed and recorded (WINDOWS 16.4-16.6).
    - **Size:** a size pass (Fable) brought step 4 from 6,308 to 4,837 bytes, which is now the bound (owner; was 4,096). The kernel is 7,217 bytes, the menus in chunk 1. About 4.5 KB of the always-mapped pool is left; where the toolkit and apps go is decided at the start of step 5.
 5. **First applications:** controls, the shell, Calculator, then Write (mode 6), Paint, tape file services.
+   - **Where code lives:** contract `docs/BANKING.md` (owner approved, 2026-11-12). The toolkit stays always mapped; the apps go
+     in DOCK 2-3. One `RST $28` far call crosses between the mappings K, A and R. **Slice B0 done on three emulators:**
+     331-352 T a crossing (FEASIBILITY 4's "about 50 T" was optimistic), code in DOCK 6 drawing directly, every bound passing.
 6. **Banking and SDK:** banked apps in DOCK 2-3, the third-party app header, the IDE SDK and templates, later a Leap-C cross-compiler and a visual designer.
 
 ## Open questions
