@@ -521,4 +521,9 @@ Same bytes.
 - **The one-line scroll is fast enough** ("The demo seems fast to me"). Its bounds are the measured figures rounded up to 100 T:
   `List` scrolled by one line, bar included, **<= 303,500 T** proportional and **<= 209,400 T** with cell lines. Option (b),
   `G_SCROLLV`, is not taken.
-- Still open: the cell-lines outline (10.9, for the owner 2) and the SYMBOL SHIFT layout, tried by typing in the `Field`.
+- **The cell-lines outline is accepted** (10.9, for the owner 2: "yes, that is acceptable"). The unfocused selection stays
+  outlined in both modes.
+- **The SYMBOL SHIFT layout is accepted after trying it** in the `Field` ("symbol shift worked with P to give me \""). The key
+  map stays as drafted.
+- "Grid" switching the `List` between PROP6 and the 8 x 8 font is as designed (10.5); the owner saw it.
+- **T2 and T3 are closed.**

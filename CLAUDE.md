@@ -47,7 +47,7 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
   at a time through `K_LAUNCH` / `K_QUIT`; each copies its RAM image to `$C000` (<= 1 KB); app arena `$C400-$DFFF`. Windows
   that programs close are `CWindow`s (close box; SYMBOL SHIFT + Q = key code `CLOSE` 17). Programs dispatch with `TK_DISPATCH`.
 - Tests that use `desk5` boot through the shell (`tests/calc-lib.mjs` `bootDesk5`, `tests/shell-lib.mjs`).
-- SYMBOL SHIFT layout: accepted as drafted until the owner has tried it (T3's text field is where they will).
+- SYMBOL SHIFT layout: accepted by the owner after typing with it in T3's `Field` (2026-11-12).
 
 ## Working method
 
@@ -86,11 +86,9 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
   - Calculator (`docs/CALCULATOR.md`);
   - toolkit T1: `Check`, `VScroll`, and `CWindow` (`docs/TOOLKIT.md`);
   - the shell and the launcher (`docs/SHELL.md`).
-- **Toolkit T2 (`List`) and T3 (`Field`) are done on emulators** (ZEsarUX 42 of 42; Fuse boot rows), awaiting the owner's
-  review of the grown Controls demo (`docs/TOOLKIT.md` 10.9).
+- **Toolkit T2 (`List`) and T3 (`Field`) are done** (ZEsarUX 42 of 42; Fuse boot rows); the owner reviewed the grown
+  Controls demo and accepted it (`docs/TOOLKIT.md` 10.10).
 - **The owner approved the desktop's look,** icons included (2026-11-12: "desktop looks great").
 - **The `VScroll` 12 x 80 draw bound is 47,700 T** (owner, 2026-11-12).
 - **Next:**
-  - the owner's review of the demo: the SYMBOL SHIFT layout by typing in the Field; the cell-lines outline (`docs/TOOLKIT.md`
-    10.9). The scroll bounds are set (10.10: 303,500 / 209,400 T);
-  - then Write.
+  - Write (start with its contract).
