@@ -334,6 +334,149 @@ const warpTo = (x, y) => run('K_WARP', { hl: x, de: y });
   row('ISR stack with the return address (poisoned $FB00-$FEFD)', stat.stack, 32, 'B');
   C.check(`ISR frames: V_FRAMES rose by exactly 1 in each (${stat.vErr} wrong), no frame interrupt lost (${stat.lost}); ${cases} A -> B cases`, stat.vErr === 0 && stat.lost === 0);
 }
+// =================================================================================================================================
+// Slice M rows (docs/WINDOWS.md 15.3): the Kempston mouse on.  Only when the cartridge has K_MSET.  The mouse is switched on for these rows and
+// switched off (and detached) again at the end, so every other row is measured as before.
+if (S.K_MSET === undefined || S.K_MOUSE === undefined) console.log('the cartridge has no K_MSET / K_MOUSE: the slice M rows are skipped');
+else {
+  const BTN = (right, left, middle) => 0xF8 | (right ? 0 : 1) | (left ? 0 : 2) | (middle ? 0 : 4);     // active low
+  const hostMove = (dx, dy) => { m.mouse.x = (m.mouse.x + dx) & 0xFF; m.mouse.y = (m.mouse.y + dy) & 0xFF; };
+  m.mouse.attached = true; m.mouse.x = 0x40; m.mouse.y = 0x90; m.mouse.buttons = BTN(0, 0, 0);
+  const mouseOn = () => { m.mouse.buttons = BTN(0, 0, 0); run('K_MSET', { a: 1 }); };
+  const resetM = () => { m.mouse.buttons = BTN(0, 0, 0); run('K_MSET', { a: 0 }); resetPoll(); run('K_MSET', { a: 1 }); m.ram[S.K_BTN] = 0; };
+  // ---- K_MSET: report (on / off, attached / detached, worst over the calls) ----
+  {
+    let on = 0, off = 0;
+    for (const att of [true, false]) for (let i = 0; i < 6; i++) {
+      m.mouse.attached = att; m.mouse.x = rng.byte(); m.mouse.y = rng.byte(); m.mouse.buttons = BTN(rng.chance(0.5), rng.chance(0.5), rng.chance(0.5));
+      on = Math.max(on, run('K_MSET', { a: rng.pick([1, 255, 2]) }).t); off = Math.max(off, run('K_MSET', { a: 0 }).t);
+    }
+    m.mouse.attached = true;
+    row('K_MSET 1 (on: reads the counters; worst over attached / detached)', on, null);
+    row('K_MSET 0 (off)', off, null);
+  }
+  // ---- K_POLL, mouse on, nothing moving or pressed: bound 650 ----
+  {
+    resetM();
+    let idle = 0; for (let i = 0; i < 40; i++) idle = Math.max(idle, poll(IDLE, 0xFF));
+    row('K_POLL mouse on, nothing moving or pressed (worst of 40)', idle, 650);
+    // reports: the mouse alone
+    const rep = {}; const note = (k, t) => { rep[k] = Math.max(rep[k] ?? 0, t); };
+    for (let i = 0; i < 6; i++) {
+      resetM(); hostMove(rng.int(-127, 127), rng.int(-127, 127)); note('mouse move only', poll(IDLE, 0xFF));
+      resetM(); m.mouse.buttons = BTN(0, 1, 0); note('left button goes down only', poll(IDLE, 0xFF));
+      resetM(); m.mouse.buttons = BTN(1, 0, 1); note('right + middle buttons only (no event)', poll(IDLE, 0xFF));
+      resetM(); hostMove(127, -127); m.mouse.buttons = BTN(0, 1, 0); note('mouse move + left down', poll(IDLE, 0xFF));
+      resetM(); hostMove(-127, 127); note('mouse move into a corner', poll(IDLE, 0xFF));
+    }
+    for (const [k, t] of Object.entries(rep)) row(`K_POLL mouse on (report) ${k}`, t, null);
+  }
+  // ---- K_POLL, mouse on, the worst frame: a mouse move with a joystick move, a button change and two new keys: bound 5,600 ----
+  {
+    const KEYPAIRS = [['A', 'S'], ['Z', 'B'], ['ENTER', 'SPACE'], ['CS', 'Q'], ['SS', 'Z'], ['1', 'T']];
+    const DIRS = ['r', 'l', 'u', 'd', 'rd', 'lu'];
+    const MV = [-127, -64, -5, -1, 0, 1, 5, 64, 127];
+    const BTNMODES = ['mouse left down', 'mouse left up', 'joystick fire + mouse left down', 'joystick fire only (mouse left held)'];
+    let worst = 0, whoW = '', worstCfg = null, n = 0;
+    // one configuration: the prepared state (hold 30, the pointer near an edge or not, the ring as chosen, the button as the mode needs it) then the measured poll
+    const measure = (cfg) => {
+      const { dir, edge, bm, kp, lock, ringSt, dx, dy } = cfg;
+      resetM();
+      const hx = dir.includes('r') ? 100 : dir.includes('l') ? 400 : 250, hy = dir.includes('d') ? 40 : dir.includes('u') ? 150 : 90;
+      m.mouse.buttons = bm === 'mouse left up' || bm === 'joystick fire only (mouse left held)' ? BTN(0, 1, 0) : BTN(0, 0, 0);
+      for (let i = 0; i < 31; i++) { warpTo(hx, hy); poll(IDLE, joyOf(dir)); }                 // hold = 30; with 'left held' the button is down
+      const ex = dir.includes('r') ? 511 : dir.includes('l') ? 0 : 250, ey = dir.includes('d') ? 191 : dir.includes('u') ? 0 : 90;
+      if (edge) { const x = edge === 1 ? (dir.includes('r') ? ex - 6 : dir.includes('l') ? ex + 6 : ex) : ex, y = edge === 1 ? (dir.includes('d') ? ey - 3 : dir.includes('u') ? ey + 3 : ey) : ey; warpTo(x, y); poll(IDLE, joyOf(dir), lock); }
+      if (ringSt === 'empty') { m.ram[S.K_RHEAD] = m.ram[S.K_RTAIL] = 0; m.ram[S.K_PN] = 0; m.ram[S.K_PHEAD] = 0; }
+      else if (ringSt === 'move') setQueue({ ringN: 6, rh: 60, lastMove: true }); else if (ringSt === 'full') setQueue({ ringN: 16, rh: 200 });
+      m.ram[S.K_LOST] = 0;
+      hostMove(dx, dy);
+      let fire = false;
+      if (bm === 'mouse left down') m.mouse.buttons = BTN(0, 1, 0);
+      else if (bm === 'mouse left up') m.mouse.buttons = BTN(0, 0, 0);
+      else if (bm === 'joystick fire + mouse left down') { m.mouse.buttons = BTN(0, 1, 0); fire = true; }
+      else { m.mouse.buttons = BTN(0, 0, 0); fire = true; }                                       // left released while joystick fire goes down: one change, from the joystick
+      n++;
+      return poll(rowsOf(kp.map(KIDX)), joyOf(dir + (fire ? 'f' : '')), lock);
+    };
+    const consider = (cfg, t) => { if (t > worst) { worst = t; worstCfg = cfg; whoW = `${cfg.dir} edge ${cfg.edge} ${cfg.bm} keys [${cfg.kp.join(' ')}] ${cfg.lock ? 'locked' : 'unlocked'} ring ${cfg.ringSt} mouse (${cfg.dx}, ${cfg.dy})`; } };
+    // stage 1: every joystick direction x edge x button mode x key pair x lock x ring state, with 3 random mouse steps each (always one pair of the large steps)
+    for (const dir of DIRS) for (const edge of [0, 1, 2]) for (const bm of BTNMODES) for (const kp of KEYPAIRS) for (const lock of [false, true]) for (const ringSt of ['empty', 'prep', 'move', 'full']) {
+      const steps = [[rng.pick([127, -127]), rng.pick([127, -127])], [rng.pick(MV), rng.pick(MV)], [rng.pick(MV), rng.pick(MV)]];
+      for (const [dx, dy] of steps) { const cfg = { dir, edge, bm, kp, lock, ringSt, dx, dy }; consider(cfg, measure(cfg)); }
+    }
+    // stage 2: the worst configuration of stage 1 with every mouse step pair of MV x MV, and every button mode
+    const base = worstCfg;
+    for (const bm of BTNMODES) for (const dx of MV) for (const dy of MV) { const cfg = { ...base, bm, dx, dy }; consider(cfg, measure(cfg)); }
+    row(`K_POLL mouse on, worst frame: mouse move + joystick move + button change + two new keys, ${n} frames (worst: ${whoW})`, worst, 5600);
+  }
+  // ---- the whole frame ISR with the mouse on (the harness of the K2 block above, with the mouse moving in the worst frame): bound 12,400 ----
+  {
+    const step1 = () => Z.runZ80(cpu, m.bus, 1, m);
+    const accepted = () => cpu.pc === 0x38;
+    const parkLoop = () => { cpu.halted = false; cpu.nmiPending = false; cpu.eiDelay = false; cpu.iff1 = cpu.iff2 = true; cpu.sp = 0xFF00; cpu.pc = S.T_EVLOOP; };
+    const runIsr = () => {
+      const sp0 = cpu.sp + 2, ret = m.ram[cpu.sp] | (m.ram[cpu.sp + 1] << 8), t0 = m.tstates;
+      let offIsrp = -1, tIsrp = 0, tPolld = 0, steps = 0;
+      while (!(cpu.pc === ret && cpu.sp === sp0)) {
+        if (cpu.pc === S.T_ISRP && offIsrp < 0) { offIsrp = m.tstates - m.frameStart; tIsrp = m.tstates; }
+        if (cpu.pc === S.T_POLLD && tPolld === 0) tPolld = m.tstates;
+        step1();
+        if (++steps > 400000) throw new Error('the frame ISR did not return');
+      }
+      return { t: m.tstates - t0, offIsrp, kpollT: tPolld - tIsrp };
+    };
+    const prime = () => { for (let k = 0; k < 20000 && m.tstates - m.frameStart >= FRAME_T; k++) { parkLoop(); M.runFrame(m); } parkLoop(); M.runFrame(m); if (!accepted()) throw new Error('prime: no interrupt pending'); };
+    const stat = { frames: 0, maxT: 0, maxOff: 0, maxK: 0, stack: 0, vErr: 0, lost: 0, whoT: '' };
+    let pat = 0;
+    const frame = (keys, joy, label, warp = null, mv = null, btn = null) => {
+      setIn(rowsOf(keys.map(KIDX)), joy);
+      if (mv) hostMove(...mv);
+      if (btn !== null) m.mouse.buttons = btn;
+      if (!accepted()) { stat.lost++; return false; }
+      pat ^= 0xFF; armStack(m, pat === 0xFF ? 0x55 : 0xAA);
+      const v0 = rd8(S.V_FRAMES) | (rd8(S.V_FRAMES + 1) << 8);
+      const r = runIsr();
+      stat.stack = Math.max(stat.stack, stackUsed(m, pat === 0xFF ? 0x55 : 0xAA) + 2);
+      const v1 = rd8(S.V_FRAMES) | (rd8(S.V_FRAMES + 1) << 8);
+      if (((v1 - v0) & 0xFFFF) !== 1) stat.vErr++;
+      stat.frames++;
+      if (r.t > stat.maxT) { stat.maxT = r.t; stat.whoT = label; }
+      stat.maxOff = Math.max(stat.maxOff, r.offIsrp); stat.maxK = Math.max(stat.maxK, r.kpollT);
+      if (warp) warpTo(...warp);
+      return true;
+    };
+    const endFrame = () => { parkLoop(); M.runFrame(m); if (!accepted()) { stat.lost++; return false; } m.ram.fill(0, S.K_RHEAD, S.K_RHEAD + 2); m.ram[S.K_PN] = 0; return true; };
+    resetM(); prime();
+    const XS = [64, 71, 0, 7, 8, 488, 495, 496, 503, 504, 511], YS = [0, 5, 7, 176, 183, 191];
+    const MVS = [[127, -127], [-127, 127], [5, -3], [-90, -90]];
+    let cases = 0;
+    outer:
+    for (let i = 0; i < XS.length; i++) for (let j = 0; j < YS.length; j++) for (let q = 0; q < 2; q++) {
+      const B = [XS[i], YS[j]], A = [(B[0] + 200) % 512, (B[1] + 50) % 192];
+      const dir = ['r', 'l', 'u', 'd', 'rd', 'lu'][(i + j + q) % 6], mv = MVS[(i * 3 + j + q) % MVS.length];
+      m.mouse.buttons = BTN(0, 0, 0);
+      for (let k = 0; k < 32; k++) if (!frame([], joyOf(dir), 'warm', [256, 96]) || !endFrame()) break outer;
+      if (!frame([], joyOf(dir), 'warm', A) || !endFrame()) break outer;
+      if (!frame([], joyOf(dir), 'tell A') || !endFrame()) break outer;
+      if (!frame([], joyOf(dir), 'draw A', B) || !endFrame()) break outer;
+      if (!frame([], joyOf(dir), 'tell B') || !endFrame()) break outer;
+      // the worst frame: P_ISR moves A -> B (erase + draw); K_POLL has a mouse move, a joystick move, a button change and two new keys
+      if (!frame(['A', 'S'], joyOf(dir + (q ? 'f' : '')), `worst frame A (${A}) -> B (${B}) ${dir} mouse (${mv}) fire ${q}`, null, mv, BTN(0, 1, 0)) || !endFrame()) break outer;
+      if (!frame([], 0xFF, 'release', null, null, BTN(0, 0, 0)) || !endFrame()) break outer;
+      cases++;
+    }
+    setIn(IDLE, 0xFF);
+    row(`whole frame ISR, mouse on, worst over ${stat.frames} strict frames: P_ISR moving + K_POLL worst (${stat.whoT})`, stat.maxT, 12400);
+    row('K_POLL inside the ISR, mouse on, worst (T_ISRP to T_POLLD, CALL and RET included)', stat.maxK, null);
+    row('pointer deadline, mouse on: largest T_ISRP offset + 1,500', stat.maxOff + 1500, 8960);
+    row('ISR stack with the return address, mouse on (poisoned $FB00-$FEFD)', stat.stack, 32, 'B');
+    C.check(`ISR frames, mouse on: V_FRAMES rose by exactly 1 in each (${stat.vErr} wrong), no frame interrupt lost (${stat.lost}); ${cases} A -> B cases`, stat.vErr === 0 && stat.lost === 0);
+  }
+  // back to the state every other row expects: the mouse off and detached
+  run('K_MSET', { a: 0 }); m.mouse.attached = false; m.mouse.x = 0; m.mouse.y = 0; m.mouse.buttons = 0xFF;
+  resetPoll();
+}
 // ---- bytes (K1 + K2) -----------------------------------------------------------------------------------------------------------------
 row('code bytes: K_CODE_END - K_CODE + 14 (K_SEND); section 8 allows 2,400 for the whole step', S.K_CODE_END - S.K_CODE + 14, null, 'B');
 row('  of which K_CODE_END - K_CODE', S.K_CODE_END - S.K_CODE, null, 'B');
@@ -529,7 +672,9 @@ else {
   }
 
   // ---- bytes (section 8: <= 2,400 for the whole step, owner 2026-11-12) -----------------------------------------------------------------------------
-  row('bytes: K_CODE_END - K_CODE + 14 (K_SEND), step 3 total', S.K_CODE_END - S.K_CODE + 14, 2400, 'B');   // owner 2026-11-12: the measured size accepted (16.4)
+  // Once the window manager is in the kernel (W_INIT defined), K_CODE holds step 4 too: the step 3 figure was 2,394 at c9b22a4, and the
+  // growth is judged by docs/WINDOWS.md 9 (tests/wm-perf.mjs).  So the row only reports.
+  row('bytes: K_CODE_END - K_CODE + 14 (K_SEND), step 3 total' + (S.W_INIT ? ' (with step 4: reported)' : ''), S.K_CODE_END - S.K_CODE + 14, S.W_INIT ? null : 2400, 'B');   // owner 2026-11-12: the measured size accepted (16.4)
 }
 
 // ---- print -----------------------------------------------------------------------------------------------------------------------

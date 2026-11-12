@@ -199,8 +199,8 @@ between select and access. Code that writes AY register 7 (the mixer) keeps bit 
   and gives an `E_MODE` event (section 6), so the program can show the mode.
 - **Codes** come from a 3 x 40-byte table (plain, CS, SS) written by `tools/gen-keymap.mjs` from `src/kernel/keymap.txt`:
   - plain: lower-case letters, digits, space, ENTER = 13;
-  - CS: upper-case letters; CS+5/6/7/8 = left 8, down 10, up 11, right 9; CS+0 = DELETE 12; CS+1 = ESC 27; CS+2 toggles caps lock (no event);
-    CS+3 = back-TAB 15; CS+4 = TAB 14; CS+9 = MENU 16; CS+SPACE = BREAK 3;
+  - CS: upper-case letters; CS+5/6/7/8 = left 8, down 10, up 11, right 9; CS+0 = DELETE 12; CS+1 = TAB 14; CS+2 toggles caps lock (no event);
+    CS+3 = back-TAB 15; CS+4 = ESC 27 (CS+1 and CS+4 swapped by the owner, 2026-11-12, `docs/WINDOWS.md` 13: PC Tab gives CS+1); CS+9 = MENU 16; CS+SPACE = BREAK 3;
   - SS: the TS2068 symbol where the key's legend shows an ASCII character; the rest of printable ASCII 33-126 spread over the
     remaining SS keys. Every printable character is reachable with at most one modifier. The main model drafts `keymap.txt`; the
     owner reviews it.
@@ -886,7 +886,7 @@ sections 2-10 and 13-15 without reading the code.
 - **ZEsarUX 13.0:** `python3 tools/xemu/zesarux-kern3.py`, 11 of 11 rows pass.
   - The self-test record (`a5 5a 03 1a 7e 1d 02`) equals TSRun's.
   - The settled demo screen is identical in all 12,288 bytes to TSRun's and stays so for 20 frames.
-  - A TAB (CAPS SHIFT + 4) sent through ZRCP `send-keys-event` moves the focus to view A, and the screen then equals TSRun's after
+  - A TAB (CAPS SHIFT + 4 then; CAPS SHIFT + 1 since the swap of 2026-11-12) sent through ZRCP `send-keys-event` moves the focus to view A, and the screen then equals TSRun's after
     the same key, also in all 12,288 bytes.
   - The DOCK chunks are unchanged.
 - **Fuse 1.9.1:** `sh tools/xemu/fuse-kern3.sh`, 4 of 4 rows pass.
@@ -896,7 +896,7 @@ sections 2-10 and 13-15 without reading the code.
 **The demo** (`kern3demo`, `web/?cart=kern3demo`):
 - The status line reads `LEAP K3 SUM 1D7E PASS` and then the last event's bytes and the keyboard-pointer mode.
 - Views 0-2 and 4-7 are framed; 3 is hidden.
-- TAB (CAPS SHIFT + 4), the arrows and a click move the focus, shown by a thicker frame.
+- TAB (CAPS SHIFT + 1 since 2026-11-12), the arrows and a click move the focus, shown by a thicker frame.
 
 ### 16.4 Owner decisions on the missed bounds (2026-11-12)
 

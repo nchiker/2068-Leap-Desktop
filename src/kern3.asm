@@ -169,18 +169,8 @@ T_POLLD:
 
     ALIGN 512
     INCLUDE "gfx6/tables.inc"
-    ASSERT $ <= $4000
 
-    ORG $8000                   ; DOCK chunk 4: page-aligned tables
-    INCLUDE "gfx6/tables4.inc"
-    ASSERT RMASKP == LMASKP + 256 && (LMASKP & $FF) == 0
-    ASSERT PROP6_I == PROP6_W + 256 && (PROP6_W & $FF) == 0 && (FONTP & $FF) == 0
-    ASSERT SHL == SHR + 256 && (SHR & $FF) == 0 && PROP6_K == PROP6_A2 + 256 && GLYPH8 == FONTP + 128
-    ASSERT $ <= $A000           ; chunk 4 only
-
-    ORG $A000                   ; DOCK chunk 5: the kernel, then the test code
-    INCLUDE "kernel/kernel.asm"
-
+; The test cartridge's own code, in chunk 1 after the tables (docs/WINDOWS.md 2: the kernel fills chunk 5)
 ; ---------------------------------------------------------------------------------------------------------------------------
 ; The test classes' methods (13.6).  Each logs one record: code, IX, C, B, E, D, tag.
 t_destroy:
@@ -259,8 +249,21 @@ t_log:
     ld (hl),a
     ret
 
-    INCLUDE "kern3k3.asm"
     INCLUDE "kern3-classes.inc"
+
+    INCLUDE "kernel/kernel1.asm"
+    ASSERT $ <= $4000           ; chunks 0-1 only
+
+    ORG $8000                   ; DOCK chunk 4: page-aligned tables
+    INCLUDE "gfx6/tables4.inc"
+    ASSERT RMASKP == LMASKP + 256 && (LMASKP & $FF) == 0
+    ASSERT PROP6_I == PROP6_W + 256 && (PROP6_W & $FF) == 0 && (FONTP & $FF) == 0
+    ASSERT SHL == SHR + 256 && (SHR & $FF) == 0 && PROP6_K == PROP6_A2 + 256 && GLYPH8 == FONTP + 128
+    ASSERT $ <= $A000           ; chunk 4 only
+
+    ORG $A000                   ; DOCK chunk 5: the kernel, then the test code
+    INCLUDE "kernel/kernel.asm"
+    INCLUDE "kern3k3.asm"         ; the self-test and the demo (chunk 1 is full)
 
     ASSERT $ <= $C000           ; chunk 5 only
 

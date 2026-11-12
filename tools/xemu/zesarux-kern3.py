@@ -9,8 +9,8 @@ HALT, then JR D_LOOP), stops the run.  Waiting N frames is done by `run`-ning to
 at least N x 69,888 T (ZEsarUX's TS2068 frame; TSRun's is 58,688 T).
 Rows: (1) the first stop at D_LOOP: record state 3, record bytes = TSRun's (marker, state 3, 26 log records, sum 7550, focused id 2),
 (2) 100 frames later: the 12,288 display bytes = TSRun's settled screen, K_FOCUS = 0, (3) the screen is still the same 20 frames later,
-(4) interrupts (frames of 69,888 T) over the waits, (5) CAPS SHIFT + 4 (TAB) sent as ZRCP send-keys-event (codes found by a sweep: 133 =
-CAPS SHIFT, 52 = '4'; K_NOW shows the matrix) for 2 frames, released, 10 frames: K_FOCUS = view A's address (T_VIEWS + 2), (6) the screen
+(4) interrupts (frames of 69,888 T) over the waits, (5) CAPS SHIFT + 1 (TAB since 2026-11-12) sent as ZRCP send-keys-event (codes found by a sweep: 133 =
+CAPS SHIFT, 49 = '1'; K_NOW shows the matrix) for 2 frames, released, 10 frames: K_FOCUS = view A's address (T_VIEWS + 2), (6) the screen
 = TSRun's after the same key press, (7) DOCK chunks 0, 1, 4, 5 (memory zone 19) = the DCK.
 """
 import argparse
@@ -28,7 +28,7 @@ ZDIR = Path.home() / "Applications/ZEsarUX-13.0"
 ROOT = Path(__file__).resolve().parents[2]
 FRAME_T = 69888
 CHUNKS = (0, 1, 4, 5)
-KEY_CS, KEY_4 = 133, 52          # util_teclas values: UTIL_KEY_SHIFT_L (row 0 bit 0 in K_NOW), ASCII '4' (row 3 bit 3)
+KEY_CS, KEY_1 = 133, 49          # util_teclas values: UTIL_KEY_SHIFT_L (row 0 bit 0 in K_NOW), ASCII '1' (row 3 bit 0)
 
 
 def syms():
@@ -149,18 +149,18 @@ def main():
         results.append(("interrupts: D_LOOP reached once per frame (idle: HALT then loop)", stops == round(T1 / FRAME_T) or abs(stops - T1 / FRAME_T) <= 1,
                         f"{stops} stops for {T1 / FRAME_T:.2f} frames; {stops2} stops for {t2 / FRAME_T:.2f} frames"))
 
-        # TAB: CAPS SHIFT + 4 for 2 frames, release, 10 frames
+        # TAB: CAPS SHIFT + 1 for 2 frames, release, 10 frames
         viewA = int.from_bytes(rd(c, Z(S["T_VIEWS"] + 2), 2), "little")
         c.command(f"send-keys-event {KEY_CS} 1")
-        c.command(f"send-keys-event {KEY_4} 1")
+        c.command(f"send-keys-event {KEY_1} 1")
         _, tk = wait_frames(2)
         now = rd(c, Z(0xF090), 8)                             # K_NOW: the half-rows as last read (bit set = down)
-        c.command(f"send-keys-event {KEY_4} 0")
+        c.command(f"send-keys-event {KEY_1} 0")
         c.command(f"send-keys-event {KEY_CS} 0")
         stops3, t3 = wait_frames(10)
         focus2 = int.from_bytes(rd(c, Z(S["K_FOCUS"]), 2), "little")
-        results.append(("send-keys-event CS (133) + '4' (52) reaches the keyboard matrix (K_NOW row 0 bit 0, row 3 bit 3)",
-                        now[0] & 1 == 1 and now[3] & 8 == 8, f"K_NOW {now.hex(' ')} after {tk} T pressed"))
+        results.append(("send-keys-event CS (133) + '1' (49) reaches the keyboard matrix (K_NOW row 0 bit 0, row 3 bit 0)",
+                        now[0] & 1 == 1 and now[3] & 1 == 1, f"K_NOW {now.hex(' ')} after {tk} T pressed"))
         results.append(("TAB: K_FOCUS moves from 0 to view A (T_VIEWS + 2), equal to TSRun's", focus2 == viewA == jtab["K_FOCUS"] and viewA != 0,
                         f"K_FOCUS ${focus2:04X}, view A ${viewA:04X}, TSRun ${jtab['K_FOCUS']:04X}"))
         disp3 = rd(c, Z(0x4000), 6144) + rd(c, Z(0x6000), 6144)

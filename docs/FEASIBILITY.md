@@ -395,7 +395,11 @@ cross-checked on ZEsarUX and Fuse. It shows:
      - routing: plain views hit-tested in place (option E) and the tree walked through HL (option D, a Fable job). Every bound
        now passes: per event 472 T (500), bubble 186 (200), `E_DOWN` through 8 children 3,463 (3,500), `E_MOVE` 2,443 (2,500).
    - Step 3 takes 2,394 bytes of the always-mapped pool (bound now 2,400), leaving about 9.3 KB.
-4. **Window manager:** window list, damage repaint, menus, dialogs. Together with steps 2-3 this is the proof of concept, the first milestone.
+4. **Window manager:** window list, damage repaint, menus, dialogs. Together with steps 2-3 this is the proof of concept, the first milestone. Contract: `docs/WINDOWS.md` (owner approved). **Built on emulators (2026-11-12):**
+   - **The slices:** W1 (the cell map, repaint, activation), M (the Kempston mouse, with TSRun's emulation and the page's Mouse switch), W2 (clicks, drag, dialogs, `Button`, `Label`) and W3 (menus).
+   - **The demo:** `kern4demo` is the PoC demo. It matches TSRun byte for byte on ZEsarUX and Fuse, and the owner tried it in a browser with the mouse.
+   - **Speed:** a Fable pass (B) cut the overhead. The window operations' bounds are the measured figures (C): raise and open about 89 k T, close 62 k, move 167 k. Seven other bounds are missed and recorded (WINDOWS 16.4-16.6).
+   - **Size: missed.** Step 4 adds 6,308 bytes against 4,096. The kernel outgrew chunk 5, so the menus sit in chunk 1. A size pass is agreed, and where the toolkit goes is decided at step 5.
 5. **First applications:** controls, the shell, Calculator, then Write (mode 6), Paint, tape file services.
 6. **Banking and SDK:** banked apps in DOCK 2-3, the third-party app header, the IDE SDK and templates, later a Leap-C cross-compiler and a visual designer.
 

@@ -23,6 +23,10 @@ export const TARGETS = {
     classes: ['src/kernel/classes.txt', 'src/kern3-classes.txt'], keymap: 'src/kernel/keymap.txt' },
   kern3demo: { src: 'src/kern3.asm', chunks: [0, 1, 4, 5], tables: true, defs: { DEMO: 1 },   // section 15.4
     classes: ['src/kernel/classes.txt', 'src/kern3-classes.txt'], keymap: 'src/kernel/keymap.txt' },
+  kern4: { src: 'src/kern4.asm', chunks: [0, 1, 4, 5], tables: true,     // docs/WINDOWS.md section 14.5
+    classes: ['src/kernel/classes.txt', 'src/kern4-classes.txt'], keymap: 'src/kernel/keymap.txt' },
+  kern4demo: { src: 'src/kern4.asm', chunks: [0, 1, 4, 5], tables: true, defs: { DEMO: 1 },   // the PoC demo, section 18.6
+    classes: ['src/kernel/classes.txt', 'src/kern4-classes.txt'], keymap: 'src/kernel/keymap.txt' },
 };
 
 /** Assemble one target; returns { img (64 KB), syms, dck, dckPath }. */

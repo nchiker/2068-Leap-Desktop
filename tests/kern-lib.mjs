@@ -21,7 +21,7 @@ export const readClassesJson = (target = 'kern3') => JSON.parse(readFileSync(joi
 
 /** Regions poisoned before a run (13.6): everything outside the K1 variables, the gfx6 / cartridge variables, the record and the stack's top. */
 export const KPOISON = [[0x5800, 0x5FFF], [0x7800, 0x7FFF], [0xC000, 0xDFFF], [0xE100, 0xE7FF], [0xE800, 0xEFFF], [0xF000, 0xF04F],
-  [0xF080, 0xFAFF], [0xFB00, 0xFEFD]];
+  [0xF080, 0xF0BF], [0xF0D0, 0xFAFF], [0xFB00, 0xFEFD]];   // $F0C0-$F0CF: step 4's W_DIRTY and K_FSCOPE, which step 3 code reads; 0 from boot (docs/WINDOWS.md 2)
 /** The address under which the stack guard stops: bytes up to this one must be unchanged for a routine allowed `lim` bytes below its return address. */
 export const guardTop = (lim) => 0xFEFE - lim - 1;
 

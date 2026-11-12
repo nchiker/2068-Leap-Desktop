@@ -47,7 +47,7 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
   - **Main model only:** design, contracts, Z80 drawing / ISR / banking code, debugging, and judging results. Check a subagent's result (re-run its tests) before telling the owner it is done.
   - **Fable (owner, 2026-11-11):** bounded hard problems that can run beside the main work, each in its own git worktree with a
     measurable result:
-    - closing a missed or tight speed bound (first: `G_FILL` 32x16 XOR, 3,390 against 3,300);
+    - closing a missed or tight speed bound, as step 3's option D did (`G_FILL` 32x16 XOR, once listed here, already passes at 3,246);
     - an independent review of the S4 pointer ISR, given the code and the contract, not the main model's reasoning.
 
     Fable costs twice Opus per token: not for routine work.

@@ -146,7 +146,7 @@ function displayDiff(p = pm) {
 }
 
 /** Whole-RAM comparison ($4000-$FFFF) with the model's changes applied, leaving out the scratch, the poll state and the stack. */
-const RAM_RANGES = [[0x4000, 0xF077], [0xF080, 0xF08F], [0xF0C0, 0xFDFF], [0xFF00, 0xFFFF]];
+const RAM_RANGES = [[0x4000, 0xF077], [0xF080, 0xF08F], [0xF0C0, 0xF0C4], [0xF0C6, 0xFDFF], [0xFF00, 0xFFFF]];   // $F0C5: K_POLL's warp flag (internal, docs/WINDOWS.md 15.2)
 function ramDiff(want) {
   for (const [lo, hi] of RAM_RANGES) {
     if (Buffer.from(m.ram.buffer, m.ram.byteOffset + lo, hi - lo + 1).compare(Buffer.from(want.buffer, want.byteOffset + lo, hi - lo + 1)) === 0) continue;
@@ -461,7 +461,7 @@ function part3() {
   for (let i = 0; i < 16; i++) pollStep(sec, IDLE_ROWS, fire(i & 1 ? false : true), { what: `fill ${i}`, display: false });
   sec.ok(K.count === 16 && K.lost === 0 && rd8(S.K_LOST) === 0, '16 events fit in the ring (14.1: all 16 records usable), K_LOST 0');
   pollStep(sec, IDLE_ROWS, fire(true), { what: 'the 17th event', display: false });
-  sec.ok(rd8(S.K_LOST) === 1 && (rd8(S.K_RTAIL) - rd8(S.K_RHEAD)) === 64 && rd8(S.K_BTN) === 1, () => `17th event: K_LOST ${rd8(S.K_LOST)} (want 1), tail - head ${(rd8(S.K_RTAIL) - rd8(S.K_RHEAD)) & 255} (want 64), K_BTN ${rd8(S.K_BTN)} (the button state still follows)`);
+  sec.ok(rd8(S.K_LOST) === 1 && ((rd8(S.K_RTAIL) - rd8(S.K_RHEAD)) & 255) === 64 && rd8(S.K_BTN) === 1, () => `17th event: K_LOST ${rd8(S.K_LOST)} (want 1), tail - head ${(rd8(S.K_RTAIL) - rd8(S.K_RHEAD)) & 255} (want 64), K_BTN ${rd8(S.K_BTN)} (the button state still follows)`);
   for (let i = 0; i < 290 && !sec.bad; i++) pollStep(sec, IDLE_ROWS, fire(i & 1 ? false : true), { what: `saturating ${i}`, display: false });
   sec.ok(rd8(S.K_LOST) === 255, () => `K_LOST after 290 more dropped events = ${rd8(S.K_LOST)} (14.1: saturating at 255)`);
   // the oldest 16 are intact and in order
@@ -629,12 +629,13 @@ function part4() {
     console.log(`  all keys: ${frames.length} frames, ${FR.keyEv} E_KEY events so far`);
   }
   // hand-worked expectations, independent of the model: exact events for known keys (section 7 / 14.4), compared with the machine's log
+  // (CS+1 = TAB 14 and CS+4 = ESC 27 since the owner's swap of 2026-11-12, docs/WINDOWS.md 13)
   {
     const hand = [
       [[KIDX('A')], [[1, 97, 0, 0]]], [[0, KIDX('A')], [[1, 65, 1, 0]]], [[36, KIDX('Z')], [[1, 58, 2, 0]]], [[KIDX('ENTER')], [[1, 13, 0, 0]]],
       [[0, KIDX('5')], [[1, 8, 1, 0]]], [[0, KIDX('6')], [[1, 10, 1, 0]]], [[0, KIDX('7')], [[1, 11, 1, 0]]], [[0, KIDX('8')], [[1, 9, 1, 0]]],
-      [[0, KIDX('0')], [[1, 12, 1, 0]]], [[0, KIDX('SPACE')], [[1, 3, 1, 0]]], [[KIDX('SPACE')], [[1, 32, 0, 0]]], [[0, KIDX('4')], [[1, 14, 1, 0]]],
-      [[0, KIDX('3')], [[1, 15, 1, 0]]], [[0, KIDX('1')], [[1, 27, 1, 0]]], [[0, KIDX('9')], [[1, 16, 1, 0]]], [[36, KIDX('Q')], []], [[0, KIDX('2')], []], [[0, 36, KIDX('A')], [[1, 126, 7, 0]]],
+      [[0, KIDX('0')], [[1, 12, 1, 0]]], [[0, KIDX('SPACE')], [[1, 3, 1, 0]]], [[KIDX('SPACE')], [[1, 32, 0, 0]]], [[0, KIDX('4')], [[1, 27, 1, 0]]],
+      [[0, KIDX('3')], [[1, 15, 1, 0]]], [[0, KIDX('1')], [[1, 14, 1, 0]]], [[0, KIDX('9')], [[1, 16, 1, 0]]], [[36, KIDX('Q')], []], [[0, KIDX('2')], []], [[0, 36, KIDX('A')], [[1, 126, 7, 0]]],
     ];
     const frames = [];
     for (const [keys, expect] of hand) frames.push(F(keys, 0xFF, { expect }), F());

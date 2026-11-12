@@ -22,3 +22,39 @@ class View : Object             # 16 bytes
 
 class Group : View              # a view that routes pointer events to its children (docs/OBJECTS_EVENTS.md 15.1)
   method Event group_event
+  method Draw  group_draw       # docs/WINDOWS.md 14.3
+
+# The window manager's classes (docs/WINDOWS.md 4 and 14.1)
+class Desk : Group              # the root of the desktop
+  method Draw  desk_draw
+  method Event desk_event       # the modal rule (17.3)
+
+class MenuBar : View
+  field table 2
+  method Draw  mbar_draw
+  method Event mbar_event       # tracking by pointer (18.4)
+
+class Window : Group            # 21 bytes
+  field slot  1                 # 0 when closed, else 1-14
+  field title 2                 # a string: length byte, then the codes
+  field focus 2                 # the view focused when it was last in front
+  method Destroy window_destroy
+  method Draw    window_draw
+  method Event   window_event   # click to raise, drag by the title bar (17.3)
+
+class Dialog : Window           # 25 bytes: modal, no title bar (17)
+  field default 2               # the Button ENTER clicks (0: none)
+  field cancel  2               # the Button ESC or BREAK clicks
+  method Draw  dialog_draw
+  method Event dialog_event
+
+class Button : View             # 18 bytes; flags bit 3 pressed, bit 4 default (17.1)
+  field text 2
+  method Draw  button_draw
+  method Event button_event
+  method Focus button_fb
+  method Blur  button_blur
+
+class Label : View              # 18 bytes; flags bit 3: the 8x8 font on the cell grid
+  field text 2
+  method Draw label_draw

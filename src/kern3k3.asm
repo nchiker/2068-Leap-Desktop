@@ -251,6 +251,8 @@ ST_TREE:
 ; The demo (15.4): after the self-test, the tree again, drawn; then events are dispatched and shown.
 D_MAIN:
     call T_SELFTEST
+    ld a,1
+    call K_MSET                 ; the Kempston mouse on (docs/WINDOWS.md 15.4; no mouse: the ports read $FF, nothing moves)
     ld hl,K_AARENA
     call K_ARESET
     call T_BUILD

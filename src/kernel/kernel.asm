@@ -271,6 +271,8 @@ K_ARESET:
     call .clr
     call .clr
     call .clr
+    ld hl,K_FSCOPE              ; docs/WINDOWS.md 14.4
+    call .clr
     ld d,c
     ld e,0
     ld h,b
@@ -299,6 +301,7 @@ K_SETROOT:
     ld hl,0
     ld (K_FOCUS),hl
     ld (K_CAPTURE),hl
+    ld (K_FSCOPE),hl            ; docs/WINDOWS.md 14.4
     ret
 
 ; K_ADDCHILD: IX = parent, DE = child (not linked).  The child becomes the parent's last child.  Clobbers AF, BC, DE, HL.
@@ -457,6 +460,8 @@ view_hittest:
 ; ---------------------------------------------------------------------------------------------------------------------------
     INCLUDE "kernel/events.asm"
     INCLUDE "kernel/focus.asm"
+    INCLUDE "kernel/wm.asm"
+    INCLUDE "kernel/wm2.asm"
     INCLUDE "keymap.inc"
     INCLUDE "classes.inc"
 

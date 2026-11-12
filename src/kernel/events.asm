@@ -37,22 +37,29 @@ K_RCNT      EQU $F09D
 K_RROW      EQU $F09E           ; low byte of its half-row in K_NOW
 K_RMASK     EQU $F09F           ; its bit
 K_PEND      EQU $F0A0           ; non-zero while the pointer has not taken K_PX / K_PY
-K_WREQ      EQU $F0A1           ; non-zero while a K_WARP is pending
+K_WREQ      EQU $F0C5           ; non-zero while a K_WARP is pending (next to K_MOUSE: one load tests both, docs/WINDOWS.md 15.2)
 K_WX        EQU $F0A2           ; word
 K_WY        EQU $F0A4
 K_NEWK      EQU $F0A5           ; a non-modifier key went down this frame
 K_MODS      EQU $F0A6           ; bit 0 CS, bit 1 SS (this frame)
 K_PLANE     EQU $F0A7           ; 0, 40 or 80
 K_OLDM      EQU $F0A8           ; CS / SS (bits 0, 1) last time
-K_KPD       EQU $F0A9           ; keyboard-pointer mode's u d l r f this frame (0 outside the mode)
 K_TMPK      EQU $F0AA           ; the key being decoded, its half-row and bit
 K_TROW      EQU $F0AB
 K_TMASK     EQU $F0AC
 K_DIRS      EQU $F0AD           ; this frame's u d l r f (bits 0-4)
-K_CHG       EQU $F0AE           ; non-zero once a half-row has changed this frame
+K_KPD       EQU $F0AE           ; keyboard-pointer mode's u d l r f this frame (0 outside the mode)
+K_MBT       EQU $F0AF           ; the mouse this frame: bit 4 the left button, bit 5 moved (K_KPD + 1: one load reads both)
+K_CHG       EQU $F0B0           ; non-zero once a half-row has changed this frame
+K_MLX       EQU $F0B1           ; the mouse's x counter as last read
+K_MLY       EQU $F0B2           ; its y counter
+K_MDX       EQU $F0B3           ; this frame's motion: dx (signed)
+K_MDY       EQU $F0B4           ; dy (signed, down = positive)
+K_MOUSE     EQU $F0C4           ; the Kempston mouse: 0 off, 1 on (docs/WINDOWS.md 15.2; set with K_MSET)
 
     ASSERT (K_RING & $FF) == 0 && K_RTAIL == K_RHEAD + 1
     ASSERT (K_NOW >> 8) == ((K_NOW + 7) >> 8)
+    ASSERT K_WREQ == K_MOUSE + 1 && K_MBT == K_KPD + 1 && K_MLY == K_MLX + 1 && K_MDX == K_MLX + 2 && K_MDY == K_MLX + 3
 
 PORT_AYR    EQU $F5
 PORT_AYD    EQU $F6
@@ -67,8 +74,7 @@ K_GETEV:
     ld hl,(K_RHEAD)             ; L = head, H = tail, read in one instruction
     ld a,l
     cp h
-    scf
-    ret z
+    jr z,.empty
     and $3F
     ld l,a
     ld h,K_RING >> 8
@@ -83,6 +89,16 @@ K_GETEV:
     ld (hl),a                   ; the record is copied: the ISR may now reuse it
     ld a,(K_EV)
     or a                        ; types are never 0: carry clear
+    ret
+.empty:                         ; both queues empty: E_REDRAW when a cell is dirty (docs/WINDOWS.md 14.4)
+    ld a,(W_DIRTY)              ; 0 or 1
+    sub 1
+    ret c                       ; nothing dirty: carry, no event
+    ld hl,E_REDRAW
+    ld (K_EV),hl                ; type, data 1 = 0
+    ld l,h
+    ld (K_EV+2),hl              ; data 2, 3 = 0
+    ld a,E_REDRAW               ; carry clear (from SUB)
     ret
 .posted:
     dec a
@@ -204,9 +220,13 @@ k_enq:
 ; ---------------------------------------------------------------------------------------------------------------------------
 ; K_POLL: the input part of the frame ISR (14.3).  Called by the ISR after P_ISR, display mapped.  Clobbers AF, BC, DE, HL.
 K_POLL:
-    ld a,(K_WREQ)               ; 1. warp
-    or a
+    ld hl,(K_MOUSE)             ; L = the mouse on, H = a warp pending
+    ld a,h
+    or l
     jr z,.keys
+    ld a,h                      ; 1. warp
+    or a
+    jr z,.mouse
     xor a
     ld (K_WREQ),a
     ld hl,(K_WX)
@@ -215,6 +235,10 @@ K_POLL:
     ld (K_PY),a
     ld a,1
     ld (K_PEND),a
+.mouse:
+    ld a,(K_MOUSE)              ; 1b. the mouse
+    or a
+    call nz,k_mouse
 .keys:
     xor a                       ; 2. keyboard: all half-rows at once
     in a,($FE)
@@ -242,11 +266,12 @@ K_POLL:
     jr z,.joy
     or $10
 .joy:
-    ld hl,K_KPD                 ; 4. OR keyboard-pointer mode's keys
-    or (hl)
-    ld b,a                      ; B = u d l r f
+    ld hl,(K_KPD)               ; 4. OR keyboard-pointer mode's keys (L) and the mouse (H: button, moved)
+    or l
+    or h
+    ld b,a                      ; B = u d l r f m
     ld (K_DIRS),a
-    and $0F                     ; 5. move
+    and $2F                     ; 5. move: a direction or the mouse
     jr nz,k_dir
     ld (K_HOLD),a
 k_button:
@@ -279,7 +304,11 @@ k_button:
     ld (K_PEND),a
     ret
 
-k_dir:                          ; 5. with a direction: B = u d l r f
+k_dir:                          ; 5. with a direction or mouse motion: B = u d l r f m
+    ld a,b
+    and $0F
+    ld c,a                      ; no direction: s = 0, hold = 0
+    jr z,.hold
     ld a,(K_HOLD)
     ld e,a
     ld d,0
@@ -289,10 +318,12 @@ k_dir:                          ; 5. with a direction: B = u d l r f
     cp 30
     jr nc,.cap
     inc a
+.hold:
     ld (K_HOLD),a
 .cap:
     ld hl,(K_PX)
     ld e,c
+    ld d,0
     sla e                       ; DE = 2 s
     bit 3,b
     jr z,.nr
@@ -303,6 +334,15 @@ k_dir:                          ; 5. with a direction: B = u d l r f
     or a
     sbc hl,de
 .nl:
+    bit 5,b
+    jr z,.nmx
+    ld a,(K_MDX)                ; + the mouse's dx
+    ld e,a
+    add a,a
+    sbc a,a
+    ld d,a
+    add hl,de
+.nmx:
     bit 7,h
     jr z,.xp
     ld hl,0
@@ -313,25 +353,50 @@ k_dir:                          ; 5. with a direction: B = u d l r f
     jr c,.xok
     ld hl,511
 .xok:
+    push hl                     ; x
+    ld a,(K_PY)
+    ld l,a
+    ld h,0
+    bit 5,b
+    jr z,.nmy
+    ld a,(K_MDY)                ; + the mouse's dy
+    ld e,a
+    add a,a
+    sbc a,a
+    ld d,a
+    add hl,de
+.nmy:
     ld a,b
     and 3
     cp 3
-    ld a,(K_PY)
-    jr z,.nu                    ; up and down cancel
+    jr z,.ny                    ; up and down cancel
+    ld e,c
+    ld d,0
     bit 1,b
     jr z,.nd
-    add a,c                     ; <= 197: no overflow
-    cp 192
-    jr c,.nd
-    ld a,191
+    add hl,de
 .nd:
     bit 0,b
-    jr z,.nu
-    sub c
-    jr nc,.nu
-    xor a
+    jr z,.ny
+    or a
+    sbc hl,de
+.ny:
+    ld a,l
+    bit 7,h
+    jr z,.yp
+    xor a                       ; above the top
+    jr .nu
+.yp:
+    inc h
+    dec h
+    jr nz,.yb
+    cp 192
+    jr c,.nu
+.yb:
+    ld a,191                    ; below the bottom
 .nu:
-    ld e,a                      ; HL, E = the new position
+    ld e,a
+    pop hl                      ; HL, E = the new position
     ld a,(K_PY)
     cp e
     jr nz,.moved
@@ -681,3 +746,62 @@ k_press:
 ; K_STEP[hold] = min(1 + floor(hold / 6), 6), hold = 0..30 (spike6 17.5)
 K_STEP:
     DB 1,1,1,1,1,1, 2,2,2,2,2,2, 3,3,3,3,3,3, 4,4,4,4,4,4, 5,5,5,5,5,5, 6
+
+; ---------------------------------------------------------------------------------------------------------------------------
+; k_mouse: K_POLL step 1b (docs/WINDOWS.md 15.2).  The Kempston mouse's counters and buttons: K_MDX / K_MDY = the motion since
+; the last read (signed; y down = positive), K_MBT = bit 4 the left button, bit 5 moved.  Clobbers AF, BC, DE, HL.
+k_mouse:
+    ld bc,$FBDF
+    in a,(c)                    ; x
+    ld hl,K_MLX
+    ld e,(hl)
+    ld (hl),a
+    sub e
+    ld e,a                      ; E = dx
+    ld b,$FF
+    in a,(c)                    ; y (grows upward)
+    inc l
+    ld d,(hl)
+    ld (hl),a
+    neg
+    add a,d
+    ld d,a                      ; D = the old y - the new y
+    inc l
+    ld (hl),e
+    inc l
+    ld (hl),d
+    ld b,$FA
+    in a,(c)                    ; buttons, active low: bit 1 left
+    cpl
+    and 2
+    add a,a
+    add a,a
+    add a,a                     ; $10 while the left button is down
+    ld b,a
+    ld a,e
+    or d
+    ld a,b
+    jr z,.still
+    or $20
+.still:
+    ld (K_MBT),a
+    ret
+
+; K_MSET: A = 0 turns the mouse off, else on (docs/WINDOWS.md 15.2).  On: the counters are taken as the last seen first, so the
+; pointer does not jump.  Off: this frame's button and motion are cleared.  Clobbers AF, BC, HL.
+K_MSET:
+    or a
+    jr z,.off
+    ld bc,$FBDF
+    in a,(c)
+    ld (K_MLX),a
+    ld b,$FF
+    in a,(c)
+    ld (K_MLY),a
+    ld a,1
+    ld (K_MOUSE),a
+    ret
+.off:
+    ld (K_MOUSE),a              ; first, so the ISR stops writing K_MBT
+    ld (K_MBT),a
+    ret

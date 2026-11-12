@@ -50,7 +50,7 @@ K_DISPATCH:
     dec a
     jr z,.move                  ; E_MOVE
     cp E_UP - E_MOVE
-    jr nz,.root
+    jr nz,.other
     ld hl,(K_CAPTURE)           ; E_UP: to the capture, which ends
     ld a,h
     or l
@@ -64,6 +64,10 @@ K_DISPATCH:
     or l
     jr z,.root
     jr k_evto
+.other:
+    cp E_REDRAW - E_MOVE
+    jp z,W_UPDATE               ; E_REDRAW: the window manager repaints (docs/WINDOWS.md 14.4)
+    jr .root
 .down:
     ld hl,0
     ld (K_CAPTURE),hl
@@ -327,76 +331,118 @@ K_FOCUSNEXT:
     jr k_focuswalk
 K_FOCUSPREV:
     ld a,1
+; The walk runs under R = K_FSCOPE, or K_ROOT when there is no scope (docs/WINDOWS.md 14.4).  With a scope, R's parent and
+; next links are cut for the walk (saved in K_SCRATCH and put back before K_SETFOCUS), so the walk is 15.3's over R's subtree
+; and costs nothing per view.  K_SCRATCH: +0 wraps left, +1 1 when cut, +2 R, +4 R's parent, +6 R's next.
 k_focuswalk:
     ld d,a                      ; D = 0 next, 1 previous
+    ld hl,(K_FSCOPE)
+    ld a,h
+    or l
+    ld a,1
+    jr nz,.scoped
     ld hl,(K_ROOT)
     ld a,h
     or l
     ret z
+    xor a
+.scoped:
+    ld (K_SCRATCH+1),a
+    ld (K_SCRATCH+2),hl
     push ix
     push iy
+    or a
+    jr z,.uncut
+    inc hl                      ; the cut, through HL: parent then next, each saved and zeroed
+    inc hl
+    xor a
+    ld c,(hl)
+    ld (hl),a
+    inc hl
+    ld b,(hl)
+    ld (hl),a
+    ld (K_SCRATCH+4),bc
+    inc hl
+    inc hl
+    inc hl
+    ld c,(hl)
+    ld (hl),a
+    inc hl
+    ld b,(hl)
+    ld (hl),a
+    ld (K_SCRATCH+6),bc
+    ld hl,(K_SCRATCH+2)
+.uncut:
     ld iy,0                     ; IY = the last candidate seen (previous)
     ld a,2
-    ld (K_SCRATCH),a            ; wraps to the root left
+    ld (K_SCRATCH),a            ; wraps to R left
     ld bc,(K_FOCUS)             ; BC = the start
     ld a,b
     or c
     jr nz,.from
     ld b,h
-    ld c,l                      ; no focus: start at the root and try it first
+    ld c,l                      ; no focus: start at R and try it first
     push hl
     pop ix
-    ld e,(ix+View_flags)
-    jr .test
+    jr .view
 .from:
     push bc
     pop ix
-    ld e,(ix+View_flags)
-.step:                          ; IX = a view, E = its flags: on to the next view in pre-order
-    ld a,e
+    ld a,(ix+View_flags)        ; on from the start, which is not tried
     and 6
-    jr nz,.up                   ; hidden or disabled: skip the children
-    ld l,(ix+View_child)
-    ld h,(ix+View_child+1)
-    ld a,h
-    or l
-    jr nz,.go
-.up:
+    jr z,.kids
+; The walk.  A view is never in page 0, so a link's high byte alone tells 0.
+.up:                            ; IX = a view whose children are done or skipped: its next sibling, else up
+    ld a,(ix+View_next+1)
+    or a
+    jr z,.climb
+    ld h,a
     ld l,(ix+View_next)
-    ld h,(ix+View_next+1)
-    ld a,h
-    or l
-    jr nz,.go
-    ld l,(ix+View_parent)
+.go:                            ; HL = the next view in pre-order
+    push hl
+    pop ix
+    ld a,l
+    cp c
+    jr z,.maybe                 ; the low bytes match: compare the high bytes
+.view:
+    ld a,(ix+View_flags)
+    and 7
+    cp 1
+    jr z,.cand
+    jr nc,.up                   ; hidden or disabled: skip the children
+.kids:
+    ld a,(ix+View_child+1)
+    or a
+    jr z,.up
+    ld h,a
+    ld l,(ix+View_child)
+    jr .go
+.climb:
     ld h,(ix+View_parent+1)
+    ld l,(ix+View_parent)
     push hl
     pop ix
     ld a,h
-    or l
+    or a
     jr nz,.up
-    ld hl,K_SCRATCH             ; past the last view: wrap to the root
+    ld hl,K_SCRATCH             ; past the last view: wrap to R
     dec (hl)
     jr z,.end
-    ld hl,(K_ROOT)
-.go:
-    push hl
-    pop ix
-    or a
-    sbc hl,bc
-    jr z,.end                   ; back at the start
-    ld e,(ix+View_flags)
-.test:
-    ld a,e
-    and 7
-    dec a
-    jr nz,.step
+    ld hl,(K_SCRATCH+2)
+    jr .go
+.cand:                          ; a view that can take the focus
     ld a,d
     or a
     jr z,.found                 ; next: the first candidate
     push ix
     pop iy                      ; previous: remember it, walk on
-    jr .step
-.end:
+    jr .kids
+.maybe:
+    ld a,h
+    cp b
+    jr nz,.view
+.end:                           ; back at the start, or a second wrap
+    call k_fsrest
     ld a,d
     or a
     jr z,.none
@@ -405,7 +451,10 @@ k_focuswalk:
     ld a,ixh
     or ixl
     jr z,.none
+    jr .set
 .found:
+    call k_fsrest
+.set:
     push ix
     pop de
     call K_SETFOCUS
@@ -413,3 +462,25 @@ k_focuswalk:
     pop iy
     pop ix
     ret
+
+; k_fsrest: puts back R's parent and next when the walk cut them.  Clobbers AF, BC, HL.
+k_fsrest:
+    ld a,(K_SCRATCH+1)
+    or a
+    ret z
+    ld hl,(K_SCRATCH+2)
+    inc hl
+    inc hl
+    ld bc,(K_SCRATCH+4)
+    ld (hl),c
+    inc hl
+    ld (hl),b
+    inc hl
+    inc hl
+    inc hl
+    ld bc,(K_SCRATCH+6)
+    ld (hl),c
+    inc hl
+    ld (hl),b
+    ret
+    ASSERT View_parent == 2 && View_next == 6

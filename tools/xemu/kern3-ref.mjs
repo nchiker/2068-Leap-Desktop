@@ -7,7 +7,7 @@
 //   settled.pbm   the 512x192 rendered frame (P4, 1 = ink)
 //   settled.json  K_FOCUS, T_VIEWS word 1 (view A), record, frame counts
 //   record.bin    the 8 bytes at $FF00-$FF07
-// Checkpoint 2 (TAB): CAPS SHIFT + 4 held for 2 frames, then released, then 10 frames; writes tab.bin / tab.pbm / tab.json.
+// Checkpoint 2 (TAB): CAPS SHIFT + 1 held for 2 frames, then released, then 10 frames; writes tab.bin / tab.pbm / tab.json.
 // Also checked: the screen is unchanged over 20 further frames at each checkpoint (settled), the rendered frame equals the display
 // RAM, and the focus moved from 0 to view A at the TAB.
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -64,10 +64,10 @@ writeFileSync(join(outDir, 'record.bin'), Buffer.from(settled.vars.record));
 run(20);
 const stable0 = same(settled.d, displayRam(m));
 
-// checkpoint 2: CS + 4 (TAB): key 0 is CAPS SHIFT (row 0 bit 0), '4' is index 18 = row 3 bit 3
-m.keyMatrix[0] &= ~1; m.keyMatrix[3] &= ~(1 << 3);
+// checkpoint 2: CS + 1 (TAB since 2026-11-12): key 0 is CAPS SHIFT (row 0 bit 0), '1' is index 15 = row 3 bit 0
+m.keyMatrix[0] &= ~1; m.keyMatrix[3] &= ~1;
 run(2);
-m.keyMatrix[0] |= 1; m.keyMatrix[3] |= (1 << 3);
+m.keyMatrix[0] |= 1; m.keyMatrix[3] |= 1;
 run(10);
 const tab = dump('tab', {});
 run(20);

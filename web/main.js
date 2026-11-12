@@ -112,6 +112,39 @@ screen.addEventListener('blur', () => { handleBlur(kbd); held.clear(); joystick[
 screen.addEventListener('pointerdown', () => { screen.focus(); if (app.sfx) resumeSound(app.sfx); });
 $('joy').addEventListener('change', () => { held.clear(); joystick[0] = 0xFF; handleBlur(kbd); screen.focus(); });
 
+// Kempston mouse (docs/WINDOWS.md 15.1): with Mouse on, a click on the screen captures the host mouse (pointer lock; Esc
+// releases it). Host motion becomes counter steps of one TS2068 pixel (x: 640 frame columns across the canvas, of which 512
+// are the screen; y: 240 frame rows, 192 the screen), y inverted; the left / right / middle buttons are bits 1 / 0 / 2, low.
+const mouse = { fx: 0, fy: 0 };
+const mouseOn = () => $('mouse').checked;
+function setMouse() {
+  m.mouse.attached = mouseOn();
+  m.mouse.buttons = 0xFF;
+  if (!mouseOn() && document.pointerLockElement === screen) document.exitPointerLock();
+}
+const MOUSE_BIT = [0x02, 0x04, 0x01];                 // event.button 0 left, 1 middle, 2 right
+screen.addEventListener('pointermove', (e) => {
+  if (!mouseOn() || document.pointerLockElement !== screen) return;
+  const r = screen.getBoundingClientRect();
+  mouse.fx += e.movementX * 640 / r.width;
+  mouse.fy += e.movementY * 240 / r.height;
+  const dx = Math.trunc(mouse.fx), dy = Math.trunc(mouse.fy);
+  mouse.fx -= dx; mouse.fy -= dy;
+  m.mouse.x = (m.mouse.x + dx) & 0xFF;
+  m.mouse.y = (m.mouse.y - dy) & 0xFF;
+});
+screen.addEventListener('mousedown', (e) => {
+  if (!mouseOn()) return;
+  if (document.pointerLockElement !== screen) { screen.requestPointerLock(); return; }
+  m.mouse.buttons &= ~(MOUSE_BIT[e.button] ?? 0);
+  e.preventDefault();
+});
+screen.addEventListener('mouseup', (e) => { if (mouseOn()) m.mouse.buttons |= MOUSE_BIT[e.button] ?? 0; });
+screen.addEventListener('contextmenu', (e) => { if (mouseOn()) e.preventDefault(); });
+document.addEventListener('pointerlockchange', () => { if (document.pointerLockElement !== screen) m.mouse.buttons = 0xFF; });
+$('mouse').addEventListener('change', () => { setMouse(); screen.focus(); });
+setMouse();                                           // the browser may restore the switch on reload
+
 // ── Controls ──
 $('reset').onclick = () => { reset(); screen.focus(); };
 $('pause').onclick = () => { app.paused = !app.paused; $('pause').textContent = app.paused ? 'Run' : 'Pause'; screen.focus(); };

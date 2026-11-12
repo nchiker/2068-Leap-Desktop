@@ -1,0 +1,20 @@
+# Test classes for the kern4 cartridge (docs/WINDOWS.md 14.5).
+class TWin : Window             # size 22
+  field tag 1
+  method Draw  t_wdraw
+  method Focus t_focus
+  method Blur  t_blur
+
+class TCtl : View               # size 17
+  field tag 1
+  method Draw  t_cdraw
+  method Event t_event
+  method Focus t_focus
+  method Blur  t_blur
+
+class TGrp : Group              # size 17
+  field tag 1
+  method Draw t_gdraw
+
+class TNull : Group             # size 16: draws nothing (the overhead bounds)
+  method Draw k_nop

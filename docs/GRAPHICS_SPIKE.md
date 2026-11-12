@@ -409,7 +409,9 @@ they save 473 bytes, with no speed cost.
 
 S1 figures after it (13.1 records the originals):
 - `G_FILL` 512x192 SET: 146,422 T.
-- 32x16 at odd x: SET 2,974 T; XOR 3,390 T (still over the 3,300 bound).
+- 32x16 at odd x: SET 2,974 T; XOR 3,390 T. These were measured before 13.1's "Closed" change; the current figures are SET
+  2,830 T and XOR 3,246 T, both within their bounds (re-measured 2026-11-12). The shrink cannot affect this case: 5 byte columns use
+  the n = 2..8 row bodies, and the merged whole-byte blocks start at 9 columns.
 - `G_HLINE`: 2,160 T.
 - `G_VLINE`: 6,647 T.
 

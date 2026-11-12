@@ -8,7 +8,7 @@
 // tools/gen-keymap.mjs.
 //
 // Every state variable of 14.1 is predicted byte for byte: `ifaceBytes(S)` lists [address, byte] pairs for K_RING, K_POSTQ, K_RHEAD,
-// K_RTAIL, K_PHEAD, K_PN, K_LOST, K_EV, K_PX, K_PY, K_BTN, K_KPMODE, K_CAPS.
+// K_RTAIL, K_PHEAD, K_PN, K_LOST, K_EV, K_PX, K_PY, K_BTN, K_KPMODE, K_CAPS (and K_MOUSE, WINDOWS 15.2, when the symbol exists).
 //
 //   node tests/kern-model2.mjs --self-test
 import { readFileSync } from 'node:fs';
@@ -24,6 +24,8 @@ export const KEY_NAMES = ['CS', 'Z', 'X', 'C', 'V', 'A', 'S', 'D', 'F', 'G', 'Q'
 export const QUIRK = { seqClampY: false };
 export const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
 export const s16 = (v) => ((v & 0xFFFF) ^ 0x8000) - 0x8000;
+/** An 8-bit value as a signed byte (-128..127): the mouse's counter differences (WINDOWS 15.2). */
+export const s8 = (v) => ((v & 0xFF) ^ 0x80) - 0x80;
 /** S_STEP[hold] = min(1 + floor(hold / 6), 6) (section 7, spike6 17.5). */
 export const sStep = (hold) => Math.min(1 + Math.floor(hold / 6), 6);
 
@@ -84,6 +86,8 @@ export class K2Model {
     // K_POLL's internal state (14.3)
     this.old = new Array(40).fill(false); this.hold = 0; this.rep = null; this.pend = 0;
     this.wreq = 0; this.wx = 0; this.wy = 0;
+    // slice M, the Kempston mouse (docs/WINDOWS.md 15.2): K_MOUSE, the last counters, this frame's motion, the mouse's button (mb).  Off at boot.
+    this.mouseOn = 0; this.mlx = 0; this.mly = 0; this.mdx = 0; this.mdy = 0; this.mb = 0;
   }
   clone() {
     const c = new K2Model(this.km);
@@ -135,6 +139,16 @@ export class K2Model {
     return 'appended';
   }
 
+  // ---- K_MSET (WINDOWS 15.2) --------------------------------------------------------------------------------------------------
+  /**
+   * K_MSET: on (A != 0): the counters are read into the last-seen values, then K_MOUSE = 1 (so turning it on never moves the pointer).
+   * Off (A = 0): K_MOUSE = 0 and the mouse's button and motion for the next frame are cleared.  mouse = { x, y, buttons } as the ports read now.
+   */
+  mset(on, mouse) {
+    if (on) { this.mlx = mouse.x & 0xFF; this.mly = mouse.y & 0xFF; this.mouseOn = 1; }
+    else { this.mouseOn = 0; this.mb = 0; this.mdx = 0; this.mdy = 0; }
+  }
+
   // ---- K_WARP (14.5) --------------------------------------------------------------------------------------------------------
   /** HL = x, DE = y as signed words: clamped; the next poll takes it. */
   warp(x, y) { this.wx = clamp(s16(x), 0, 511); this.wy = clamp(s16(y), 0, 191); this.wreq = 1; }
@@ -142,13 +156,21 @@ export class K2Model {
   // ---- K_POLL (14.3) --------------------------------------------------------------------------------------------------------
   /**
    * One K_POLL.  rows: the 8 half-rows (bits 0-4, active low); joy: the joystick byte as AY register 14 reads it; lock: PT_LOCK is held
-   * (P_ISRMOVE refuses).  Returns { appended: [{ rec, how }], isrMove: { x, y } | null (P_ISRMOVE called and accepted), refused }.
+   * (P_ISRMOVE refuses); mouse: { x, y, buttons } as the ports $FBDF, $FFDF, $FADF read now (WINDOWS 15.2 step 1b; only used while the mouse is on;
+   * omitted while on = the counters unchanged and no button).  Returns { appended: [{ rec, how }], isrMove: { x, y } | null (P_ISRMOVE called and accepted), refused }.
    */
-  poll(rows, joy = 0xFF, lock = false) {
+  poll(rows, joy = 0xFF, lock = false, mouse = undefined) {
     const out = { appended: [], isrMove: null, refused: false, idle: false, notes: [] };
     const add = (type, d1, d2, d3) => { out.appended.push({ rec: [type, d1, d2, d3], how: this.append(type, d1, d2, d3) }); };
     // 1. warp
     if (this.wreq) { this.px = this.wx; this.py = this.wy; this.pend = 1; this.wreq = 0; }
+    // 1b. the mouse (WINDOWS 15.2), only when K_MOUSE = 1: mdx = x - last x, mdy = last y - y (signed 8-bit), mb = the left button (bit 1, active low)
+    if (this.mouseOn) {
+      const mo = mouse ?? { x: this.mlx, y: this.mly, buttons: 0xFF };
+      this.mdx = s8(mo.x - this.mlx); this.mdy = s8(this.mly - mo.y);
+      this.mlx = mo.x & 0xFF; this.mly = mo.y & 0xFF;
+      this.mb = (mo.buttons & 2) ? 0 : 1;
+    } else { this.mdx = 0; this.mdy = 0; }
     // 2. keyboard
     const down = new Array(40);
     for (let k = 0; k < 40; k++) down[k] = !(rows[(k / 5) | 0] & (1 << (k % 5)));
@@ -191,12 +213,13 @@ export class K2Model {
     if (this.kpmode) {
       u = u || down[KEY_Q]; d = d || down[KEY_A]; l = l || down[KEY_O]; r = r || down[KEY_P]; fire = fire || down[KEY_SPACE];
     }
+    fire = fire || this.mb === 1;                                  // WINDOWS 15.2 step 4: fire is also ORed with mb
     // 5. move
     let s = 0;
     if (u || d || l || r) { s = sStep(this.hold); this.hold = Math.min(this.hold + 1, HOLD_MAX); } else this.hold = 0;
-    const nx = clamp(this.px + 2 * s * ((r ? 1 : 0) - (l ? 1 : 0)), 0, 511);
+    const nx = clamp(this.px + 2 * s * ((r ? 1 : 0) - (l ? 1 : 0)) + this.mdx, 0, 511);       // WINDOWS 15.2: + mdx (one clamp of the sum)
     // (QUIRK_SEQ_CLAMP: a debugging aid of the test runs, off by default: the order y = clamp(clamp(y + s d) - s u) that a fault found in K2 follows)
-    const ny = QUIRK.seqClampY ? clamp(clamp(this.py + s * (d ? 1 : 0), 0, 191) - s * (u ? 1 : 0), 0, 191) : clamp(this.py + s * ((d ? 1 : 0) - (u ? 1 : 0)), 0, 191);
+    const ny = QUIRK.seqClampY ? clamp(clamp(this.py + s * (d ? 1 : 0), 0, 191) - s * (u ? 1 : 0), 0, 191) : clamp(this.py + s * ((d ? 1 : 0) - (u ? 1 : 0)) + this.mdy, 0, 191);
     const fireN = fire ? 1 : 0;                                   // data 3 bit 1 is K_BTN after step 6
     const data = () => [this.px & 0xFF, this.py & 0xFF, ((this.px >> 8) & 1) | (fireN << 1)];
     if (nx !== this.px || ny !== this.py) {
@@ -225,6 +248,7 @@ export class K2Model {
     out.push([S.K_RHEAD, this.rhead], [S.K_RTAIL, this.rtail], [S.K_PHEAD, this.phead], [S.K_PN, this.pn], [S.K_LOST, this.lost]);
     for (let i = 0; i < 4; i++) out.push([S.K_EV + i, this.ev[i]]);
     out.push([S.K_PX, this.px & 0xFF], [S.K_PX + 1, this.px >> 8], [S.K_PY, this.py], [S.K_BTN, this.btn], [S.K_KPMODE, this.kpmode], [S.K_CAPS, this.caps]);
+    if (S.K_MOUSE !== undefined) out.push([S.K_MOUSE, this.mouseOn]);
     return out;
   }
   /** Load the 14.1 variables from a machine RAM image (the poll state keeps its idle values: the caller knows it is idle). */
@@ -233,12 +257,13 @@ export class K2Model {
     this.rhead = ram[S.K_RHEAD]; this.rtail = ram[S.K_RTAIL]; this.phead = ram[S.K_PHEAD]; this.pn = ram[S.K_PN]; this.lost = ram[S.K_LOST];
     this.ev = Array.from(ram.subarray(S.K_EV, S.K_EV + 4));
     this.px = ram[S.K_PX] | (ram[S.K_PX + 1] << 8); this.py = ram[S.K_PY]; this.btn = ram[S.K_BTN]; this.kpmode = ram[S.K_KPMODE]; this.caps = ram[S.K_CAPS];
+    if (S.K_MOUSE !== undefined) this.mouseOn = ram[S.K_MOUSE];
     return this;
   }
   /** Write the 14.1 variables into a RAM image. */
   storeIface(ram, S) { for (const [a, v] of this.ifaceBytes(S)) ram[a] = v; return ram; }
   /** The idle poll state (nothing held, no repeat, nothing pending). */
-  idlePoll() { this.old = new Array(40).fill(false); this.hold = 0; this.rep = null; this.pend = 0; this.wreq = 0; return this; }
+  idlePoll() { this.old = new Array(40).fill(false); this.hold = 0; this.rep = null; this.pend = 0; this.wreq = 0; this.mdx = 0; this.mdy = 0; this.mb = 0; return this; }
   /** Drain: every event K_GETEV would return now, in order (copies of K_EV). */
   drain() { const out = []; for (;;) { const r = this.getev(); if (r.carry) break; out.push(this.ev.slice()); } return out; }
   /** All records currently queued, posted first then ring, without consuming (a view). */
@@ -262,9 +287,9 @@ async function selfTest() {
   const P = km.planes;
   C.check('plain: lower-case letters, digits, space, ENTER 13', 'zxcvasdfgqwertyuiopljkhmnb'.split('').every((c) => P[0][K(c.toUpperCase())] === c.charCodeAt(0))
     && '1234567890'.split('').every((c) => P[0][K(c)] === c.charCodeAt(0)) && P[0][K('SPACE')] === 32 && P[0][K('ENTER')] === 13);
-  C.check('CS: upper-case letters; CS+5/6/7/8 = 8, 10, 11, 9; CS+0 12; CS+1 27; CS+2 caps (1); CS+3 15; CS+4 14; CS+9 16; CS+SPACE 3',
+  C.check('CS: upper-case letters; CS+5/6/7/8 = 8, 10, 11, 9; CS+0 12; CS+1 14; CS+2 caps (1); CS+3 15; CS+4 27; CS+9 16; CS+SPACE 3',
     'ZXCVASDFGQWERTYUIOPLKJHMNB'.split('').every((c) => P[1][K(c)] === c.charCodeAt(0)) && P[1][K('5')] === 8 && P[1][K('6')] === 10 && P[1][K('7')] === 11
-    && P[1][K('8')] === 9 && P[1][K('0')] === 12 && P[1][K('1')] === 27 && P[1][K('2')] === 1 && P[1][K('3')] === 15 && P[1][K('4')] === 14
+    && P[1][K('8')] === 9 && P[1][K('0')] === 12 && P[1][K('1')] === 14 && P[1][K('2')] === 1 && P[1][K('3')] === 15 && P[1][K('4')] === 27
     && P[1][K('9')] === 16 && P[1][K('SPACE')] === 3);
   C.check('keys 0 and 36 are all "-"; every printable ASCII 32..126 is reachable', [0, 1, 2].every((p) => P[p][0] === 0 && P[p][36] === 0)
     && Array.from({ length: 95 }, (_, i) => 32 + i).every((c) => P.some((pl) => pl.includes(c))));
@@ -338,6 +363,33 @@ async function selfTest() {
     m.poll(rowsOf([]), 0xFF);
     C.check('warp: signed clamp (-5, 1000) -> (0, 191); the last of several wins ((600, 50) -> (511, 50)); no event; P_ISRMOVE called',
       r0 === 0 && m.rtail === 0 && r.isrMove && r.isrMove.x === 0 && r.isrMove.y === 191 && m.px === 511 && m.py === 50);
+  }
+  // the mouse (WINDOWS 15.2): hand-worked.  Off: counters change nothing.  On: no jump; x + 10 right, y counter + 5 (away from the user) = 5 up; wrap; clamp
+  {
+    const m = fresh(); const A = (x, y, b = 0xFF) => ({ x, y, buttons: b });
+    m.poll(rowsOf([]), 0xFF, false, A(200, 7, 0xFD));
+    const off = m.px === 256 && m.py === 96 && m.btn === 0 && m.rtail === 0;
+    m.mset(1, A(250, 3));                                                  // on: no jump, even though the counters differ from anything seen
+    m.poll(rowsOf([]), 0xFF, false, A(250, 3)); const quiet = m.px === 256 && m.rtail === 0;
+    m.poll(rowsOf([]), 0xFF, false, A(4, 8)); const wrap = m.px === 256 + 10 && m.py === 96 - 5;      // 250 -> 4: +10 (wrap); y 3 -> 8: up 5
+    const e1 = evs(m);
+    m.poll(rowsOf([]), 0xFF, false, A(4, 8, 0xFD)); const left = m.btn === 1; const e2 = evs(m);       // left button (bit 1)
+    m.poll(rowsOf([]), 0xFF, false, A(4, 8, 0xFC)); const e3 = evs(m);                                 // + right: no more events
+    m.poll(rowsOf([]), 0xFF, false, A(4, 8, 0xFB)); const e4 = evs(m);                                 // middle only: left released: E_UP
+    m.poll(rowsOf([]), 0xFF, false, A(4, 8, 0xFD)); evs(m); m.mset(0, A(0, 0)); m.poll(rowsOf([]), 0xFF, false, A(99, 99, 0xFD)); const e5 = evs(m);   // off: no stuck button
+    m.mset(1, A(0, 0)); m.poll(rowsOf([]), 0xFF, false, A(129, 0));        // +129 = -127 as a signed byte
+    C.check('mouse (hand-worked): off changes nothing; on = no jump; x wrap 250 -> 4 = +10, y counter +5 = 5 up; left only; E_UP on release; off releases the button; +129 = -127',
+      off && quiet && wrap && eq(e1, [[2, 10, 91, 1]]) && left && eq(e2, [[3, 10, 91, 3]]) && eq(e3, []) && eq(e4, [[4, 10, 91, 1]]) && eq(e5, [[4, 10, 91, 1]]) && m.px === 266 - 127 && m.mouseOn === 1,
+      JSON.stringify([off, quiet, wrap, e1, left, e2, e3, e4, e5, m.px]));
+    const k = fresh(); k.px = 5; k.py = 5; k.mset(1, A(100, 100)); k.poll(rowsOf([]), 0xFF, false, A(100 - 127, 100 + 127));
+    const k2 = fresh(); k2.px = 500; k2.py = 185; k2.mset(1, A(100, 100)); k2.poll(rowsOf([]), 0xFF, false, A(100 + 127, 100 - 127));
+    C.check('mouse clamps: (5, 5) + (-127, up 127) = (0, 0); (500, 185) + (127, down 127) = (511, 191)', k.px === 0 && k.py === 0 && k2.px === 511 && k2.py === 191);
+    const j = fresh(); j.px = 510; j.py = 96; j.hold = 30; j.mset(1, A(0, 0)); j.poll(rowsOf([]), joyOf('r'), false, A(256 - 5, 0));    // right at full speed (+12) and mouse -5: one clamp of the sum
+    C.check('mouse + joystick: the sum is clamped once: 510 + 12 - 5 = 517 -> 511 (clamping first would give 506)', j.px === 511);
+    const j2 = fresh(); j2.px = 400; j2.hold = 30; j2.mset(1, A(0, 0)); j2.poll(rowsOf([]), joyOf('r'), false, A(256 - 5, 0));
+    C.check('mouse + joystick: 400 + 12 - 5 = 407', j2.px === 407);
+    const f = fresh(); f.mset(1, A(0, 0)); f.poll(rowsOf([]), joyOf('udlrf'), false, A(0, 0, 0xFD));
+    C.check('mouse left + four directions with fire: mb is ORed after the joystick rule (button down)', f.btn === 1);
   }
   // P_ISRMOVE refused while locked: retried next poll
   {

@@ -42,7 +42,7 @@ const K3NEEDED = ['K_DISPATCH', 'K_SETFOCUS', 'K_FOCUSNEXT', 'K_FOCUSPREV', 'gro
   'Group_SIZE', 'TBox_SIZE'];
 
 // KPOISON for K3: the K1 list poisons $E100-$E7FF and $F080-$F0BF, which now hold the pointer and K2's state (the ISR and K_POLL read them).
-export const KPOISON3 = [[0x5800, 0x5FFF], [0x7800, 0x7FFF], [0xC000, 0xDFFF], [0xE800, 0xEFFF], [0xF000, 0xF04F], [0xF0C0, 0xFAFF], [0xFB00, 0xFEFD]];
+export const KPOISON3 = [[0x5800, 0x5FFF], [0x7800, 0x7FFF], [0xC000, 0xDFFF], [0xE800, 0xEFFF], [0xF000, 0xF04F], [0xF0D0, 0xFAFF], [0xFB00, 0xFEFD]];   // not $F0C0-$F0CF: W_DIRTY, K_FSCOPE (docs/WINDOWS.md 2)
 
 // ---------------------------------------------------------------------------------------------------------------------------
 // The mock machine (--mock): the model, with random bytes in the open places, answers every call.  It checks the harness only.

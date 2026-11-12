@@ -20,7 +20,7 @@ export const FL = { FOCUSABLE: 1, HIDDEN: 2, DISABLED: 4 };
 // Class declarations (15.1) in the order of the class files: Object, View, Group (kernel), then the test classes.
 export const DECL3 = [
   DECL[0], DECL[1],
-  { name: 'Group', parent: 'View', fields: [], methods: [['Event', 'group_event']] },
+  { name: 'Group', parent: 'View', fields: [], methods: [['Event', 'group_event'], ['Draw', 'group_draw']] },   // Draw: docs/WINDOWS.md 14.1
   ...DECL.slice(2, 4),
   { name: 'TBox', parent: 'View', fields: [['tag', 1]], methods: [['Destroy', 't_destroy'], ['Draw', 't_draw'], ['Event', 't_event'],
     ['Focus', 't_focus'], ['Blur', 't_blur']] },
@@ -98,6 +98,7 @@ export class KernelModel3 extends KernelModel {
         if (c !== 0) { this.wr16(S.K_CAPTURE, 0); return { consumed: !!this.sendEvent(c) }; }
         return { consumed: !!this.sendEvent(this.root) };
       }
+      case E.REDRAW: return { consumed: false };   // docs/WINDOWS.md 14.4: W_UPDATE, which does nothing while W_DIRTY = 0 (never set in kern3)
       default: return { consumed: !!this.sendEvent(this.root) };
     }
   }
