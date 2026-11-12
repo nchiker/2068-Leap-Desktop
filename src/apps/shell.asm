@@ -43,7 +43,7 @@ S_START:
     ld (ix+View_x),l
     ld (ix+View_x+1),h
     ld (ix+View_y),40
-    ld (ix+View_w),48
+    ld (ix+View_w),64
     ld (ix+View_h),26
     ld (ix+View_flags),1        ; focusable
     ld a,(S_I)                  ; the name: S_NAMES[prog - 1]
@@ -154,7 +154,7 @@ s_addabout:                     ; IX = a view -> the dialog's last child
     ret
 
 ; ---------------------------------------------------------------------------------------------------------------------------
-; Icon's methods (banked).  ic_draw (10.4): paper, the bitmap (G_BLIT, copy 0: x + 8 is on the byte grid), the name centred
+; Icon's methods (banked).  ic_draw (10.4, 10.5): paper, the bitmap (G_BLIT, copy 0: x + 16 is on the byte grid), the name centred
 ; below, inverted when focused.
 ic_draw:
     ld l,(ix+View_x)
@@ -170,9 +170,9 @@ ic_draw:
     ld a,1
     KFAR G_SETOP
     KFAR G_FILL
-    ld l,(ix+View_x)            ; the bitmap at (x + 8, y), 32 x 16
+    ld l,(ix+View_x)            ; the bitmap at (x + 16, y), 32 x 16
     ld h,(ix+View_x+1)
-    ld de,8
+    ld de,16
     add hl,de
     ld (GA),hl
     ld hl,32
@@ -202,12 +202,12 @@ ic_draw:
     ld (GA+6),hl
     KFAR G_TEXTW                ; HL = tw
     ld (S_TW),hl
-    ld de,48
+    ld de,64
     ex de,hl
     or a
     sbc hl,de
     sra h
-    rr l                        ; (48 - tw) / 2
+    rr l                        ; (64 - tw) / 2
     ld e,(ix+View_x)
     ld d,(ix+View_x+1)
     add hl,de

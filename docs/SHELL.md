@@ -212,3 +212,15 @@ the step 3 tests' key-map readers. That is the only change to `kern3` and `kern4
     and an OK `Button` at (304, 100, 64, 16), which is the default and the cancel.
   - A separator (2).
   - "Calculator" (3) and "Controls" (4) launch those programs.
+
+### 10.5 Amendment after the shell's tests (2026-11-12)
+
+**`Icon` views are 64 x 26, not 48 x 26.**
+- The bitmap is at (x + 16, y), still on the byte grid (x = 48 + 64 n).
+- The name is centred in 64: tx = x + floor((64 - tw) / 2).
+
+**Why:** Sonnet's test (`shell-s1` 2a) found that "Calculator" is 58 pixels wide, wider than a 48-pixel view.
+- Its inverted name box was drawn outside the view's rectangle, which breaks `M_DRAW`'s rule (WINDOWS 4).
+- When the selection moved on, the redraw, clipped to the view, left 7-pixel bars on screen.
+- At 64 the widest name box (tw + 4 = 62) fits, and the icons, 64 apart, still do not overlap.
+- **Binding on programs:** an icon's name is at most 60 pixels.
