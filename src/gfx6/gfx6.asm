@@ -837,16 +837,13 @@ SB_TAB:                     ; [op * 8 + n - 1]
     IF ($ & $FF) > 256 - 117
         ALIGN 256           ; the offsets tables must not cross a page
     ENDIF
-TP_OPS:                     ; [op][S, E, O]: first-half end, second-half end, r x row size for r = 0..8 (13 bytes)
+TP_OPS:                     ; [op][S, E]: first-half end, second-half end, r x row size for r = 0..8 (13 bytes)
     TPENT TP_SS1, TP_SS2, 7
     TPENT TP_SE1, TP_SE2, 16
-    TPENT TP_SO1, TP_SO2, 18
     TPENT TP_CS1, TP_CS2, 8
     TPENT TP_CE1, TP_CE2, 18
-    TPENT TP_CO1, TP_CO2, 20
     TPENT TP_XS1, TP_XS2, 7
     TPENT TP_XE1, TP_XE2, 16
-    TPENT TP_XO1, TP_XO2, 18
 
 ; ---------------------------------------------------------------------------------------------------------------------
 ; Whole-byte blocks for n >= 9: 64 elements of alternating file 1 / file 2.  _S ends with a file 2 element, _S2 with a file 1

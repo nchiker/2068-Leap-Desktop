@@ -8,6 +8,8 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
   (frozen) or `~/Projects/Leap-IDE` from here.
 - Desktop video mode **6** (512x192, black ink on white paper, `$FF = $06`); per-app modes 0 and 2 on the same memory map.
 - Test target: **emulators** (TSRun headless and in `web/`; ZEsarUX 13.0 and Fuse 1.9.1 for cross-checks). Real hardware later.
+- Cartridge planned at **56 KB** (DOCK 0-6): always-mapped code 32 KB (chunks 0, 1, 4, 5); banked apps in 2-3; resources and
+  display-free kernel code in 6 (`docs/CODE_SIZE.md`). Size work that costs speed waits for a measured shortfall.
 - Own **private** GitHub repo. A separate test page here, not a Leap-IDE profile. Files reach the desktop as **tapes**.
 - Implementation goes step by step through the roadmap in `docs/FEASIBILITY.md`; each step starts with a short contract doc
   (what to build, the numbers to measure, the pass/fail bounds), as Leap Arcade does.

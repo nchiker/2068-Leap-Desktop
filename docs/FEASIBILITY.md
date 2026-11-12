@@ -225,7 +225,8 @@ whole-window copies, not drawing speed, and neither is solved by changing the mo
   blocks. With its tables (about 8 KB in chunk 4) it takes most of what section 4 gave the kernel in chunks 0, 1, 4 and 5. The kernel
   (objects, events, windows, menus) must fit in the rest, or gfx6 must shrink (spike 13.2 lists 891 bytes measured; the text pass
   blocks and the `G_FILL` bodies are the large parts), or the cartridge grows past 32 KB of always-mapped code (Verdict, condition 1).
-  This is the first decision for roadmap step 3.
+  This is the first decision for roadmap step 3. **Decided (owner, 2026-11-11): plan for a 56 KB cartridge (DOCK 0-6)**, with
+  always-mapped code still 32 KB; gfx6 cleaned up to 12,451 bytes (`docs/CODE_SIZE.md`).
 - **Section 3's map:** chunk 4 now holds gfx6's page-aligned tables, so "the active app running in place from DOCK chunks 4-5" needs
   revisiting: apps in DOCK 2-3 (probe (a), passed) are the remaining place.
 - **Contention** (section 8, risk 2) still applies to all of the above: every figure here is a lower bound for real hardware.
@@ -380,7 +381,7 @@ cross-checked on ZEsarUX and Fuse. It shows:
 
 0. **Probe (a): done, PASS on all three emulators** (`docs/PROBE_DOCK23.md`). Probe (b) and Arcade hardware checklist item 0 wait for the hardware phase.
 1. **Project setup:** the LeapG repo, vendored sources with a provenance manifest, Arcade's build tools and DCK linker, a test page in the style of Leap-IDE running TSRun, the memory map, and `desktop.json` (the ABI spec).
-2. **Graphics core, mode 6 first:** mode 6 core and demo **done on emulators** (`docs/GRAPHICS_SPIKE.md` S1-S5; decision in section 5a). Left: the code-size decision and the mode 0 and 2 variants.
+2. **Graphics core, mode 6 first:** mode 6 core and demo **done on emulators** (`docs/GRAPHICS_SPIKE.md` S1-S5; decision in section 5a). Code size decided (56 KB cartridge, `docs/CODE_SIZE.md`). Left: the mode 0 and 2 variants.
    - Adapt the Arcade pieces in "Graphics core: what comes from Arcade": masked blitter, pre-shift builder, shift tables, glyph planes, dirty bitmap, rectangle walker, PUSH fill.
    - Write the gaps: mode 6 addressing, lines, clip rectangles, save-under, opaque blit.
    - Then add the mode 0 and 2 variants.

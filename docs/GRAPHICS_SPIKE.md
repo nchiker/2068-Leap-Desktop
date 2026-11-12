@@ -418,6 +418,11 @@ S2 figures are unchanged.
 Measured and not applied: drop the O pass blocks and draw those glyphs in two S passes. It saves 891 bytes more (5,375 total)
 but costs 668 -> 680.9 T a glyph, and `CLR` 699.5 -> 712.5.
 
+**Applied later (2026-11-11, owner: clean-up after the code-size decision, `docs/CODE_SIZE.md` section 0):** the O blocks are
+gone. Pass blocks end with `JP (IX)`, and an odd two-column glyph runs two S passes (`tpf_on` / `tpf_od`, then `tpf_o3`).
+Measured: gfx6 13,326 -> 12,451 bytes; 681.5 T a glyph (`XOR` 681.5, `CLR` 713.0); one-code calls about 455 T cheaper (two
+trampoline sets a line, not three).
+
 #### Options if the code size matters more than the margin
 
 Each option was estimated, not measured.

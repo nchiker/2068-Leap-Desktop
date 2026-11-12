@@ -257,9 +257,10 @@ G_TEXTW:
 ;   TRX_t  JP entry2                          where the block continues after the character-row crossing
 ; Passes run upward, from the line's bottom drawn row: that is why the descender row is the one a glyph can skip.
 ;
-; Pass blocks (t): S one byte column; E two byte columns, the left one in file 1 (the right one: file 2, same offset); O two byte
-; columns, the left one in file 2 (the right one: file 1, offset + 1).  A row: the glyph byte (D = plane, E = code) indexes the
-; shift table (B = SHR page of p, C = index), the op into the screen (HL); E and O do both columns in one row (INC B is SHL p).
+; Pass blocks (t): S one byte column; E two byte columns, the left one in file 1 (the right one: file 2, same offset).  A glyph
+; on two byte columns whose left one is in file 2 is drawn by two S passes (tpf_on / tpf_od): the left column, then the right
+; one (file 1, offset + 1) on the SHL page.  A row: the glyph byte (D = plane, E = code) indexes the
+; shift table (B = SHR page of p, C = index), the op into the screen (HL); E does both columns in one row (INC B is SHL p).
 ;
 ; Two loops.  The fast loop (tpf_*) runs while every glyph lies wholly inside the clip: pen x >= cx0 and the pen's byte column
 ; <= G_KF, so even an 8-pixel glyph ends at or before cx1.  Its state is in registers: main HL = string, B = codes left,
@@ -267,16 +268,13 @@ G_TEXTW:
 ; page: SHR page + 2p).  The passes run in the alternate set.  The general loop (tp_gen / tpg_*) holds the pen in G_PX; it
 ; handles code 13, lines with no visible row, glyphs cut by the clip (each byte masked, drawn downward: tp_mbyte, tp_mpass) and
 ; those wholly outside it, and enters the fast loop whenever the pen is in the fast region.
-TRAMP       EQU $E040               ; 3 x 14 bytes: TRD (5), TRN (6), TRX (3) for S, E, O
+TRAMP       EQU $E040               ; 2 x 14 bytes: TRD (5), TRN (6), TRX (3) for S, E ($E05C-$E069 unused)
 TRD_S       EQU TRAMP
 TRN_S       EQU TRAMP+5
 TRX_S       EQU TRAMP+11
 TRD_E       EQU TRAMP+14
 TRN_E       EQU TRAMP+19
 TRX_E       EQU TRAMP+25
-TRD_O       EQU TRAMP+28
-TRN_O       EQU TRAMP+33
-TRX_O       EQU TRAMP+39
 G_RT        EQU $E06A               ; word: ROWTAB of the line's first (top) drawn row (masked path)
 G_H1        EQU $E06C               ; word: block's first-half end (tp_setline)
 G_H2        EQU $E06E               ; word: block's second-half end
@@ -287,7 +285,7 @@ G_U         EQU $E074               ; byte: rows in the bottom character row (up
 G_N2        EQU $E075               ; byte: rows after the crossing (upward)
 G_SK        EQU $E076               ; byte: non-zero when the font's last row is drawn on this line (TRN skips it)
 G_R1        EQU $E077               ; byte: rows from the first entry (tp_tramps)
-    ASSERT TRAMP+42 <= G_RT && G_R1 < $E080
+    ASSERT TRAMP+28 <= G_RT && G_R1 < $E080
 
 G_TEXTP:
     exx
@@ -295,6 +293,8 @@ G_TEXTP:
     push de
     push hl
     exx
+    push ix
+    ld ix,tpf_adv           ; where every pass block ends (JP (IX)); tpf_two / tpf_desc change it for one glyph
     ld hl,(GA_X)
     ld (G_PX),hl
     ld (G_X0),hl
@@ -411,6 +411,7 @@ tp_cr:
     jp tp_gen
 
 tp_end:
+    pop ix
     ld hl,(G_PX)
     ld de,(G_PY)
     exx
@@ -438,7 +439,10 @@ tpf_loop:
     add a,b                 ; SHR page + 2 (p + ink width)
     cp (SHR>>8)+17
     jr nc,tpf_two           ; p + ink width > 8: two byte columns
-    jp TRN_S                ; (every pass block ends with JP tpf_adv)
+    jp TRN_S                ; (every pass block ends with JP (IX), IX = tpf_adv)
+tpf_o3:                     ; after the right column of an odd glyph: back to the SHR page, IX back to tpf_adv
+    dec b
+    ld ix,tpf_adv
 tpf_adv:
     ld d,PROP6_A2>>8
     ld a,(de)
@@ -452,7 +456,8 @@ tpf_adv:
 tpf_two:
     bit 5,h
     jp z,TRN_E
-    jp TRN_O
+    ld ix,tpf_on            ; odd (left column in file 2): the left column by an S pass, then tpf_on
+    jp TRN_S
 
 tpf_desc:                   ; the same, with the font's last row
     and $7F
@@ -461,7 +466,8 @@ tpf_desc:                   ; the same, with the font's last row
     jp c,TRD_S
     bit 5,h
     jp z,TRD_E
-    jp TRD_O
+    ld ix,tpf_od
+    jp TRD_S
 
 tpf_step:                   ; A = B' = SHR page + 2 (p + advance) with p + advance >= 8: one byte column on
     sub 16
@@ -505,6 +511,27 @@ tpf_blank:                  ; no ink: advance, or code 13
     exx
     dec b
     jp tp_cr
+
+tpf_on:                     ; the right column (file 1, offset + 1) by an S pass on the SHL page
+    ld ix,tpf_o3
+    exx
+    push de
+    exx
+    pop hl                  ; the pen's screen byte
+    res 5,h
+    inc l
+    inc b
+    jp TRN_S
+tpf_od:                     ; as tpf_on, with the font's last row
+    ld ix,tpf_o3
+    exx
+    push de
+    exx
+    pop hl
+    res 5,h
+    inc l
+    inc b
+    jp TRD_S
 
 ; Leave the fast loop: G_PX = 8 x the pen's byte column + (B' - SHR page) / 2.  Main active, HL = string, B = codes left.
 tpf_sync:
@@ -625,11 +652,9 @@ tp_setline:
     ld (G_RB),hl
     ld a,b
     ld (G_N),a              ; (G_N is still read as 0 by nothing until this returns)
-    ld a,(GOP)              ; TP_OPS + op * 39
-    ld l,a
+    ld a,(GOP)              ; TP_OPS + op * 26
     add a,a
-    add a,l
-    ld l,a                  ; t = op * 3
+    ld l,a                  ; t = op * 2
     add a,a
     add a,a
     ld h,a
@@ -718,31 +743,25 @@ tp_setline:
         add hl,bc           ; the next block's entry
     ENDM
 
-; tp_tramps: HL = the op's TP_OPS entry (3 x [first-half end, second-half end, offsets r x row size for r = 0..8]) ->
-; TRD / TRN / TRX for S, E, O.  Every byte is written each time (nothing depends on what RAM held before).
+; tp_tramps: HL = the op's TP_OPS entry (2 x [first-half end, second-half end, offsets r x row size for r = 0..8]) ->
+; TRD / TRN / TRX for S and E.  Every byte is written each time (nothing depends on what RAM held before).
 ; Uses G_N, G_U, G_N2, G_DZ, G_SK.  Clobbers AF, BC, DE, HL.
 tp_tramps:
     ld a,$C3                ; JP
     ld (TRD_S+2),a
     ld (TRD_E+2),a
-    ld (TRD_O+2),a
     ld (TRN_S+3),a
     ld (TRN_E+3),a
-    ld (TRN_O+3),a
     ld (TRX_S),a
     ld (TRX_E),a
-    ld (TRX_O),a
     ld a,$16                ; LD D,n
     ld (TRD_S),a
     ld (TRD_E),a
-    ld (TRD_O),a
     ld (TRN_S),a
     ld (TRN_E),a
-    ld (TRN_O),a
     ld a,(G_DZ)
     ld (TRD_S+1),a
     ld (TRD_E+1),a
-    ld (TRD_O+1),a
     ld c,0                  ; TRN: LD D,G_DZ; NOP, or (the last font row drawn) LD D,G_DZ-1; DEC H
     ld b,a
     ld a,(G_SK)
@@ -754,11 +773,9 @@ tp_tramps:
     ld a,b
     ld (TRN_S+1),a
     ld (TRN_E+1),a
-    ld (TRN_O+1),a
     ld a,c
     ld (TRN_S+2),a
     ld (TRN_E+2),a
-    ld (TRN_O+2),a
     ld a,(G_N2)             ; the first entry: from the first-half end (crossing) or the second-half end (none)
     or a
     ld a,(G_U)
@@ -768,12 +785,11 @@ tp_tramps:
     ld (G_R1),a
     TRT TRD_S, TRN_S, TRX_S
     TRT TRD_E, TRN_E, TRX_E
-    TRT TRD_O, TRN_O, TRX_O
     ret
 
 
 ; ---------------------------------------------------------------------------------------------------------------------
-; Pass blocks, upward: TP_H1 rows, the crossing up to the previous character row, JP TRX_t, TP_H2 rows, JP tpf_adv.  Entered (through
+; Pass blocks, upward: TP_H1 rows, the crossing up to the previous character row, JP TRX_t, TP_H2 rows, JP (IX) (tpf_adv, or tpf_on / tpf_od / tpf_o3 for a two-pass glyph).  Entered (through
 ; a trampoline) at first-half end - rows x row size, or second-half end - rows x row size when there is no crossing.
 ; HL = screen (bottom drawn row), D = plane, E = code, B = SHR page of p.  Clobbers AF, C, D, H, L.
 TP_H2       EQU PROP6_R1-PROP6_R0   ; most rows on a line
@@ -805,17 +821,6 @@ TP_H1       EQU TP_H2-1             ; most rows before a crossing (a crossing le
             res 5,h
             dec b
         ENDIF
-        IF t == 2                   ; O: the right column is file 1, offset + 1
-            res 5,h
-            inc l
-            inc b
-            ld a,(bc)
-            TPOP op
-            ld (hl),a
-            set 5,h
-            dec l
-            dec b
-        ENDIF
         dec d
         dec h
     ENDM
@@ -837,20 +842,17 @@ h1end:
             TPROW t, op
         ENDR
 h2end:
-        jp tpf_adv
+        jp (ix)
     ENDM
     TPBLOCK 0, 0, TP_SS1, TP_SS2, TRX_S
     TPBLOCK 1, 0, TP_SE1, TP_SE2, TRX_E
-    TPBLOCK 2, 0, TP_SO1, TP_SO2, TRX_O
     TPBLOCK 0, 1, TP_CS1, TP_CS2, TRX_S
     TPBLOCK 1, 1, TP_CE1, TP_CE2, TRX_E
-    TPBLOCK 2, 1, TP_CO1, TP_CO2, TRX_O
     TPBLOCK 0, 2, TP_XS1, TP_XS2, TRX_S
     TPBLOCK 1, 2, TP_XE1, TP_XE2, TRX_E
-    TPBLOCK 2, 2, TP_XO1, TP_XO2, TRX_O
-    ; row sizes in bytes: S 7 (CLR 8), E 16 (CLR 18), O 18 (CLR 20)
-    ASSERT TP_SS2 - TP_SS1 == 13 + TP_H2 * 7 && TP_SE2 - TP_SE1 == 13 + TP_H2 * 16 && TP_SO2 - TP_SO1 == 13 + TP_H2 * 18
-    ASSERT TP_CS2 - TP_CS1 == 13 + TP_H2 * 8 && TP_CE2 - TP_CE1 == 13 + TP_H2 * 18 && TP_CO2 - TP_CO1 == 13 + TP_H2 * 20
+    ; row sizes in bytes: S 7 (CLR 8), E 16 (CLR 18)
+    ASSERT TP_SS2 - TP_SS1 == 13 + TP_H2 * 7 && TP_SE2 - TP_SE1 == 13 + TP_H2 * 16
+    ASSERT TP_CS2 - TP_CS1 == 13 + TP_H2 * 8 && TP_CE2 - TP_CE1 == 13 + TP_H2 * 18
 
 ; ---------------------------------------------------------------------------------------------------------------------
 ; Slow path.  tp_slowglyph: the glyph G_CH (ink width C >= 1) at pen x G_PX on the current line, each byte masked to the clip.
