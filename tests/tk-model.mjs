@@ -21,8 +21,8 @@
 //  R4. The page parts need a thumb (max > 0); with max = 0 a press in the track is not generated.
 //  R5. Radio rule: the siblings are the other children of the same parent; a radio that is already checked draws once (self), the model counts a second
 //      draw of self as an `extra` (the test tolerates it and reports it).
-//  R6. With target = 0 the bar posts E_CMD for each change of value (as Button, 17.3: C = View_id, E = the window's slot, D = 0).  The tracking loop's own
-//      K_GETEV then takes that record from the posted queue and drops it ("anything else: dropped"): the model keeps `posts` (made) and leaves the queue to the test.
+//  R6. (9.7 item 2) With target = 0 the bar posts ONE E_CMD when tracking ends (as Button, 17.3: C = View_id, E = the window's slot, D = 0), only if the value changed.
+//  R7. (9.7 item 1) The repeat deadlines are the press frame + 15, then each deadline + 6, whatever a step costs; (item 5) 'inside the part' is the part's rectangle.
 import { fileURLToPath } from 'node:url';
 import { Gfx6Model, OP_SET, OP_CLR, OP_XOR } from './gfx6-model.mjs';
 import { labelLook, windowLook, toDisp } from './wm-model2.mjs';
@@ -98,8 +98,8 @@ export class VsTrack {
   constructor(v, target, mode = 'py') { this.v = v; this.target = target; this.mode = mode; this.alive = false; this.tells = []; this.press = PRESS.NONE; this.vf = 0; this.px = 0; this.py = 0; }
   change(nv) {
     if (nv === this.v.value) return;
-    this.v.value = nv;
-    this.tells.push({ vf: this.vf, value: nv, press: this.press, kind: this.target === 'cmd' ? 'cmd' : 'tell' });
+    this.v.value = nv; this.changed = true;
+    if (this.target !== 'cmd') this.tells.push({ vf: this.vf, value: nv, press: this.press, kind: 'tell' });   // target = 0: one E_CMD when tracking ends (9.7 item 2)
   }
   step(part) {
     const v = this.v, amt = part === 'up' ? -1 : part === 'down' ? 1 : part === 'pgup' ? -v.page : v.page;
@@ -108,7 +108,7 @@ export class VsTrack {
   }
   down(px, py, vf) {
     const v = this.v;
-    this.vf = vf; this.p = vf; this.due = 15; this.px = px; this.py = py; this.alive = true;
+    this.vf = vf; this.p = vf; this.due = 15; this.start = v.value; this.changed = false; this.px = px; this.py = py; this.alive = true;
     this.part = vsPart(v, py);
     if (this.part === 'none') throw new Error('model: a press in the track of a bar without a thumb (R4)');
     if (this.part === 'thumb') this.grab = py - vsGeom(v).ty;
@@ -150,7 +150,14 @@ export class VsTrack {
           this.change(Math.floor((2 * (ty2 - v.y - 10) * v.max + span) / (2 * span)));
         }
       }
-    } else if (ev.t === 'up') { this.press = PRESS.NONE; this.alive = false; }
+    } else if (ev.t === 'up') {
+      this.press = PRESS.NONE; this.alive = false;
+      if (this.target === 'cmd' && this.changed) {
+        // 9.7: one E_CMD, only if the value changed during tracking; "changed" is read as a final value different from the start (a change and a change back is ambiguous)
+        if (this.v.value === this.start) this.ambiguous = true;
+        else this.tells.push({ vf: this.vf, value: this.v.value, press: 0, kind: 'cmd' });
+      }
+    }
     // 'other': dropped
   }
   frame(vf, events, order = 'repeatFirst') {

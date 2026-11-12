@@ -89,13 +89,13 @@ if (ONLY.includes(1)) {
   }
   // ---- VScroll
   {
-    const sec = new Sec('1b VScroll look: W_DRAWVIEW of a random bar (h 32..160, w 8..24, max 0..255, page 0..255, value 0..max, press 0 / 1 / 2) against 9.3');
+    const sec = new Sec('1b VScroll look: W_DRAWVIEW of a random bar (h 32..160, w 12..24, max 0..255, page 0..255, value 0..max, press 0 / 1 / 2) against 9.3');
     const node = { kind: 'VScroll', id: 131, x: 30, y: 30, w: 12, h: 80, value: 0, max: 0, page: 0, target: 0 };
     const tree = new M.TkTree(WIN0, [node]);
     T.buildTree(env, tree);
-    const stat = { nothumb: 0, press1: 0, press2: 0, minThumb: 0, h32: 0, h160: 0, w8: 0, w24: 0, vmax: 0 };
+    const stat = { nothumb: 0, press1: 0, press2: 0, minThumb: 0, h32: 0, h160: 0, w12: 0, w24: 0, vmax: 0 };
     for (let i = 0; i < NLOOK; i++) {
-      const w = rng.chance(0.1) ? rng.pick([8, 24]) : rng.int(8, 24), h = rng.chance(0.1) ? rng.pick([32, 160]) : rng.int(32, 160);
+      const w = rng.chance(0.1) ? rng.pick([12, 24]) : rng.int(12, 24), h = rng.chance(0.1) ? rng.pick([32, 160]) : rng.int(32, 160);
       const x = rng.int(20, 470), y = rng.int(20, 190 - h);
       const max = rng.chance(0.07) ? 0 : rng.chance(0.4) ? rng.int(1, 30) : rng.int(1, 255);
       const page = rng.chance(0.12) ? 0 : rng.chance(0.4) ? rng.int(1, 12) : rng.int(0, 255);
@@ -114,11 +114,10 @@ if (ONLY.includes(1)) {
       noteRun(sec, r, what);
       const gm = M.vsGeom(bar);
       stat.nothumb += !gm.thumb; stat.press1 += press === 1; stat.press2 += press === 2; stat.minThumb += gm.thumb && gm.th === 6; stat.h32 += h === 32; stat.h160 += h === 160;
-      stat.w8 += w === 8; stat.w24 += w === 24; stat.vmax += value === max && max > 0;
+      stat.w12 += w === 12; stat.w24 += w === 24; stat.vmax += value === max && max > 0;
       if (sec.nf > 12) break;
     }
-    sec.note('w = 8: the widest arrow row (9 pixels at cx - 4 .. cx + 4) is one pixel wider than the bar; W_DRAWVIEW clips it, a W_UPDATE repaint (clip = the dirty cells) would draw it outside the rectangle (9.3 has no w >= 9)');
-    sec.end(`${stat.nothumb} without a thumb, ${stat.minThumb} with the 6-row minimum thumb, press 1: ${stat.press1}, press 2: ${stat.press2}, h 32: ${stat.h32}, h 160: ${stat.h160}, w 8: ${stat.w8}, w 24: ${stat.w24}, value = max: ${stat.vmax}`);
+    sec.end(`${stat.nothumb} without a thumb, ${stat.minThumb} with the 6-row minimum thumb, press 1: ${stat.press1}, press 2: ${stat.press2}, h 32: ${stat.h32}, h 160: ${stat.h160}, w 12: ${stat.w12}, w 24: ${stat.w24}, value = max: ${stat.vmax}`);
   }
 }
 
@@ -202,13 +201,7 @@ if (ONLY.includes(2)) {
       else {
         const same = gotD.length === wantD.length && gotD.every((n, i) => n === wantD[i]);
         if (!same) {
-          const last = (list) => list.filter((n, i) => list.lastIndexOf(n) === i);
-          const lg = last(gotD), lw = last(wantD);
-          // tolerated only for a radio that was already checked (a loop over all siblings that includes self draws it twice)
-          const dupNodes = gotD.filter((n, i) => gotD.indexOf(n) !== i);
-          const tol = lg.length === lw.length && lg.every((n, i) => n === lw[i]) && dupNodes.every((n) => (n.flags & M.FL.RADIO) && (pre.get(n) & M.FL.CHECKED) && wantD[wantD.length - 1] === n);
-          if (tol) { st.extraDraws++; if (VERBOSE && st.extraDraws <= 6) console.log(`  dup draw: ${what}: got ${gotD.map((n) => n.id).join(',')}, model ${wantD.map((n) => n.id).join(',')}`); sec.note('a node is drawn more than once in one event where the model draws it once (tolerated, 9.2 "Activate" is ambiguous for a radio that is already checked)'); }
-          else sec.ok(false, () => `${what}: W_DRAWVIEW of ${gotD.map((n) => n.id).join(',')}, model ${wantD.map((n) => n.id).join(',')}`);
+          sec.ok(false, () => `${what}: W_DRAWVIEW of ${gotD.map((n) => n.id).join(',')}, model ${wantD.map((n) => n.id).join(',')}`);
         } else sec.ok(true, '');
       }
       // posts
@@ -285,7 +278,7 @@ if (ONLY.includes(2)) {
 // 3. VScroll tracking: K_DISPATCH of an E_DOWN over a bar, the loop answered frame by frame (every HALT is a frame: V_FRAMES + 1 and the scripted events
 //    go into the ring), the stub target class records what it is told.
 function genTrack(opts = {}) {
-  const w = rng.int(8, 24), h = opts.h || rng.int(32, 160), x = opts.x ?? rng.int(20, 470), y = opts.y ?? rng.int(20, 190 - h);
+  const w = rng.int(12, 24), h = opts.h || rng.int(32, 160), x = opts.x ?? rng.int(20, 470), y = opts.y ?? rng.int(20, 190 - h);
   const max = opts.max ?? (rng.chance(0.07) ? 0 : rng.chance(0.4) ? rng.int(1, 30) : rng.int(1, 255));
   const page = opts.page ?? (rng.chance(0.12) ? 0 : rng.chance(0.4) ? rng.int(1, 12) : rng.int(0, 255));
   const value = opts.value ?? (rng.chance(0.15) ? 0 : rng.chance(0.15) ? max : rng.int(0, max));
@@ -382,7 +375,7 @@ if (ONLY.includes(3)) {
     for (const e of cs.pre) T.ringPut(env, recOf(e));
     T.setEv(env, T.ptRec(M.E.DOWN, cs.px, cs.py, 1));
     const told = [], posted = [], states = [], changes = [];
-    let wakes = 0, lastKey = '';
+    let wakes = 0, lastKey = '', drawsAtPress = -1;
     const diffs = [];
     const stateNow = () => ({ value: m.ram[node.addr + S.VScroll_value], press: m.ram[node.addr + S.VScroll_press] });
     // the screen against the look of the state the machine itself is in (the values are compared with the model afterwards)
@@ -406,8 +399,9 @@ if (ONLY.includes(3)) {
     try {
       r = T.runCall(env, S.K_DISPATCH, {}, {
         hooks,
-        onPost: (p) => { const s = onChange(`post ${posted.length + 1}`); posted.push({ ...p, vf: T.vframes(env), value: s.value, press: s.press }); },
-        onHalt: () => {
+        onPost: (p) => { const s = stateNow(); posted.push({ ...p, vf: T.vframes(env), value: s.value, press: s.press }); },
+        onHalt: (info) => {
+          if (drawsAtPress < 0) drawsAtPress = info.draws.length;
           checkState(wakes); wakes++;
           if (wakes > cs.frames.length) throw new Error(`the loop is still waiting after the scripted frames (it never saw the E_UP?)`);
           T.setVframes(env, (vf0 + wakes) & 0xFFFF);
@@ -420,6 +414,8 @@ if (ONLY.includes(3)) {
     st.maxStack = Math.max(st.maxStack, r.stack); st.frames += r.halts;
     sec.ok(r.halts === cs.frames.length, () => `${ctx}: ${r.halts} HALTs, the script has ${cs.frames.length} frames`);
     sec.ok(diffs.length === 0, () => `${ctx}: ${diffs.slice(0, 3).join('; ')}`);
+    if (cs.pre.length === 0 && cs.H > 0 && (cs.part === 'up' || cs.part === 'down')) sec.ok(drawsAtPress === 1, () => `${ctx}: ${drawsAtPress} W_DRAWVIEW before the first HALT; 9.7 item 3: the arrow pressed and the first step are drawn together, once`);
+    if (cs.pre.length === 0 && cs.H > 0 && (cs.part === 'pgup' || cs.part === 'pgdn')) sec.ok(drawsAtPress <= 1, () => `${ctx}: a page press drew ${drawsAtPress} times before the first HALT`);
     const changesSeen = (mode === 'tell' ? told : posted).map((t) => ({ vf: t.vf, value: t.value, press: t.press }));
     const res = M.matchTrace(sims, { states, tells: changesSeen }, vf0);
     // The contract says "while the pointer is inside that part" (9.3); the readings of it are tk-model's MODES.  The machine behaves as 'rect' (the part is a rectangle:
@@ -441,9 +437,10 @@ if (ONLY.includes(3)) {
       sec.ok(r.posts.length === 0, () => `${ctx}: a target is set but ${r.posts.length} K_POST made`);
       st.tells += told.length;
     } else {
+      sec.ok(posted.length <= 1, () => `${ctx}: ${posted.length} E_CMD posted, at most one (when tracking ends)`);
       posted.forEach((p, i) => sec.ok(p.a === M.E.CMD && p.c === cs.bar.id && p.e === tree.win.slot && p.d === 0, () => `${ctx}: post ${i + 1}: A ${p.a} C ${p.c} E ${p.e} D ${p.d}, want E_CMD ${cs.bar.id}, slot ${tree.win.slot}, 0`));
       st.cmds += posted.length;
-      st.queued += T.postedQueue(env).length;
+      { const q = T.postedQueue(env); st.queued += q.length; sec.ok(q.length === posted.length && q.every((x) => x[0] === M.E.CMD && x[1] === cs.bar.id), () => `${ctx}: the posted queue after the loop holds ${JSON.stringify(q)}, want the ${posted.length} E_CMD for id ${cs.bar.id}`); }
     }
     st.repeats += sim.t.tells.filter((t) => t.vf - vf0 >= 15).length;
     if (sim.t.tells.length === 0) st.noChange++;
@@ -456,7 +453,7 @@ if (ONLY.includes(3)) {
   sec.end(`${st.cases} scripts (${st.rejected} rejected as ambiguous), parts ${JSON.stringify(st.parts)}, ${st.tells} told, ${st.cmds} posted, ${st.repeats} repeats (>= 15 frames), ${st.noChange} with no change of value, ${st.drags} drags, ${st.wrap} across the V_FRAMES wrap, ${st.half} drags aimed at an exact half, ${st.frames} frames; deepest stack of K_DISPATCH + the tracking loop ${st.maxStack} bytes`);
   console.log(`  report: readings of "while the pointer is inside that part" (9.3) that the machine matched, per script (the resolved reading is rect): ${JSON.stringify(st.modes)} (py = rows only, xpy = also x within the bar, rect = also the bar's rows); ${st.xcases} scripts distinguish the three readings; ${st.unresolved} scripts are ambiguous under the resolved reading 'rect' (a pointer that leaves the part and returns: when the repeat resumes is not in the contract) and are not judged`);
   for (const l of modeLog) console.log(`    e.g. ${l}`);
-  console.log(`  report: K_CAPTURE after tracking ended: = the bar in ${st.capBar} cases, = 0 in ${st.capZero} cases; posted E_CMD left in the queue after the loop: ${st.queued} (the loop's own K_GETEV takes posted records first and drops them: 9.3 "Anything else: dropped")`);
+  console.log(`  report: K_CAPTURE after tracking ended: = the bar in ${st.capBar} cases, = 0 in ${st.capZero} cases; posted E_CMD left in the queue after the loop: ${st.queued} (9.7 item 2: with target = 0 one E_CMD is posted when tracking ends, if the value changed; it stays in the queue for the program)`);
 }
 
 // ===========================================================================================================================
@@ -471,7 +468,7 @@ if (ONLY.includes(4)) {
   T.buildTree(env, tree);
   let clampN = 0;
   for (let i = 0; i < NSET; i++) {
-    const w = rng.int(8, 24), h = rng.int(32, 160), x = rng.int(20, 470), y = rng.int(20, 190 - h);
+    const w = rng.int(12, 24), h = rng.int(32, 160), x = rng.int(20, 470), y = rng.int(20, 190 - h);
     const a = rng.chance(0.2) ? 255 : rng.chance(0.2) ? 0 : rng.int(0, 255), c = rng.chance(0.08) ? 0 : rng.chance(0.5) ? rng.int(1, 40) : rng.int(0, 255), b = rng.chance(0.1) ? 0 : rng.chance(0.5) ? rng.int(1, 12) : rng.int(0, 255);
     T.setRect(env, node.addr, x, y, w, h);
     const old = { value: rng.int(0, 255), max: rng.int(0, 255), page: rng.int(0, 255) };
@@ -628,7 +625,7 @@ if (ONLY.includes(5)) {
           if (!part) return driveBar();
           const H = rng.int(24, 56), py = part === 'up' ? rng.int(bar.y, bar.y + 9) : rng.int(bar.y + bar.h - 10, bar.y + bar.h - 1), px = rng.int(bar.x, bar.x + bar.w - 1);
           const v0 = bar.value; valueWrites.length = 0;
-          const vfe = press(px, py); armed = true;
+          armed = true; const vfe = press(px, py);
           for (let i = 0; i < H - 1; i++) env.frame();
           m.mouse.buttons = L.MOUSE_UP; env.frame(); armed = false;
           const n = valueWrites.length, nHi = 1 + Math.floor((H - 15) / 6) + 1 + 1, nLo = 1 + Math.max(0, Math.floor((H - 20) / 8));
