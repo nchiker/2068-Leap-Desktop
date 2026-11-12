@@ -474,7 +474,7 @@ three runs.
 |---|---|---|
 | `W_DRAWVIEW` `List` 128 x 146, proportional, 16 lines | 233,181 | report |
 | `W_DRAWVIEW` `List` 132 x 130, cell lines, 16 lines | 142,687 | report |
-| `List` scrolled by one line (DOWN past the bottom, includes the bar): proportional / cell lines | 303,420 / 209,355 | report; the bound is set when the owner has seen it (proposed: 303,500 / 209,400) |
+| `List` scrolled by one line (DOWN past the bottom, includes the bar): proportional / cell lines | 303,420 / 209,355 | <= 303,500 / 209,400 (owner, 10.10) |
 | Selection moved within the lines shown: proportional / cell lines | 86,047 / 72,967 | report |
 | `W_DRAWVIEW` `Field` 160 x 12, 30 codes, focused | 47,092 | report |
 | A typed code | 55,778 | <= 58,000 |
@@ -515,3 +515,10 @@ Same bytes.
    `G_SCROLLV` of the inside plus one new line, is now estimated at about 105 k plus the bar.
 2. In cell-lines mode the unfocused selection's outline shares its top row with the 8 x 8 glyphs' top row (the Leap V2 font
    inks row 0), so capitals touch the box. The owner judges it on screen.
+
+### 10.10 Owner decisions after trying the demo (2026-11-12)
+
+- **The one-line scroll is fast enough** ("The demo seems fast to me"). Its bounds are the measured figures rounded up to 100 T:
+  `List` scrolled by one line, bar included, **<= 303,500 T** proportional and **<= 209,400 T** with cell lines. Option (b),
+  `G_SCROLLV`, is not taken.
+- Still open: the cell-lines outline (10.9, for the owner 2) and the SYMBOL SHIFT layout, tried by typing in the `Field`.

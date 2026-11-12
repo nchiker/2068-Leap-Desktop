@@ -288,8 +288,8 @@ const listTree = (cell, withBar, sel = 3, top = 0) => {
         ok = ok && m.ram[list.addr + S.List_sel] === wantSel && m.ram[list.addr + S.List_top] === wantTop;
         if (r.di) { missed++; console.log('FAIL | a DI in the key run'); }
       }
-      const bound = null;
-      row(`${what}, ${cell ? 'cell lines (bar 12 x 130)' : 'proportional (bar 12 x 146)'}: K_DISPATCH of E_KEY DOWN`, Math.max(...ts), bound, `T-states, worst of three, report (the one-line scroll's bound becomes this figure, rounded up to 100 T, once the owner has seen it); runs ${ts.join(', ')}; ${last.draws.length} W_DRAWVIEW(s); state after: ${ok ? `sel ${wantSel} top ${wantTop} as expected` : 'NOT as expected: sel ' + m.ram[list.addr + S.List_sel] + ' top ' + m.ram[list.addr + S.List_top]}`);
+      const bound = sel0 === 15 ? (cell ? 209400 : 303500) : null;   // TOOLKIT 10.10: the owner set the one-line scroll bounds at the measured figures
+      row(`${what}, ${cell ? 'cell lines (bar 12 x 130)' : 'proportional (bar 12 x 146)'}: K_DISPATCH of E_KEY DOWN`, Math.max(...ts), bound, `T-states, worst of three (the one-line scroll: the owner's bound, TOOLKIT 10.10; the selection move: report); runs ${ts.join(', ')}; ${last.draws.length} W_DRAWVIEW(s); state after: ${ok ? `sel ${wantSel} top ${wantTop} as expected` : 'NOT as expected: sel ' + m.ram[list.addr + S.List_sel] + ' top ' + m.ram[list.addr + S.List_top]}`);
       if (!ok) { missed++; console.log('FAIL | the List state after DOWN is not what 10.3 says'); }
       T.clearTree(env, tree);
     }
