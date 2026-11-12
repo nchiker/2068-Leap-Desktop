@@ -191,8 +191,32 @@ Any other code is not a Calculator key.
 drop digits from the right, and the last one dropped rounds half away from zero). Only division uses the 64-bit long
 division (`c_round`). This took `=` from 155 k to 104 k T at worst.
 
+**Tests (Sonnet, from the contract; the main model re-ran them):**
+- **`tests/calc-c1.mjs`:** 5 of 5 on seeds 1 and 2.
+  - **Arithmetic:** 20,036 operations, 311,904 checks against the BigInt model.
+  - **Key sequences:** 3,000 sequences.
+  - **The screen:** pixel for pixel against the section 4 rendering, in 14 states.
+  - **Input over frames:** typed keys, mouse clicks and menu choices.
+  - **Banking:** the memory watch over 325 M accesses with 0 violations, the image intact, and no frame lost.
+- **Cross-emulator:**
+  - ZEsarUX 13.0: 16 of 16 rows, the boot and typed screens identical to TSRun's.
+  - Fuse 1.9.1: the boot screen, 5 of 5 rows. Fuse cannot take typed input headless.
+- **`tests/calc-perf.mjs`:** 8 pass, **1 missed**, 3 reported.
+
+**Missed bound, reported to the owner before any change:** `C_KEY` for `=` doing a division takes **174,661 T** at worst,
+against 120,000 (about 3 frames).
+- The mean is 100,806 T.
+- The slowest inputs found are 9.9999999 / 6.6666667 and 9.9999999 / 1.
+- `+`, `-` and `*` take at most 66,002, 65,985 and 80,899 T.
+- An operator key that performs a pending division takes up to 157,810 T (reported; it has no bound).
+- The results are correct; only the time is over.
+
+**Options:**
+- **(A)** The bound becomes the measured figure, 175,000. That is about 50 ms after the key, which no one will notice. No bytes.
+- **(B)** Speed up the long division: unrolled 64-bit shift and compare, the dividend and remainder shifted as one 16-byte
+  number, and a one-pass multiply by 10. **EST** 100-110 k T, but about 60-100 more bytes. The byte bound (2,489 of 2,500)
+  would then need raising to about 2,600.
+
 **Not yet done:**
-- **Sonnet's model and tests:** `tests/calc-model.mjs`, `calc-c1.mjs` and `calc-perf.mjs` (section 8, tests 1-6).
-- **The cross-emulator runners:** `tools/xemu/desk5-*` (test 7).
-- **The main model's re-run of both.**
+- **The owner's choice** on the missed bound (A or B above).
 - **The owner's review on screen:** `web/?cart=desk5`, with the Mouse switch on.
