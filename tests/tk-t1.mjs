@@ -10,12 +10,14 @@
 //     --ndemo N   random inputs in the demo (default 120)
 //     --only LIST groups to run: 1 looks, 2 Check events, 3 VScroll tracking, 4 TK_SETBAR, 5 demo, 6 watch / frames / DI (default all)
 // Since SHELL.md 9-10 the cartridge boots the shell; group 5 launches "Controls" (program 2, SHELL 5 / 9.6) through the shell (a double click on its icon) and leaves it by
-// the close box (CWindow, SHELL 10.1); the window is at (176, 32, 144, 112) (SHELL 5) with the controls at the offsets of TOOLKIT 9.4 from its corner.  Groups 1-4 and 6 build
+// the close box (CWindow, SHELL 10.1); the window is the grown one of TOOLKIT 10.5, (176, 32, 320, 144), with T1's controls at the same rectangles (9.4 moved by SHELL 5) and, added after them, the List with its bar, the "Name:" Label, the Field and the status Label (T2 / T3: their state is read from the machine into tk-model2's nodes, and the program's "Grid" reaction is applied to the model, 10.5).  Groups 1-4 and 6 build
 // their own windows on an empty desk (tk-lib bootParked: the shell's window closed).
 // Exit code 1 on any failure.
 import { checks } from './lib.mjs';
 import * as T from './tk-lib.mjs';
 import * as M from './tk-model.mjs';
+import * as M2 from './tk-model2.mjs';
+import * as X from './tk-lib2.mjs';
 
 const { L, hex, rd16 } = T;
 const { argv, argNum } = L;
@@ -32,11 +34,13 @@ class Sec {
   ok(c, msg) { this.n++; if (!c) { this.nf++; if (this.fails.length < (VERBOSE ? 40 : 5)) this.fails.push(typeof msg === 'function' ? msg() : msg); } return c; }
   note(s) { if (!this.notes.includes(s) && this.notes.length < 6) this.notes.push(s); }
   end(extra = '') {
+    groupsOk.push(this.nf === 0);
     C.check(`${this.name}: ${this.n} checks${extra ? ', ' + extra : ''}`, this.nf === 0, this.nf ? `${this.nf} failed: ${this.fails.join(' | ')}` : '');
     for (const s of this.notes) console.log(`  note: ${s}`);
   }
 }
 const envs = [];                                         // every machine built (for group 6)
+const groupsOk = [];
 const totals = { di: 0, badPreserved: 0, badSp: 0, maxStackDispatch: 0 };
 const gen = {
   codes(lo, hi) { const n = rng.int(lo, hi), o = []; for (let i = 0; i < n; i++) o.push(rng.chance(0.7) ? rng.pick(T.codesOf('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')) : rng.int(32, 126)); return o; },
@@ -501,7 +505,7 @@ if (ONLY.includes(4)) {
 // 5. The demo, over real frames: the program's own loop (DOCK 2-3) with the Kempston mouse and the keyboard.
 // TOOLKIT 9.4's rectangles, moved with the window: it was at (352, 16), SHELL 5 puts it at (176, 32), so every control is 176 left and 16 lower (the offsets from the corner stay).
 const DEMO = {
-  win: [176, 32, 144, 112], checks: [['Sound', 184, 48, 72, 9], ['Grid', 184, 60, 72, 9]], radios: [['Small', 184, 76, 72, 9], ['Medium', 184, 88, 72, 9], ['Large', 184, 100, 72, 9]],
+  win: [176, 32, 320, 144], checks: [['Sound', 184, 48, 72, 9], ['Grid', 184, 60, 72, 9]], radios: [['Small', 184, 76, 72, 9], ['Medium', 184, 88, 72, 9], ['Large', 184, 100, 72, 9]],
   bar: [300, 48, 12, 80], label: [184, 116, 100, 9],
 };
 if (ONLY.includes(5)) {
@@ -518,7 +522,7 @@ if (ONLY.includes(5)) {
     const rv = (a) => L.readView(m, S, a);
     const kidsOf = (a) => { const out = []; for (let v = rv(a).child; v; v = rv(v).next) out.push(rv(v)); return out; };
     const wv = rv(dwin), kids = kidsOf(dwin);
-    sec.ok(wv.cls === S.CL_CWindow && [wv.x, wv.y, wv.w, wv.h].join() === DEMO.win.join(), () => `window: class ${hex(wv.cls)} (want CWindow ${hex(S.CL_CWindow)}) rect ${[wv.x, wv.y, wv.w, wv.h]}, want (176, 32, 144, 112) (SHELL 5)`);
+    sec.ok(wv.cls === S.CL_CWindow && [wv.x, wv.y, wv.w, wv.h].join() === DEMO.win.join(), () => `window: class ${hex(wv.cls)} (want CWindow ${hex(S.CL_CWindow)}) rect ${[wv.x, wv.y, wv.w, wv.h]}, want (176, 32, 320, 144) (TOOLKIT 10.5)`);
     sec.ok(T.textOf(m, rd16(m, dwin + S.Window_title)) === 'Controls', () => `window title "${T.textOf(m, rd16(m, dwin + S.Window_title))}"`);
     sec.ok(m.ram[dwin + S.Window_slot] !== 0 && rd16(m, S.W_SLOTS + 2 * m.ram[dwin + S.Window_slot]) === dwin, 'the demo window is open (a slot)');
     const find = (rect, cls) => kids.find((v) => [v.x, v.y, v.w, v.h].join() === rect.join() && v.cls === cls);
@@ -546,8 +550,15 @@ if (ONLY.includes(5)) {
       sec.ok(bv.id >= 128 && lv.id >= 0, () => `bar View_id ${bv.id}`);
       const bar = { kind: 'VScroll', addr: bv.a, id: bv.id, x: bv.x, y: bv.y, w: bv.w, h: bv.h, flags: bv.flags, value: m.ram[bv.a + S.VScroll_value], max: mx, page: pg, press: 0 };
       const label = { kind: 'Label', addr: lv.a, id: lv.id, x: lv.x, y: lv.y, w: lv.w, h: lv.h, flags: lv.flags, codes: [] };
-      const order = kids.map((v) => (v.a === bv.a ? bar : v.a === lv.a ? label : nodes.find((n) => n.addr === v.a))).filter(Boolean);
-      const tree = new M.TkTree({ x: wv.x, y: wv.y, w: wv.w, h: wv.h, slot: m.ram[dwin + S.Window_slot], title: T.codesOf('Controls') }, order);
+      // T2 / T3: the demo's other views (the List and its bar, the "Name:" Label, the Field, the status Label) as model nodes, read from the machine
+      const extras = new Map();
+      for (const v of kids) { if (v.a === bv.a || v.a === lv.a || nodes.some((n) => n.addr === v.a)) continue; const n = X.viewToNode(env, v); sec.ok(!!n, () => `the demo window holds a view of an unknown class ${hex(v.cls)} at ${hex(v.a)}`); if (n) extras.set(v.a, n); }
+      const extraNodes = [...extras.values()];
+      X.linkBars(extraNodes);
+      const grid = nodes.find((n) => n.name === 'Grid'), demoList = extraNodes.find((n) => n.kind === 'List');
+      sec.ok(!!demoList && extraNodes.some((n) => n.kind === 'Field'), 'the demo window holds a List and a Field (TOOLKIT 10.5)');
+      const order = kids.map((v) => (v.a === bv.a ? bar : v.a === lv.a ? label : nodes.find((n) => n.addr === v.a) || extras.get(v.a))).filter(Boolean);
+      const tree = new M2.TkTree2({ x: wv.x, y: wv.y, w: wv.w, h: wv.h, slot: m.ram[dwin + S.Window_slot], title: T.codesOf('Controls') }, order);
       const focusAddr = () => rd16(m, S.K_FOCUS);
       const syncFocus = () => { tree.focus = order.find((n) => n.addr === focusAddr()) || null; };
       syncFocus();
@@ -557,6 +568,9 @@ if (ONLY.includes(5)) {
       const barRam = () => m.ram[bv.a + S.VScroll_value];
       const check = (what) => {
         env.frames_(2);
+        for (const n of extraNodes) if (n.kind === 'Label') n.codes = X.readCodes(m, rd16(m, n.addr + S.Label_text));     // the status Label: the program writes it
+        if (demoList && grid) X.applyGrid(tree, grid, demoList);                                                      // "Grid" switches the List's cell lines (10.5)
+        { const sd = X.stateDiff(env, tree); sec.ok(sd === null, () => `${what}: ${sd}`); }
         for (const n of nodes) sec.ok(m.ram[n.addr + S.View_flags] === n.flags, () => `${what}: "${n.name}" flags ${hex(m.ram[n.addr + S.View_flags], 2)}, model ${hex(n.flags, 2)}`);
         sec.ok(barRam() === bar.value, () => `${what}: bar value ${barRam()}, model ${bar.value}`);
         const vs = Array.from(String(`Value: ${bar.value}`), (c) => c.charCodeAt(0)), got = labelText(), gstr = String.fromCharCode(...got);
@@ -725,3 +739,4 @@ if (ONLY.includes(6)) {
   sec.end(`${envs.length} machines, ${frames} normal frames with V_FRAMES checked, ${acc} accesses under A or R watched`);
 }
 C.done();
+console.log(`tk-t1: ${groupsOk.filter(Boolean).length} of ${groupsOk.length} groups pass`);

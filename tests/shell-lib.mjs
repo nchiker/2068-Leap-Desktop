@@ -9,6 +9,7 @@
 import * as L from './calc-lib.mjs';
 import * as SM from './shell-model.mjs';
 import * as M from './tk-model.mjs';
+import './tk-model2.mjs';                          // registers the List and Field looks (T2 / T3) with tk-model's renderWindow
 import { readDisp, diffDisp } from './wm-lib.mjs';
 import { drawBar } from './wm-model3.mjs';
 
@@ -108,6 +109,14 @@ export function controlsDiff(env, extra = []) {
     if (k.cls === S.CL_Check) order.push({ kind: 'Check', ...base, codes: Array.from(readStrText(m, rd16(m, v + S.Check_text)), (c) => c.charCodeAt(0)) });
     else if (k.cls === S.CL_VScroll) order.push({ kind: 'VScroll', ...base, value: m.ram[v + S.VScroll_value], max: m.ram[v + S.VScroll_max], page: m.ram[v + S.VScroll_page], press: m.ram[v + S.VScroll_press] });
     else if (k.cls === S.CL_Label) order.push({ kind: 'Label', ...base, codes: Array.from(readStrText(m, rd16(m, v + S.Label_text)), (c) => c.charCodeAt(0)) });
+    else if (k.cls === S.CL_List) {
+      const arr = rd16(m, v + S.List_items), count = m.ram[v + S.List_count], items = [];
+      for (let i = 0; i < count; i++) { const a = rd16(m, arr + 2 * i); items.push(Array.from(m.ram.subarray(a + 1, a + 1 + m.ram[a]))); }
+      order.push({ kind: 'List', ...base, items, count, sel: m.ram[v + S.List_sel], top: m.ram[v + S.List_top], bar: null });
+    } else if (k.cls === S.CL_Field) {
+      const b = rd16(m, v + S.Field_buf);
+      order.push({ kind: 'Field', ...base, buf: Array.from(m.ram.subarray(b + 1, b + 1 + m.ram[b])), cap: m.ram[v + S.Field_cap], caret: m.ram[v + S.Field_caret], first: m.ram[v + S.Field_first] });
+    }
     else return `an unknown view class ${hex(k.cls)} in the Controls window`;
   }
   const tree = new M.TkTree({ x: wv.x, y: wv.y, w: wv.w, h: wv.h, slot: m.ram[dwin + S.Window_slot], title: SM.codesOf(readStrText(m, rd16(m, dwin + S.Window_title))) }, order);

@@ -25,6 +25,14 @@ export const TK_NEEDED = ['CL_Check', 'CL_VScroll', 'CL_Group', 'CL_Window', 'CL
   'TK_SETBAR', 'TK_CODE', 'TK_END', 'TK_EV', 'V_FRAMES', 'T_SEND', 'T_RET', 'E_SCROLL', 'E_CMD', 'M_EVENT', 'M_DRAW', 'P_SHIELD', 'P_UNSHIELD', 'GA', 'G_SETCLIP',
   'D_WIN', 'D_VSTR', 'D_TGT', 'D_LBL', 'S_WIN', 'CL_CWindow', 'W_DIRTY'];
 
+// T2 / T3: item arrays, their strings and Field buffers live in $5800-$5BFF (free RAM under K; reset by buildTree)
+export const BUF0 = 0x5800, BUF_END = 0x5C00;
+export const NEEDED2 = ['CL_List', 'CL_Field', 'List_items', 'List_count', 'List_sel', 'List_top', 'List_bar', 'Field_buf', 'Field_cap', 'Field_caret', 'Field_first', 'TK_SETITEMS', 'TK_SETTEXT', 'TK2_CODE', 'TK2_END'];
+/** Throw "desk5 does not define: ..." when a symbol is missing. */
+export function needSyms(env, names) {
+  const missing = names.filter((n) => env.S[n] === undefined);
+  if (missing.length) throw new Error(`desk5 does not define: ${missing.join(', ')}`);
+}
 export const poke8 = (env, a, v) => { env.m.ram[a] = v & 0xFF; };
 export const poke16 = (env, a, v) => { env.m.ram[a] = v & 0xFF; env.m.ram[a + 1] = (v >> 8) & 0xFF; };
 export const peek8 = (env, a) => env.m.ram[a];
@@ -114,6 +122,24 @@ export function installStub(env) {
 }
 export const STUB_CLASS = STUBCL + 0;
 
+/** A length-prefixed string in the buffer area (env.bufp); returns its address. */
+export function bstr(env, codes) {
+  const a = balloc(env, codes.length + 1);
+  env.m.ram[a] = codes.length; for (let i = 0; i < codes.length; i++) env.m.ram[a + 1 + i] = codes[i];
+  return a;
+}
+export function balloc(env, n) {
+  const a = env.bufp ?? BUF0;
+  if (a + n > BUF_END) throw new Error('buffer area full');
+  env.bufp = a + n;
+  return a;
+}
+/** An array of string pointers for a List (codes[][]); returns its address. */
+export function itemsArray(env, items) {
+  const ptrs = items.map((c) => bstr(env, c)), arr = balloc(env, Math.max(2, 2 * ptrs.length));
+  ptrs.forEach((p, i) => poke16(env, arr + 2 * i, p));
+  return arr;
+}
 export function str(env, codes) {
   const a = env.strp, n = codes.length;
   if (a + n + 1 > STR_END) throw new Error('string area full');
@@ -141,7 +167,8 @@ export const addChild = (env, parent, child) => runCall(env, env.S.K_ADDCHILD, {
  */
 export function buildTree(env, tree) {
   const S = env.S, w = tree.win;
-  env.strp = STR0;
+  env.strp = STR0; env.bufp = BUF0;
+  const fix = [];
   const win = kNew(env, S.CL_Window);
   setRect(env, win, w.x, w.y, w.w, w.h);
   poke16(env, win + S.Window_title, str(env, w.title));
@@ -156,14 +183,29 @@ export function buildTree(env, tree) {
         poke8(env, a + S.VScroll_value, n.value); poke8(env, a + S.VScroll_max, n.max); poke8(env, a + S.VScroll_page, n.page);
         poke16(env, a + S.VScroll_target, n.target || 0); break;
       case 'Group': a = kNew(env, S.CL_Group); break;
+      case 'List':
+        a = kNew(env, S.CL_List);
+        poke16(env, a + S.List_items, itemsArray(env, n.items)); poke8(env, a + S.List_count, n.count); poke8(env, a + S.List_sel, n.sel); poke8(env, a + S.List_top, n.top);
+        poke16(env, a + S.List_bar, 0);
+        if (n.bar) fix.push(() => poke16(env, a + S.List_bar, n.bar.addr));
+        break;
+      case 'Field': {
+        a = kNew(env, S.CL_Field);
+        const b = balloc(env, n.cap + 1);
+        env.m.ram[b] = n.buf.length; n.buf.forEach((c, i) => { env.m.ram[b + 1 + i] = c; });
+        poke16(env, a + S.Field_buf, b); poke8(env, a + S.Field_cap, n.cap); poke8(env, a + S.Field_caret, n.caret); poke8(env, a + S.Field_first, n.first);
+        break;
+      }
       default: throw new Error(`buildTree: ${n.kind}`);
     }
     setRect(env, a, n.x, n.y, n.w, n.h); poke8(env, a + S.View_flags, n.flags || 0); poke8(env, a + S.View_id, n.id || 0);
     n.addr = a;
+    if (n.kind === 'VScroll' && n.targetNode) fix.push(() => poke16(env, a + S.VScroll_target, n.targetNode.addr));
     for (const k of n.kids || []) addChild(env, a, mk(k));
     return a;
   };
   for (const k of w.kids) addChild(env, win, mk(k));
+  for (const f of fix) f();
   const r = runCall(env, S.W_OPEN, { ix: win }, { ints: false });
   if (r.carry) throw new Error('W_OPEN refused the test window');
   runCall(env, S.W_UPDATE, {}, { ints: false });

@@ -33,6 +33,8 @@ export const FL = { FOCUS: 1, HIDDEN: 2, DISABLED: 4, CHECKED: 8, RADIO: 0x10, P
 export const KEYC = { TAB: 14, BACKTAB: 15, UP: 11, DOWN: 10, LEFT: 8, RIGHT: 9, ENTER: 13, ESC: 27, SPACE: 32 };
 export const PRESS = { NONE: 0, UP: 1, DOWN: 2 };          // the VScroll `press` byte; 1 = up, 2 = down is a reading (the test finds it out)
 
+/** Looks of node kinds that tk-model2 adds (List, Field): kind -> (g, node, tree) => void.  renderWindow calls them. */
+export const EXT_LOOKS = {};
 export const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
 export const inRect = (n, x, y) => x >= n.x && x < n.x + n.w && y >= n.y && y < n.y + n.h;
 
@@ -231,10 +233,12 @@ export class TkTree {
   setFocus(n) {
     if (n === this.focus) return;
     if (n && !this.canFocus(n)) return;
-    if (this.focus) this.draw(this.focus);
+    if (this.focus) this.focusDraw(this.focus);
     this.focus = n;
-    if (n) this.draw(n);
+    if (n) this.focusDraw(n);
   }
+  /** What M_BLUR / M_FOCUS draw for a node (T2 / T3: tk-model2's TkTree2 overrides it for List, which draws nothing when it has no selected line shown). */
+  focusDraw(n) { this.draw(n); }
   focusNext() {
     const list = this.nodes().filter((n) => this.canFocus(n));
     if (!list.length) return;
@@ -315,7 +319,11 @@ export function renderWindow(tree, g = new Gfx6Model()) {
       case 'Label': labelLook(g, { x: n.x, y: n.y, w: n.w, h: n.h, flags: n.flags, text: { codes: n.codes } }); break;
       case 'VScroll': vsLook(g, n, n.press || 0); break;
       case 'Group': for (const k of n.kids) drawNode(k); break;
-      default: throw new Error(`renderWindow: ${n.kind}`);
+      default: {
+        const f = EXT_LOOKS[n.kind];                           // T2 / T3: tk-model2 registers List and Field
+        if (!f) throw new Error(`renderWindow: ${n.kind}`);
+        f(g, n, tree);
+      }
     }
   };
   for (const k of w.kids) drawNode(k);

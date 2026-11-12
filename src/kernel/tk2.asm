@@ -364,11 +364,14 @@ ls_bar:
     pop ix
     ret
 
-; list_event (10.3).  The type and the key are read through DE.
+; list_event (10.3).  The event is read through DE (the type, data 1, and a pointer event's y).
 list_event:
     ex de,hl
     ld a,(hl)
     inc hl
+    inc hl
+    ld e,(hl)                   ; E = data 2 (a pointer event's y)
+    dec hl
     ld h,(hl)                   ; H = data 1
     cp E_SCROLL
     jr z,.scroll
@@ -437,8 +440,7 @@ list_event:
     call W_DRAWVIEW
     jr .cons
 .down:
-    call ls_geom
-    call w_point                ; E = py
+    call ls_geom                ; E = py, read through DE (10.1)
     ld a,(TK_LP)
     ld b,a
     ld a,(TK_LY0)

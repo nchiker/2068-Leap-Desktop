@@ -6,6 +6,8 @@
 // Rows: measured, bound, pass / MISSED / reported.  Exit code 1 on a missed bound.
 import * as T from './tk-lib.mjs';
 import * as M from './tk-model.mjs';
+import * as M2 from './tk-model2.mjs';
+import * as X from './tk-lib2.mjs';
 
 const { L, hex, rd16 } = T;
 const { argNum } = L;
@@ -224,6 +226,170 @@ const textWidthCodes = (n) => { for (let k = 0; k < 4000; k++) { const c = []; f
   console.log(`  (the deepest VScroll M_EVENT: ${worstBar.v} bytes for ${worstBar.what})`);
 }
 
+// ---- T2 / T3 (TOOLKIT 10.6): List and Field --------------------------------------------------------------------------------------------------------------------------------------
+T.needSyms(env, T.NEEDED2);
+{
+  // bytes: TK2_END - TK2_CODE plus the two descriptors (18 each); the top-level labels split into List, Field and shared code (names read from the symbol file: ls_ / list_ / TK_SETITEMS, fd_ / field_ / TK_SETTEXT, tk_)
+  const total = S.TK2_END - S.TK2_CODE, descr = 2 * 18;
+  const tops = Object.entries(S).filter(([n, a]) => a >= S.TK2_CODE && a < S.TK2_END && !n.includes('.') && !/(_END|_CODE)$/.test(n)).sort((a, b) => a[1] - b[1]);
+  const grp = { List: 0, Field: 0, shared: 0 };
+  tops.forEach(([n, a], i) => { const sz = (i + 1 < tops.length ? tops[i + 1][1] : S.TK2_END) - a; if (/^(ls_|list_|TK_SETITEMS)/.test(n)) grp.List += sz; else if (/^(fd_|field_|TK_SETTEXT)/.test(n)) grp.Field += sz; else grp.shared += sz; });
+  row('T2 / T3 bytes in the pool: TK2_END - TK2_CODE (List, Field, TK_SETITEMS, TK_SETTEXT and the shared code), report', total, null, `TK2_CODE ${hex(S.TK2_CODE)}, TK2_END ${hex(S.TK2_END)}; List ${grp.List}, Field ${grp.Field}, shared ${grp.shared} (by label prefix)`);
+  row('T2 / T3 bytes: tk2.asm plus the two class descriptors (18 each) against 1,382 (the toolkit\'s 2,600 less T1\'s 1,218)', total + descr, 1382, `${total} + ${descr}; step 5's pool growth stays <= 3,400 (BANKING 6.1)`);
+}
+const listTree = (cell, withBar, sel = 3, top = 0) => {
+  const rect = cell ? [30, 23, 132, 130] : [24, 24, 128, 146];
+  const list = { kind: 'List', id: 150, x: rect[0], y: rect[1], w: rect[2], h: rect[3], flags: 1 | (cell ? 16 : 0), items: X.STD_ITEMS.map((c) => c.slice()), count: 24, sel, top, bar: null };
+  const kids = [list];
+  if (withBar) { const bar = { kind: 'VScroll', id: 152, x: list.x + list.w, y: list.y, w: 12, h: list.h, value: 0, max: 0, page: 0, target: 0, press: 0, targetNode: list }; list.bar = bar; M.setBar(bar, top, M2.listMaxTop(list), M2.listN(list)); kids.push(bar); }
+  return new M2.TkTree2(WIN, kids);
+};
+{
+  const meas = (addr) => { const ts = []; for (let i = 0; i < 3; i++) ts.push(T.runCall(env, S.W_DRAWVIEW, { ix: addr }, { ints: false }).t); return ts; };
+  // W_DRAWVIEW of a List: 128 x 146 proportional (16 lines), 132 x 130 cell lines at x = 8 a + 6, y = 8 b + 7 (16 lines of 16 cells); item 3 selected, focused (report)
+  for (const cell of [false, true]) {
+    const tree = listTree(cell, false), list = tree.nodes()[0];
+    T.buildTree(env, tree);
+    const n = M2.listN(list);
+    T.runCall(env, S.K_SETFOCUS, { de: 0 }, { ints: false }); T.runCall(env, S.K_SETFOCUS, { de: list.addr }, { ints: false });
+    const ts = meas(list.addr);
+    const g = new M.Gfx6Model(); g.setClip(list.x, list.y, list.w, list.h); M2.listLook(g, list, true);
+    const d = T.diffRect(env, g, list.x, list.y, list.w, list.h);
+    row(`W_DRAWVIEW of a ${cell ? `cell-lines List ${list.w} x ${list.h} at (${list.x}, ${list.y}) (x = 8a + 6, y = 8b + 7)` : `List ${list.w} x ${list.h}, proportional`}, ${n} lines of the standard items, item 3 selected, focused (${list.w * list.h} pixels)`, ts[0], null, `T-states, report; repeated ${ts.join(', ')}; ${n} lines${n === 16 ? '' : ' (CONTRACT: 16 expected)'}; screen ${d === null ? 'equals the model' : 'DIFFERS: ' + d}`);
+    if (d !== null || n !== 16) { missed++; console.log('FAIL | the List drawn differs from the model, or does not show 16 lines'); }
+    T.clearTree(env, tree);
+  }
+  // W_DRAWVIEW of a Field 160 x 12 showing 30 codes, focused (report)
+  {
+    const f = { kind: 'Field', id: 154, x: 40, y: 40, w: 160, h: 12, flags: 1, buf: T.codesOf('abcdefghijklmnopqrstuvwxyzabcd'), cap: 40, caret: 30, first: 0 };
+    M2.fieldAdjust(f);
+    const tree = new M2.TkTree2(WIN, [f]); T.buildTree(env, tree);
+    T.runCall(env, S.K_SETFOCUS, { de: 0 }, { ints: false }); T.runCall(env, S.K_SETFOCUS, { de: f.addr }, { ints: false });
+    const ts = meas(f.addr);
+    const g = new M.Gfx6Model(); g.setClip(f.x, f.y, f.w, f.h); M2.fieldLook(g, f, true);
+    const d = T.diffRect(env, g, f.x, f.y, f.w, f.h);
+    row(`W_DRAWVIEW of a Field 160 x 12 holding 30 codes (first ${f.first}: the codes that fit are drawn), focused (${f.w * f.h} pixels)`, ts[0], null, `T-states, report; repeated ${ts.join(', ')}; screen ${d === null ? 'equals the model' : 'DIFFERS: ' + d}`);
+    if (d !== null) { missed++; console.log('FAIL | the Field drawn differs from the model'); }
+    T.clearTree(env, tree);
+  }
+  // the key rows: K_DISPATCH of an E_KEY to the return, interrupts on, the worst of three runs
+  const runKey = (code) => { T.drainEvents(env); T.setEv(env, [M.E.KEY, code, 0, 0]); return T.runCall(env, S.K_DISPATCH, {}, {}); };
+  for (const cell of [false, true]) {
+    for (const [what, sel0, wantSel, wantTop] of [['List scrolled by one line: DOWN with sel the last line shown (top 0, sel 15), includes the full draw and the bar\'s', 15, 16, 1], ['a selection moved by DOWN within the lines shown (sel 3 -> 4)', 3, 4, 0]]) {
+      const tree = listTree(cell, true, sel0, 0), list = tree.nodes()[0], bar = list.bar;
+      T.buildTree(env, tree);
+      T.runCall(env, S.K_SETFOCUS, { de: 0 }, { ints: false }); T.runCall(env, S.K_SETFOCUS, { de: list.addr }, { ints: false });
+      const ts = [];
+      let ok = true, last = null;
+      for (let i = 0; i < 3; i++) {
+        T.poke8(env, list.addr + S.List_sel, sel0); T.poke8(env, list.addr + S.List_top, 0);
+        T.poke8(env, bar.addr + S.VScroll_value, 0); T.poke8(env, bar.addr + S.VScroll_max, 8); T.poke8(env, bar.addr + S.VScroll_page, 16);
+        const r = runKey(M2.KEY.DOWN); last = r; ts.push(r.t);
+        ok = ok && m.ram[list.addr + S.List_sel] === wantSel && m.ram[list.addr + S.List_top] === wantTop;
+        if (r.di) { missed++; console.log('FAIL | a DI in the key run'); }
+      }
+      const bound = null;
+      row(`${what}, ${cell ? 'cell lines (bar 12 x 130)' : 'proportional (bar 12 x 146)'}: K_DISPATCH of E_KEY DOWN`, Math.max(...ts), bound, `T-states, worst of three, report (the one-line scroll's bound becomes this figure, rounded up to 100 T, once the owner has seen it); runs ${ts.join(', ')}; ${last.draws.length} W_DRAWVIEW(s); state after: ${ok ? `sel ${wantSel} top ${wantTop} as expected` : 'NOT as expected: sel ' + m.ram[list.addr + S.List_sel] + ' top ' + m.ram[list.addr + S.List_top]}`);
+      if (!ok) { missed++; console.log('FAIL | the List state after DOWN is not what 10.3 says'); }
+      T.clearTree(env, tree);
+    }
+  }
+  // a typed code: a Field 160 x 12, cap 40, 30 codes set by TK_SETTEXT, focused; K_DISPATCH of E_KEY 'x' to the return (<= 58,000)
+  {
+    const f = { kind: 'Field', id: 154, x: 40, y: 40, w: 160, h: 12, flags: 1, buf: [], cap: 40, caret: 0, first: 0 };
+    const tree = new M2.TkTree2(WIN, [f]); T.buildTree(env, tree);
+    T.runCall(env, S.K_SETFOCUS, { de: 0 }, { ints: false }); T.runCall(env, S.K_SETFOCUS, { de: f.addr }, { ints: false });
+    const ts = []; let ok = true, draws = 0;
+    for (let i = 0; i < 3; i++) {
+      const src = T.str(env, T.codesOf('abcdefghijklmnopqrstuvwxyzabcd'));
+      T.runCall(env, S.TK_SETTEXT, { ix: f.addr, hl: src }, {});
+      const r = runKey(120); ts.push(r.t); draws = r.draws.length;
+      ok = ok && m.ram[T.rd16(m, f.addr + S.Field_buf)] === 31 && m.ram[f.addr + S.Field_caret] === 31;
+      env.strp = T.STR0 + 40;
+    }
+    row('a typed code: Field 160 x 12, cap 40, 30 codes by TK_SETTEXT, focused; K_DISPATCH of E_KEY \'x\' to the return (inserted at the end, first adjusted, redrawn)', Math.max(...ts), 58000, `T-states, worst of three (one frame: typing must keep up with auto-repeat); runs ${ts.join(', ')}; ${draws} W_DRAWVIEW(s); ${ok ? 'the text is 31 codes, caret 31' : 'STATE NOT AS EXPECTED'}`);
+    if (!ok) { missed++; console.log('FAIL | the typed code did not land'); }
+    T.clearTree(env, tree);
+  }
+}
+// ---- E_MOVE, no capture, over a window holding one of each control including a List and a Field (<= 3,900) ------------------------------------------------------------------------
+{
+  const STUBEV = 0x5E40;
+  const wr = (b) => b.forEach((v, i) => { m.ram[STUBEV + i] = v; });
+  wr([0xCD, S.K_GETEV & 255, S.K_GETEV >> 8, 0xD8, 0xCD, S.K_DISPATCH & 255, S.K_DISPATCH >> 8, 0xC9]);
+  const mk = (kind, id) => {
+    switch (kind) {
+      case 'Label': return { kind, id, x: 40, y: 30, w: 80, h: 12, flags: 0, codes: T.codesOf('Label') };
+      case 'Check': return { kind, id, x: 40, y: 50, w: 72, h: 9, flags: 1, codes: T.codesOf('Sound') };
+      case 'Field': return { kind, id, x: 40, y: 70, w: 160, h: 12, flags: 1, buf: T.codesOf('abc'), cap: 40, caret: 3, first: 0 };
+      case 'List': return { kind, id, x: 40, y: 90, w: 128, h: 60, flags: 1, items: X.STD_ITEMS.map((c) => c.slice()), count: 24, sel: FF0, top: 0, bar: null };
+      default: return { kind: 'VScroll', id, x: 300, y: 30, w: 12, h: 80, value: 10, max: 20, page: 5, target: 0 };
+    }
+  };
+  const FF0 = 0xFF;
+  const kinds = ['Label', 'Check', 'Field', 'List', 'VScroll'], clsOf = { Label: S.CL_Label, Check: S.CL_Check, Field: S.CL_Field, List: S.CL_List, VScroll: S.CL_VScroll };
+  let worst = 0, worstWhere = '';
+  const per = [];
+  for (let last = 0; last < kinds.length; last++) {
+    const order = kinds.filter((_, i) => i !== last).concat([kinds[last]]);
+    const nodes = order.map((k, i) => mk(k, 150 + i));
+    const tree = new M2.TkTree2(WIN, nodes);
+    T.buildTree(env, tree);
+    const tgt = nodes[nodes.length - 1], stopPc = methodOf(clsOf[tgt.kind], S.M_EVENT);
+    T.runCall(env, S.K_SETFOCUS, { de: 0 }, { ints: false });
+    for (const how of ['ring', 'posted']) {
+      T.drainEvents(env); T.poke16(env, S.K_CAPTURE, 0);
+      const rec = T.ptRec(M.E.MOVE, tgt.x + 3, tgt.y + 3, 0);
+      if (how === 'ring') T.ringPut(env, rec); else T.runCall(env, S.K_POST, { a: rec[0], c: rec[1], e: rec[2], d: rec[3] }, { ints: false });
+      const r = T.runCall(env, STUBEV, {}, { stopPc, ints: false });
+      T.drainEvents(env);
+      per.push(`${tgt.kind} last (${how}) ${r.t}${r.stopped ? '' : ' NOT STOPPED'}`);
+      if (!r.stopped) { missed++; console.log(`FAIL | E_MOVE over the ${tgt.kind} did not reach its M_EVENT ${hex(stopPc)}`); }
+      if (r.t > worst) { worst = r.t; worstWhere = `${tgt.kind} last in the list (${how})`; }
+    }
+    T.clearTree(env, tree);
+  }
+  row('E_MOVE, no capture: K_GETEV + K_DISPATCH to the hit control\'s M_EVENT, a window with a Label, a Check, a Field, a List and a VScroll (worst of the five orders)', worst, 3900, `worst: ${worstWhere}; all: ${per.join('; ')}`);
+}
+// ---- the stack: List's and Field's M_EVENT and M_DRAW (<= 64 bytes each) -------------------------------------------------------------------------------------------------------------
+{
+  const sendOf = (addr, msg, de) => T.runCall(env, S.T_SEND, { ix: addr, a: msg, de }, { ints: false });
+  const worstOf = {};
+  const upd = (k, r) => { const v = r.stack - 2; if (!worstOf[k] || v > worstOf[k].v) worstOf[k] = { v, t: r.t }; };   // T_SEND's own RST return is not the callee's
+  const ev = (rec) => { T.setEv(env, rec); return S.K_EV; };
+  for (const cell of [false, true]) {
+    const tree = listTree(cell, true, 3, 0), list = tree.nodes()[0], bar = list.bar;
+    T.buildTree(env, tree);
+    T.runCall(env, S.K_SETFOCUS, { de: 0 }, { ints: false }); T.runCall(env, S.K_SETFOCUS, { de: list.addr }, { ints: false });
+    const geo = M2.listGeom(list), pt = (k) => [list.x + 20, geo.LY0 + geo.P * k + 2];
+    const tag = cell ? 'List (cell lines)' : 'List';
+    for (const [name, rec, pre] of [
+      ['M_EVENT DOWN (within the lines)', [M.E.KEY, 10, 0, 0]], ['M_EVENT UP', [M.E.KEY, 11, 0, 0]], ['M_EVENT ENTER (E_CMD posted)', [M.E.KEY, 13, 0, 0]], ['M_EVENT other key', [M.E.KEY, 97, 0, 0]],
+      ['M_EVENT E_DOWN on a line', T.ptRec(M.E.DOWN, ...pt(5), 1)], ['M_EVENT E_DOWN, second click (E_CMD posted)', T.ptRec(M.E.DOWN, ...pt(5), 1)], ['M_EVENT E_UP', T.ptRec(M.E.UP, ...pt(5), 0)], ['M_EVENT E_MOVE', T.ptRec(M.E.MOVE, ...pt(5), 1)],
+      ['M_EVENT E_SCROLL (full draw)', [M.E.SCROLL, 5, 152, 0]],
+    ]) { T.drainEvents(env); upd(`${tag} ${name}`, sendOf(list.addr, S.M_EVENT, ev(rec))); }
+    // DOWN past the bottom: full draw and the bar set
+    T.poke8(env, list.addr + S.List_sel, 15); T.poke8(env, list.addr + S.List_top, 0); T.drainEvents(env);
+    upd(`${tag} M_EVENT DOWN past the bottom (full draw, TK_SETBAR)`, sendOf(list.addr, S.M_EVENT, ev([M.E.KEY, 10, 0, 0])));
+    upd(`${tag} M_DRAW`, sendOf(list.addr, S.M_DRAW, 0));
+    upd(`${tag} M_FOCUS`, sendOf(list.addr, S.M_FOCUS, 0)); upd(`${tag} M_BLUR`, sendOf(list.addr, S.M_BLUR, 0));
+    { const src = S.CL_List; const items = T.itemsArray(env, X.STD_ITEMS); const r = T.runCall(env, S.TK_SETITEMS, { ix: list.addr, hl: items, a: 24 }, { ints: false }); upd(`${tag} TK_SETITEMS (a routine, not a method)`, { stack: r.stack + 2, t: r.t }); }
+    T.drainEvents(env); T.clearTree(env, tree);
+  }
+  {
+    const f = { kind: 'Field', id: 154, x: 40, y: 40, w: 160, h: 12, flags: 1, buf: T.codesOf('abcdefghijklmnopqrstuvwxyzabcd'), cap: 40, caret: 30, first: 0 };
+    M2.fieldAdjust(f);
+    const tree = new M2.TkTree2(WIN, [f]); T.buildTree(env, tree);
+    T.runCall(env, S.K_SETFOCUS, { de: 0 }, { ints: false }); T.runCall(env, S.K_SETFOCUS, { de: f.addr }, { ints: false });
+    for (const [name, rec] of [['M_EVENT code (insert, first adjusted, redraw)', [M.E.KEY, 120, 0, 0]], ['M_EVENT DELETE', [M.E.KEY, 12, 0, 0]], ['M_EVENT LEFT', [M.E.KEY, 8, 0, 0]], ['M_EVENT RIGHT', [M.E.KEY, 9, 0, 0]], ['M_EVENT ENTER (E_CMD posted)', [M.E.KEY, 13, 0, 0]],
+      ['M_EVENT other key', [M.E.KEY, 14, 0, 0]], ['M_EVENT E_DOWN (click-to-caret)', T.ptRec(M.E.DOWN, 100, 45, 1)], ['M_EVENT E_UP', T.ptRec(M.E.UP, 100, 45, 0)], ['M_EVENT E_MOVE', T.ptRec(M.E.MOVE, 100, 45, 1)]]) { T.drainEvents(env); upd(`Field ${name}`, sendOf(f.addr, S.M_EVENT, ev(rec))); }
+    upd('Field M_DRAW', sendOf(f.addr, S.M_DRAW, 0)); upd('Field M_FOCUS', sendOf(f.addr, S.M_FOCUS, 0)); upd('Field M_BLUR', sendOf(f.addr, S.M_BLUR, 0));
+    { const src = T.str(env, T.codesOf('abcdefghijklmnopqrstuvwxyzabcdefghij')); const r = T.runCall(env, S.TK_SETTEXT, { ix: f.addr, hl: src }, { ints: false }); upd('Field TK_SETTEXT (a routine, not a method)', { stack: r.stack + 2, t: r.t }); }
+    T.drainEvents(env); T.clearTree(env, tree);
+  }
+  for (const [k, v] of Object.entries(worstOf)) row(`stack: ${k}`, v.v, /M_FOCUS|M_BLUR|TK_SETITEMS|TK_SETTEXT/.test(k) ? null : 64, `bytes below the callee's return address (T_SEND's own 2 not counted); ${fmt(v.t)} T${/TK_SETITEMS|TK_SETTEXT/.test(k) ? '; reported (a routine called direct)' : ''}`);
+}
+
 // ---- interrupts lost (V_FRAMES over every normally run frame) and DI -----------------------------------------------------------------------------------------------------------
 {
   // since SHELL.md 9-10 the demo is program 2 of the shell: bootDesk5 launches it by a double click on its icon.  Its window is at (176, 32) (SHELL 5), 176 left and 16 lower than TOOLKIT 9.4's.
@@ -234,6 +400,14 @@ const textWidthCodes = (n) => { for (let k = 0; k < 4000; k++) { const c = []; f
   const ok = rd16(m2, S2.D_WIN) !== 0 && L.progUp(e2, 2);
   for (const [x, y] of [[204, 52], [204, 64], [204, 80], [204, 92], [204, 104], [204, 52]]) L.click(e2, x, y, 3, 5);
   for (const code of [32, 14, 32, 15, 32]) L.typeCode(e2, code, 3, 3);
+  // T2 / T3: the List and the Field in the same run (TAB to them, DOWN past the lines shown, ENTER, clicks, typing, DELETE)
+  for (let i = 0; i < 6; i++) L.typeCode(e2, 14, 3, 3);
+  for (let i = 0; i < 12; i++) L.typeCode(e2, 10, 3, 3);
+  L.typeCode(e2, 13, 3, 3); L.click(e2, 340, 70, 3, 6); L.click(e2, 340, 70, 3, 6);
+  for (let i = 0; i < 3; i++) L.typeCode(e2, 14, 3, 3);
+  for (const c of 'abc!@') L.typeCode(e2, c.charCodeAt(0), 3, 3);
+  L.typeCode(e2, 12, 3, 3); L.typeCode(e2, 13, 3, 3);
+  L.click(e2, 460, 60, 3, 6);
   L.moveTo(e2, 305, 52); e2.frames_(2); m2.mouse.buttons = L.MOUSE_LEFT; e2.frames_(60); m2.mouse.buttons = L.MOUSE_UP; e2.frames_(8);
   L.moveTo(e2, 305, 124); e2.frames_(2); m2.mouse.buttons = L.MOUSE_LEFT; e2.frames_(40); m2.mouse.buttons = L.MOUSE_UP; e2.frames_(8);
   L.moveTo(e2, 305, 76); e2.frames_(2); m2.mouse.buttons = L.MOUSE_LEFT; e2.frames_(2); L.moveTo(e2, 305, 106); L.moveTo(e2, 305, 56); m2.mouse.buttons = L.MOUSE_UP; e2.frames_(8);
@@ -268,6 +442,8 @@ const textWidthCodes = (n) => { for (let k = 0; k < 4000; k++) { const c = []; f
   let n = 0, ops = 0; const at = [];
   for (let a = S.TK_CODE; a < S.TK_END; a += len(a)) { ops++; if (rb(a) === 0xF3) { n++; at.push(hex(a)); } }
   row('DI opcodes in TK_CODE..TK_END (linear sweep, instruction starts; the stepped tests of tk-t1.mjs also watch IFF1 after every instruction)', n, 0, `${ops} instructions swept${n ? '; DI at ' + at.join(', ') : ''}`);
+  { let n2 = 0, ops2 = 0; const at2 = []; for (let a = S.TK2_CODE; a < S.TK2_END; a += len(a)) { ops2++; if (rb(a) === 0xF3) { n2++; at2.push(hex(a)); } }
+    row('DI opcodes in TK2_CODE..TK2_END (List and Field; linear sweep, instruction starts; the stepped tests of tk-t2 / tk-t3 also watch IFF1 after every instruction)', n2, 0, `${ops2} instructions swept${n2 ? '; DI at ' + at2.join(', ') : ''}`); }
 }
 
 console.log('\n| Measure | Measured | Bound | Result |\n|---|---|---|---|');
