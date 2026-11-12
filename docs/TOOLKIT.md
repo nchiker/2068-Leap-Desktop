@@ -251,3 +251,8 @@ is 50,696 T per 1,000 pixels. That is 1.80 x `Button`'s, against the 1.5 x bound
 - So a per-area ratio judges small views unfairly. The bar 12 x 146 passes (1.31 x).
 - **Proposed:** absolute bounds at the measured figures (`Check` 72 x 9, checked and focused: 31,185 T; the bar 12 x 80:
   47,574 T), in place of the ratio.
+
+**Owner's decision (2026-11-12):** the proposal is taken.
+- The 1.5 x ratio is replaced by **absolute bounds at the measured figures:** `W_DRAWVIEW` of a `Check` 72 x 9, checked and
+  focused, <= 31,200 T; of the bar 12 x 80 (max 20, page 5, value 10) <= 47,600 T.
+- The owner tried the controls again after the fixes: "I saw nothing wrong with my interaction of the controls."
