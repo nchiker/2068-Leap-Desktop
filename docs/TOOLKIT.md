@@ -256,3 +256,16 @@ is 50,696 T per 1,000 pixels. That is 1.80 x `Button`'s, against the 1.5 x bound
 - The 1.5 x ratio is replaced by **absolute bounds at the measured figures:** `W_DRAWVIEW` of a `Check` 72 x 9, checked and
   focused, <= 31,200 T; of the bar 12 x 80 (max 20, page 5, value 10) <= 47,600 T.
 - The owner tried the controls again after the fixes: "I saw nothing wrong with my interaction of the controls."
+
+### 9.8 Owner decisions for T2 and T3 (2026-11-12)
+
+- **The shell comes first,** then T2 and T3.
+- **`List` redraws in full** to scroll (option (a)). The 40,000 T one-line scroll bound of section 7 cannot be met.
+  - Shifting a 128 x 144 box with `G_SCROLLV` costs about 57 k T alone (**EST**).
+  - So T2's interface will replace that bound with the measured figure (**EST** about 150 k T for 16 proportional lines).
+- **The owner's idea, for T2's interface: lists drawn like Arcade's tiles.**
+  - gfx6's `G_TEXT8` is Arcade's glyph-plane technique: fixed-width 8 x 8 cells, 64 columns, 232 T a character.
+  - A `List` flag ("cell lines", as `Label`'s flags bit 3) would draw its lines with it on the 8 x 8 grid: 16 lines of 16
+    characters in about 60 k T (**EST**), against about 150 k proportional.
+  - Its one-line scroll is then a whole character row (byte-aligned).
+  - It suits the tape catalogue: tape names are fixed width.
