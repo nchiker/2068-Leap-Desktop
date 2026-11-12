@@ -44,9 +44,6 @@ K_NEWK      EQU $F0A5           ; a non-modifier key went down this frame
 K_MODS      EQU $F0A6           ; bit 0 CS, bit 1 SS (this frame)
 K_PLANE     EQU $F0A7           ; 0, 40 or 80
 K_OLDM      EQU $F0A8           ; CS / SS (bits 0, 1) last time
-K_TMPK      EQU $F0AA           ; the key being decoded, its half-row and bit
-K_TROW      EQU $F0AB
-K_TMASK     EQU $F0AC
 K_DIRS      EQU $F0AD           ; this frame's u d l r f (bits 0-4)
 K_KPD       EQU $F0AE           ; keyboard-pointer mode's u d l r f this frame (0 outside the mode)
 K_MBT       EQU $F0AF           ; the mouse this frame: bit 4 the left button, bit 5 moved (K_KPD + 1: one load reads both)
@@ -156,34 +153,26 @@ K_POST:
 K_WARP:
     xor a
     ld (K_WREQ),a               ; the ISR ignores K_WX / K_WY while they change
-    bit 7,h
-    jr z,.xpos
-    ld hl,0
-    jr .xok
-.xpos:
-    ld a,h
-    cp 2
-    jr c,.xok
-    ld hl,511
-.xok:
+    push de
+    push de
+    ld de,511
+    call k_clamp
     ld (K_WX),hl
-    bit 7,d
-    jr z,.ypos
-    xor a
-    jr .yok
-.ypos:
-    ld a,d
-    or a
-    ld a,191
-    jr nz,.yok
-    ld a,e
-    cp 192
-    jr c,.yok
-    ld a,191
-.yok:
+    pop hl
+    ld de,191
+    call k_clamp
+    ld a,l
     ld (K_WY),a
     ld a,1
     ld (K_WREQ),a
+    pop de
+    ret
+
+; k_clamp: HL = a signed word -> HL = it clamped to 0 .. DE.  Clobbers AF, DE.
+k_clamp:
+    bit 7,h
+    jp z,w_min
+    ld hl,0
     ret
 
 ; ---------------------------------------------------------------------------------------------------------------------------
@@ -485,35 +474,29 @@ k_keys:
     ld a,(K_CHG)
     or a
     jp z,.repeat                ; nothing changed: only the repeat runs
-    ld hl,K_NOW                 ; K_KANY from the stored half-rows (not the all-rows read: a key may change between reads)
-    xor a
+    ld hl,K_NOW                 ; K_KANY from the stored half-rows (not the all-rows read: a key may change between reads):
+    xor a                       ; their sum (at most 8 x 31)
     ld b,8
 .any:
-    or (hl)
+    add a,(hl)
     inc l
     djnz .any
     ld (K_KANY),a
-    ld a,(K_NOW)                ; the toggle: only CS and SS down, one of them new
-    cp 1
+    cp 3                        ; the toggle: only CS and SS down (the sum is 1 + 2), one of them new
+    jr nz,.notog
+    ld a,(K_NOW)
+    dec a
     jr nz,.notog
     ld a,(K_NOW+7)
     cp 2
     jr nz,.notog
-    ld hl,K_NOW+1
-    xor a
-    ld b,6
-.others:
-    or (hl)
-    inc l
-    djnz .others
-    or a
-    jr nz,.notog
     ld a,(K_OLDM)
     cp 3
     jr z,.notog
-    ld a,(K_KPMODE)
+    ld hl,K_KPMODE
+    ld a,(hl)
     xor 1
-    ld (K_KPMODE),a
+    ld (hl),a
     ld c,a
     ld b,E_MODE
     ld de,0
@@ -521,32 +504,25 @@ k_keys:
     xor a
     ld (K_RKEY),a               ; the repeat is cancelled
 .notog:
-    xor a                       ; keyboard-pointer mode's keys
+    xor a                       ; keyboard-pointer mode's keys, shifted into B: f r l d u
     ld b,a
     ld a,(K_KPMODE)
     or a
     jr z,.kpd
-    ld a,(K_NOW+2)              ; Q
-    rra
-    rl b                        ; b0 = Q (later u)
-    ld a,(K_NOW+1)              ; A
-    rra
-    jr nc,.k1
-    set 1,b
-.k1:
-    ld a,(K_NOW+5)              ; P (bit 0) r, O (bit 1) l
-    rra
-    jr nc,.k2
-    set 3,b
-.k2:
-    rra
-    jr nc,.k3
-    set 2,b
-.k3:
     ld a,(K_NOW+7)              ; SPACE
     rra
-    jr nc,.kpd
-    set 4,b
+    rl b
+    ld a,(K_NOW+5)              ; P (bit 0) r, O (bit 1) l
+    rra
+    rl b
+    rra
+    rl b
+    ld a,(K_NOW+1)              ; A
+    rra
+    rl b
+    ld a,(K_NOW+2)              ; Q
+    rra
+    rl b
 .kpd:
     ld a,b
     ld (K_KPD),a
@@ -570,11 +546,11 @@ k_keys:
     dec (hl)
     ret nz
     ld (hl),4
-    ld a,(K_RCODE)
-    ld c,a
-    ld a,(K_RMODS)
-    or $80
-    ld e,a
+    dec l
+    ld e,(hl)                   ; K_RMODS
+    dec l
+    ld c,(hl)                   ; K_RCODE
+    set 7,e
     ld d,0
     ld b,E_KEY
     jp k_enq
@@ -616,14 +592,13 @@ k_prep:
     ld (K_OLDM),a
     ld a,$7F
     in a,($FE)
-    cpl
     and 2
     ld e,a
     ld a,$FE
     in a,($FE)
-    cpl
     and 1
     or e
+    xor 3                       ; the keys read 0 when down
     ld (K_MODS),a
     ld c,80
     bit 1,a
@@ -681,26 +656,22 @@ k_press:
     ld a,(K_KPMODE)
     or a
     ret nz                      ; keyboard-pointer mode: no keys
-    ld a,e
-    ld (K_TMPK),a
-    ld a,l
-    ld (K_TROW),a
-    ld a,d
-    ld (K_TMASK),a
-    ld a,(K_PLANE)
+    ld a,(K_PLANE)              ; KEYMAP[plane + k], through BC: D, E and L are kept
     add a,e
-    ld e,a
-    ld d,0
-    ld hl,KEYMAP
-    add hl,de
-    ld a,(hl)
+    add a,KEYMAP & $FF
+    ld c,a
+    ld a,KEYMAP >> 8
+    adc a,0
+    ld b,a
+    ld a,(bc)
     or a
     ret z                       ; no code
     cp 1
     jr nz,.code
-    ld a,(K_CAPS)               ; caps lock
+    ld hl,K_CAPS                ; caps lock
+    ld a,(hl)
     xor 1
-    ld (K_CAPS),a
+    ld (hl),a
     xor a
     ld (K_RKEY),a
     ret
@@ -717,31 +688,33 @@ k_press:
     jr c,.case
     cp 'z' + 1
     jr nc,.case
-    sub 32
-    ld c,a
+    res 5,c
 .case:
     ld a,(K_CAPS)
     add a,a
     add a,a
-    ld e,a
+    ld b,a
     ld a,(K_MODS)
-    or e
-    ld e,a                      ; E = data 2
-    ld (K_RMODS),a
-    ld a,30
-    ld (K_RCNT),a
-    ld hl,(K_TMPK)              ; L = k, H = its half-row (K_TROW follows K_TMPK)
-    ld a,l
-    ld (K_RKEY),a
-    ld a,c
-    ld (K_RCODE),a
-    ld a,h
-    ld (K_RROW),a
-    ld a,(K_TMASK)
-    ld (K_RMASK),a
+    or b
+    ld b,a                      ; B = data 2
+    ld a,l                      ; its half-row
+    ld hl,K_RKEY                ; the repeat: the key, its code, the modifiers, the count, the half-row, the bit
+    ld (hl),e
+    inc l
+    ld (hl),c
+    inc l
+    ld (hl),b
+    inc l
+    ld (hl),30
+    inc l
+    ld (hl),a
+    inc l
+    ld (hl),d
+    ld e,b
     ld d,0
     ld b,E_KEY
     jp k_enq
+    ASSERT K_RCODE == K_RKEY + 1 && K_RMODS == K_RKEY + 2 && K_RCNT == K_RKEY + 3 && K_RROW == K_RKEY + 4 && K_RMASK == K_RKEY + 5
 
 ; K_STEP[hold] = min(1 + floor(hold / 6), 6), hold = 0..30 (spike6 17.5)
 K_STEP:

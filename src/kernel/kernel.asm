@@ -17,7 +17,7 @@ K_CURA      EQU $F070           ; word: the current arena's record
 K_FOCUS     EQU $F072           ; word: the focused view (0 = none)
 K_CAPTURE   EQU $F074           ; word: the view that has the pointer (0 = none)
 K_ROOT      EQU $F076           ; word: the root view (0 = none)
-K_SCRATCH   EQU $F078           ; 8 bytes of kernel scratch
+K_SCRATCH   EQU $F078           ; 8 bytes: the focus walk's state (focus.asm); +4..+7 are 0 between walks
 
     ASSERT (K_KARENA >> 8) == ((K_ROOT + 1) >> 8)
 
@@ -33,6 +33,53 @@ ZEND:
     pop ix                      ; the new instance
     ret                         ; carry clear (K_NEW's XOR A)
     ASSERT (ZCHAIN >> 8) == (ZEND >> 8)
+
+; The window manager's two unrolled chains (wm.asm).  Their entries are reached by the low byte alone, so each lies in one
+; page: here, at fixed places in the kernel's first page.
+; w_runchain: at most n cells from HL equal to A become E; entered at w_runend - 4 n.  Z: all n done, HL is the cell after them
+; (a true 16-bit step on the last).  NZ: stopped at a cell that differs, HL -> it.  A is kept.
+w_runchain:
+    DUP 31
+    cp (hl)
+    ret nz
+    ld (hl),e
+    inc l
+    EDUP
+    cp (hl)
+    ret nz
+    ld (hl),e
+    inc hl
+w_runend:
+    cp a
+    ret
+; w_setchain: SET 7 on n cells from HL (n = 1..16), entered at w_setend - 3 n (W_INVAL): then the row's flag, and the next row or
+; the end.
+w_setchain:
+    DUP 15
+    set 7,(hl)
+    inc l
+    EDUP
+    set 7,(hl)
+    inc hl
+w_setend:
+    ld (de),a
+    inc e
+    add hl,bc
+    dec a
+    jr z,.done
+    jp (ix)
+.done:
+    pop ix
+    ret
+    ASSERT (w_runend & $FF) >= 128 && (w_runend >> 8) == (w_runchain >> 8) && (w_setchain >> 8) == (w_setend >> 8)
+
+; K_ARENA: HL = arena record -> the current arena.  (Here it fills the first page.)
+K_ARENA:
+    ld (K_CURA),hl
+    ret
+    ASSERT $ == K_CODE + 256
+; The kernel's classes start on the page boundary: 9 of 18 bytes fit a page, so no method table needs padding to stay in one.
+    INCLUDE "classes.inc"
 
 ; ---------------------------------------------------------------------------------------------------------------------------
 ; K_NEW: HL = class -> IX = a new instance (class pointer, then zeros), carry clear; carry set (IX unchanged) when the current
@@ -76,52 +123,24 @@ K_NEW:
     xor a
     jp (hl)
 
-.top:                           ; the pool is empty: a fresh block from the arena top (already zero)
+.top:                           ; the pool is empty: a fresh block from the arena top (already zero), by K_ALLOC
     ld a,b
     cp 33
     jr nc,.exact
     add a,7
     and $F8                     ; the pool's block size
 .exact:
-    ld c,a                      ; C = block size
-    ld hl,(K_CURA)
-    ld e,(hl)
-    inc l
-    ld d,(hl)                   ; DE = top = the block
-    inc l
-    ld a,(hl)
-    sub e
-    inc l
-    ld l,(hl)
-    ld h,a                      ; H = low byte of end - top
-    ld a,l
-    sbc a,d                     ; A = high byte of end - top
-    jr nz,.room
-    ld a,h
-    cp c
-    jr c,.full
-.room:
-    ld hl,(K_CURA)
-    ld a,e
-    add a,c
-    ld (hl),a
-    inc l
-    ld a,d
-    adc a,0
-    ld (hl),a                   ; top += block size
-    pop hl                      ; HL = class
-    ex de,hl                    ; HL = block, DE = class
+    ld c,a
+    ld b,0
+    call K_ALLOC                ; HL = the block; carry: full
+    pop de                      ; the class
+    ret c
     ld (hl),e
     inc hl
     ld (hl),d
     dec hl
     push hl
     pop ix
-    or a
-    ret
-.full:
-    pop hl
-    scf
     ret
 
 ; ---------------------------------------------------------------------------------------------------------------------------
@@ -192,11 +211,27 @@ K_ALLOC:
     ret
 
 ; ---------------------------------------------------------------------------------------------------------------------------
-; K_ARENA: HL = arena record -> the current arena.
-K_ARENA:
-    ld (K_CURA),hl
-    ret
-
+; K_ARESET: HL = arena record.  top = base, free lists empty, memory zeroed; K_FOCUS, K_CAPTURE, K_ROOT and K_FSCOPE become 0
+; when they point into the arena.  Then it is K_AINIT with the record's own base and end.  Clobbers AF, BC, DE, HL.
+K_ARESET:
+    push hl
+    inc l
+    inc l
+    inc l
+    ld b,(hl)                   ; B = end, high byte
+    inc l
+    inc l
+    ld c,(hl)                   ; C = base, high byte
+    ld hl,K_FOCUS
+    call k_clrin
+    call k_clrin
+    call k_clrin
+    ld hl,K_FSCOPE              ; docs/WINDOWS.md 14.4
+    call k_clrin
+    pop hl
+    ld d,c
+    ld e,0                      ; DE = base, BC = end (page aligned)
+    ld c,e
 ; K_AINIT: HL = arena record, DE = base, BC = end (both page aligned, base <= end).  An empty arena, its memory zeroed.
 ; Clobbers AF, BC, DE, HL.
 K_AINIT:
@@ -240,51 +275,26 @@ k_zero:
     ldir
     ret
 
-; K_ARESET: HL = arena record.  top = base, free lists empty, memory zeroed; K_FOCUS, K_CAPTURE and K_ROOT become 0 when they
-; point into the arena.  Clobbers AF, BC, DE, HL.
-K_ARESET:
-    ld d,h
-    ld e,l                      ; DE -> record
+; k_clrptr: HL -> a pointer: 0 when it equals DE.  HL += 2.  Clobbers AF.
+k_clrptr:
+    ld a,(hl)
     inc l
+    cp e
+    jr nz,k_clrin.keep
+    ld a,(hl)
+    cp d
+    jr z,k_clrin.zero
     inc l
-    inc l
-    ld b,(hl)                   ; B = end, high byte
-    inc l
-    inc l
-    ld c,(hl)                   ; C = base, high byte
-    ex de,hl
-    xor a
-    ld (hl),a                   ; top = base (low byte 0)
-    inc l
-    ld (hl),c
-    ld a,l
-    add a,5
-    ld l,a                      ; HL -> +6
-    xor a
-    ld e,10
-.heads:
-    ld (hl),a
-    inc l
-    dec e
-    jr nz,.heads
-    ld hl,K_FOCUS
-    call .clr
-    call .clr
-    call .clr
-    ld hl,K_FSCOPE              ; docs/WINDOWS.md 14.4
-    call .clr
-    ld d,c
-    ld e,0
-    ld h,b
-    ld l,e
-    jr k_zero
-.clr:                           ; HL -> a pointer: 0 when its high byte is in [C, B).  HL += 2
+    ret
+; k_clrin: HL -> a pointer: 0 when its high byte is in [C, B).  HL += 2.  Clobbers AF.
+k_clrin:
     inc l
     ld a,(hl)
     cp c
     jr c,.keep
     cp b
     jr nc,.keep
+.zero:
     xor a
     ld (hl),a
     dec l
@@ -413,24 +423,6 @@ view_destroy:
     call k_clrptr
     jp K_FREE
 
-; k_clrptr: HL -> a pointer: 0 when it equals DE.  HL += 2.  Clobbers AF.
-k_clrptr:
-    ld a,(hl)
-    inc l
-    cp e
-    jr nz,.no
-    ld a,(hl)
-    cp d
-    jr nz,.no
-    xor a
-    ld (hl),a
-    dec l
-    ld (hl),a
-    inc l
-.no:
-    inc l
-    ret
-
 ; view_hittest: BC = x, DE = y -> carry set when (x, y) is inside the view's rectangle (unsigned differences).
 view_hittest:
     ld a,c
@@ -463,6 +455,5 @@ view_hittest:
     INCLUDE "kernel/wm.asm"
     INCLUDE "kernel/wm2.asm"
     INCLUDE "keymap.inc"
-    INCLUDE "classes.inc"
 
 K_CODE_END:

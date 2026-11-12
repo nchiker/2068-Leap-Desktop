@@ -284,7 +284,7 @@ and routing is as step 3 after option D.
 
 | Measure | Bound |
 |---|---|
-| **Bytes in the always-mapped pool** added by step 4: the growth of `K_CODE_END - K_CODE` (step 3 at 2,394), with step 4's classes and any tables. **Report** each part, and the pool's free bytes after (9,345 before) | <= 4,096 (**EST** 3,500) |
+| **Bytes in the always-mapped pool** added by step 4: the growth of `K_CODE_END - K_CODE` (step 3 at 2,394), with step 4's classes and any tables, plus `K1_CODE_END - K1_CODE` (18.6). **Report** each part, and the pool's free bytes after (9,345 before) | <= 4,850 (owner, 16.7 / 16.8: the size pass's 4,837, rounded up; was 4,096, **EST** 3,500) |
 | **Window raise:** two empty 256 x 96 windows at the same place; `W_RAISE` of the hidden one + `W_UPDATE` | <= 90,000 (owner decision C, 16.3: the measured 89,500 after B, rounded up; was 80,000, **EST** 65 k) |
 | **Menu open:** 8 items, 96 pixels wide: from `MenuBar`'s `E_DOWN` to the drop-down drawn (the tracking loop's first `K_GETEV`) | <= 139,000 (16.7: the measured 138,090; was 100,000, **EST** 86 k) |
 | **Menu close** with no choice, the same menu | <= 30,000 (**EST** 25 k) |
@@ -1260,3 +1260,64 @@ bytes left: about 600-700 in chunk 1 and 400-1,300 in chunk 5, depending on the 
 - **Then a size pass by a Fable agent** in a worktree: the fewest bytes, every test as the guard, and no speed bound made
   worse. Its result becomes step 4's byte bound. Where the toolkit and apps go (banked chunks) is decided at the start of
   step 5.
+
+### 16.8 The size pass (2026-11-12)
+
+A Fable agent ran the pass in worktree `wm-size` (commit `ef02475`). The main model applied it and re-ran everything.
+
+**Step 4's bytes: 6,308 -> 4,837 (-1,471, -23 %), which becomes the bound (4,850, 16.7). Every test and every speed bound
+passes.**
+
+| Part | Before | After |
+|---|---|---|
+| `menu.asm` (chunk 1) | 1,686 | 1,158 |
+| `wm2.asm` | 1,266 | 831 |
+| `wm.asm` (its two chains now in `kernel.asm`) | 2,974 | 2,619 |
+| Step 3's `kernel.asm` / `events.asm` / `focus.asm` | 561 / 1,241 / 670 | 506 / 1,182 / 639 |
+| Classes | 170 | 162 |
+| **Kernel in all** (`K_CODE` + `K1_CODE`, the key map included) | **8,688** | **7,217** |
+
+- **The pool:** about 4,500 bytes of the always-mapped pool are left for step 5 (9,345 before step 4, less step 4's 4,837,
+  plus step 3's 145 saved).
+- **The test cartridges:** they have 900-1,200 bytes free in chunk 1 and 1,070-2,130 in chunk 5.
+
+**Speed** (`tests/wm-perf.mjs`, `kern-perf`): no bound missed. The figures nearest their bounds:
+
+| Measure | Measured | Bound |
+|---|---|---|
+| Raise | 89,476 | 90,000 |
+| `W_INVAL` 256 x 96 | 4,983 | 5,000 |
+| `K_FOCUSNEXT`, scoped | 10,893 | 11,000 |
+| `E_DOWN` | 5,667 | 5,700 |
+| `K_POLL` idle | 294 | 300 |
+
+`K_POLL`'s worst frame and the whole ISR got faster (4,920 -> 4,712; 11,239 -> 11,055).
+
+Some reported figures got slower: `W_INIT` 20,652 -> 38,656, `MB_SET`, `MB_ENABLE`, `K_WARP` 184 -> 282.
+
+**Amendments that came with it:**
+- **14.4:** `W_INIT` also leaves `GA` undefined (it damages the screen through `W_INVALV`).
+- **17.1 / 18.1:** the internal state moved within the window manager's page `$F400-$F4FF`. W2's scratch is at `$F470-$F478`;
+  the menus' working copy of one menu's entry is at `$F4F0-$F4FC`. Neither is part of the interface.
+- **`K_SCRATCH`:** +4..+7 are 0 between focus walks (boot zeroes them, and the walk leaves them zero).
+- **17.3:** `window_event` now checks the title bar even when `W_RAISE` refused, which is the contract's literal text. The case
+  cannot arise through the desk's modal rule.
+
+**What else could be saved** (estimates; B's report):
+
+| Change | Bytes | Cost |
+|---|---|---|
+| RST `$18`-`$30` for the commonest calls | about 70 | No T; four RST vectors of page 0 |
+| Contract changes: the drag outline as one shielded `G_FRAME`, `W_DRAWVIEW` clipped to cells only, no drop-down shadow, titles cut by the clip | 40-75 each | — |
+| `MB_SET` / `MB_ENABLE` banked into chunk 6 | about 330 | A trampoline a call |
+| Four more | 20-80 each | Each misses a speed bound |
+
+**Tests:**
+- **The agent:** every suite on seeds 1-2 and more, `review-inject` / `review-kpoll`, `web-smoke`, and the TSRun references.
+- **The main model, after applying it:**
+  - `wm-w1` 31, 32; `wm-w2` 31; `wm-w3` 31, 32;
+  - `kern-k1`, `k2`, `k3`, `hit`, `mouse` and `gfx6-s4` 31;
+  - `kern-perf` 31 and `wm-perf`;
+  - `kern4-ref` and `kern3-ref`;
+  - ZEsarUX 13.0, 23 of 23 rows; Fuse 1.9.1, 5 of 5 rows.
+

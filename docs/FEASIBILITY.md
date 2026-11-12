@@ -399,7 +399,7 @@ cross-checked on ZEsarUX and Fuse. It shows:
    - **The slices:** W1 (the cell map, repaint, activation), M (the Kempston mouse, with TSRun's emulation and the page's Mouse switch), W2 (clicks, drag, dialogs, `Button`, `Label`) and W3 (menus).
    - **The demo:** `kern4demo` is the PoC demo. It matches TSRun byte for byte on ZEsarUX and Fuse, and the owner tried it in a browser with the mouse.
    - **Speed:** a Fable pass (B) cut the overhead. The window operations' bounds are the measured figures (C): raise and open about 89 k T, close 62 k, move 167 k. Seven other bounds are missed and recorded (WINDOWS 16.4-16.6).
-   - **Size: missed.** Step 4 adds 6,308 bytes against 4,096. The kernel outgrew chunk 5, so the menus sit in chunk 1. A size pass is agreed, and where the toolkit goes is decided at step 5.
+   - **Size:** a size pass (Fable) brought step 4 from 6,308 to 4,837 bytes, which is now the bound (owner; was 4,096). The kernel is 7,217 bytes, the menus in chunk 1. About 4.5 KB of the always-mapped pool is left; where the toolkit and apps go is decided at the start of step 5.
 5. **First applications:** controls, the shell, Calculator, then Write (mode 6), Paint, tape file services.
 6. **Banking and SDK:** banked apps in DOCK 2-3, the third-party app header, the IDE SDK and templates, later a Leap-C cross-compiler and a visual designer.
 

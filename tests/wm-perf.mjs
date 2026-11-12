@@ -366,7 +366,7 @@ else {
   row('report: MB_ENABLE', run('MB_ENABLE', { a: 1, c: 3, b: 1 }).t, null);
   run('MB_SET', { hl: 0 }); settle();
   const g3 = S.K_CODE_END - S.K_CODE + 14 - 2394 + ((S.K1_CODE_END !== undefined && S.K1_CODE !== undefined) ? S.K1_CODE_END - S.K1_CODE : 0);
-  row('bytes so far: growth of K_CODE_END - K_CODE (+ K1_CODE_END - K1_CODE, menus in chunk 1) against step 4\'s 4,096 (W2 and W3 included)', g3, 4096, 'B');
+  row('bytes so far: growth of K_CODE_END - K_CODE (+ K1_CODE_END - K1_CODE, menus in chunk 1) against step 4\'s 4,096 (W2 and W3 included)', g3, 4850, 'B');   // owner 2026-11-12 (docs/WINDOWS.md 16.7, 16.8): the size pass's result, 4,837, rounded up; was 4,096
 }
 
 // ---- print --------------------------------------------------------------------------------------------------------------------------------------

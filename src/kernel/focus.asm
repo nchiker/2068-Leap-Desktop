@@ -29,17 +29,14 @@ K_DISPATCH:
     sub K_LEFT
     cp K_BACKTAB - K_LEFT + 1
     ret nc
-    ld b,a
-    inc b
-    ld hl,%1000100111001111     ; bit n is key K_LEFT + n.  L: the keys acted on; H: those that go to the previous view
-.bit:
-    rrc h
-    rrc l
-    djnz .bit
-    ret nc                      ; none of the six
-    ld a,h
-    rlca
-    and 1                       ; 0 = next, 1 = previous
+    ld b,a                      ; 0 left, 1 right, 2 down, 3 up, 6 TAB, 7 back TAB
+    and 6
+    cp 4
+    ret z                       ; 4, 5: no key of ours
+    ld a,b
+    inc a
+    and 2
+    xor 2                       ; 0 = next (right, down, TAB), not 0 = previous
     jp k_focuswalk
 .route:
     ld a,(K_EV)
@@ -52,14 +49,12 @@ K_DISPATCH:
     cp E_UP - E_MOVE
     jr nz,.other
     ld hl,(K_CAPTURE)           ; E_UP: to the capture, which ends
-    ld a,h
-    or l
-    jr z,.root
     ld de,0
     ld (K_CAPTURE),de
-    jr k_evto
+    jr .capture
 .move:
     ld hl,(K_CAPTURE)           ; E_MOVE: to the capture, else routed from the root
+.capture:
     ld a,h
     or l
     jr z,.root
@@ -333,9 +328,10 @@ K_FOCUSPREV:
     ld a,1
 ; The walk runs under R = K_FSCOPE, or K_ROOT when there is no scope (docs/WINDOWS.md 14.4).  With a scope, R's parent and
 ; next links are cut for the walk (saved in K_SCRATCH and put back before K_SETFOCUS), so the walk is 15.3's over R's subtree
-; and costs nothing per view.  K_SCRATCH: +0 wraps left, +1 1 when cut, +2 R, +4 R's parent, +6 R's next.
+; and costs nothing per view.  K_SCRATCH: +0 wraps left, +1 1 when cut, +2 R, +4 R's parent, +6 R's next (both 0 between
+; walks: k_fsswap exchanges them with R's links, once to cut and once to put back).
 k_focuswalk:
-    ld d,a                      ; D = 0 next, 1 previous
+    ld d,a                      ; D = 0 next, else previous
     ld hl,(K_FSCOPE)
     ld a,h
     or l
@@ -351,28 +347,8 @@ k_focuswalk:
     ld (K_SCRATCH+2),hl
     push ix
     push iy
-    or a
-    jr z,.uncut
-    inc hl                      ; the cut, through HL: parent then next, each saved and zeroed
-    inc hl
-    xor a
-    ld c,(hl)
-    ld (hl),a
-    inc hl
-    ld b,(hl)
-    ld (hl),a
-    ld (K_SCRATCH+4),bc
-    inc hl
-    inc hl
-    inc hl
-    ld c,(hl)
-    ld (hl),a
-    inc hl
-    ld b,(hl)
-    ld (hl),a
-    ld (K_SCRATCH+6),bc
+    call k_fsswap               ; the cut
     ld hl,(K_SCRATCH+2)
-.uncut:
     ld iy,0                     ; IY = the last candidate seen (previous)
     ld a,2
     ld (K_SCRATCH),a            ; wraps to R left
@@ -442,7 +418,7 @@ k_focuswalk:
     cp b
     jr nz,.view
 .end:                           ; back at the start, or a second wrap
-    call k_fsrest
+    call k_fsswap
     ld a,d
     or a
     jr z,.none
@@ -453,7 +429,7 @@ k_focuswalk:
     jr z,.none
     jr .set
 .found:
-    call k_fsrest
+    call k_fsswap
 .set:
     push ix
     pop de
@@ -463,24 +439,27 @@ k_focuswalk:
     pop ix
     ret
 
-; k_fsrest: puts back R's parent and next when the walk cut them.  Clobbers AF, BC, HL.
-k_fsrest:
+; k_fsswap: when the walk is scoped, R's parent and next change places with K_SCRATCH+4..+7.  Clobbers AF, BC, E, HL.
+k_fsswap:
     ld a,(K_SCRATCH+1)
     or a
     ret z
     ld hl,(K_SCRATCH+2)
     inc hl
+    inc hl                      ; -> R's parent
+    ld bc,K_SCRATCH+4
+    call .word
     inc hl
-    ld bc,(K_SCRATCH+4)
-    ld (hl),c
+    inc hl                      ; -> R's next
+.word:
+    call .byte
+.byte:
+    ld a,(bc)
+    ld e,(hl)
+    ld (hl),a
+    ld a,e
+    ld (bc),a
     inc hl
-    ld (hl),b
-    inc hl
-    inc hl
-    inc hl
-    ld bc,(K_SCRATCH+6)
-    ld (hl),c
-    inc hl
-    ld (hl),b
+    inc c
     ret
     ASSERT View_parent == 2 && View_next == 6
