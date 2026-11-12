@@ -98,6 +98,9 @@ ENTRY:
     ld hl,$5AA5
     ld (RESULT),hl              ; marker last
     ei
+    IFDEF DEMO
+    jp D_MAIN                   ; kern3demo (15.4): the self-test, then the demo
+    ENDIF
 T_IDLE:
     halt
     jr T_IDLE
@@ -256,6 +259,7 @@ t_log:
     ld (hl),a
     ret
 
+    INCLUDE "kern3k3.asm"
     INCLUDE "kern3-classes.inc"
 
     ASSERT $ <= $C000           ; chunk 5 only

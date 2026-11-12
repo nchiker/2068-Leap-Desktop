@@ -442,6 +442,16 @@ else {
     row('  K_SETFOCUS refused (hidden view)', steppedT(S.K_SETFOCUS, { de: c }).t, null);
   }
 
+  // ---- reported breakdown: the test methods' own cost (so a bound's share of kernel code can be told), and K_SETFOCUS with k_nop handlers ----
+  {
+    fresh();
+    const a = mk('TBox', 0, 0, 10, 10, 1, 0, 1), v1 = mk('View', 0, 0, 10, 10, 1, 0, 2), v2 = mk('View', 0, 0, 10, 10, 1, 0, 3);
+    for (const [msg, nmn] of [[2, 't_event'], [4, 't_focus'], [5, 't_blur']]) { setEv(1, 0x78, 0, 0); row(`  test method body ${nmn} (T_SEND, whole send incl. RST)`, run('T_SEND', { ix: a, a: msg, bc: 0, de: S.K_EV }).t, null); }
+    rawFocus(0); setFocus(v1);
+    let t = 0; for (let i = 0; i < 4; i++) t = Math.max(t, steppedT(S.K_SETFOCUS, { de: i & 1 ? v1 : v2 }).t);
+    row('  K_SETFOCUS View -> View (handlers are k_nop: "handlers that RET", section 8)', t, 500);
+  }
+
   // ---- K_FOCUSNEXT / K_FOCUSPREV over 32 views: shapes x every start x candidate placements; the worst ----------------------------
   {
     const shapes = {};
@@ -503,9 +513,9 @@ else {
     };
     row('stack: K_DISPATCH E_DOWN through 7 Groups to a focusable consuming leaf', stackOf(() => { const t = chain(); setFocus(t.sib); setEv(3, 100, 100, 2); }, 'K_DISPATCH'), 128, 'B');
     row('stack: K_DISPATCH E_KEY bubble from depth 8, TAB default', stackOf(() => { const t = chain(); m.ram[t.v[7] + 16] = 0; setFocus(t.v[7]); setEv(1, 14, 0, 0); }, 'K_DISPATCH'), 128, 'B');
-    row('stack: K_SETFOCUS depth 8 -> depth 2 (reported vs 32)', stackOf(() => { const t = chain(); setFocus(t.v[7]); return { de: t.sib }; }, 'K_SETFOCUS'), null, 'B');
-    row('stack: K_FOCUSNEXT from depth 8 (reported vs 32)', stackOf(() => { const t = chain(); setFocus(t.v[7]); }, 'K_FOCUSNEXT'), null, 'B');
-    row('stack: K_FOCUSPREV from depth 8 (reported vs 32)', stackOf(() => { const t = chain(); setFocus(t.v[7]); }, 'K_FOCUSPREV'), null, 'B');
+    row('stack: K_SETFOCUS depth 8 -> depth 2', stackOf(() => { const t = chain(); setFocus(t.v[7]); return { de: t.sib }; }, 'K_SETFOCUS'), 128, 'B');
+    row('stack: K_FOCUSNEXT from depth 8', stackOf(() => { const t = chain(); setFocus(t.v[7]); }, 'K_FOCUSNEXT'), 128, 'B');
+    row('stack: K_FOCUSPREV from depth 8', stackOf(() => { const t = chain(); setFocus(t.v[7]); }, 'K_FOCUSPREV'), 128, 'B');
   }
 
   // ---- bytes (section 8: <= 2,048 for the whole step) -----------------------------------------------------------------------------

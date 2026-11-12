@@ -468,9 +468,10 @@ function part3() {
   { const got = drainMachine(); const want = K.clone().drain(); sec.ok(got.length === 16 && JSON.stringify(got) === JSON.stringify(want), () => `after overflow the 16 oldest events drain intact: ${evText(got.slice(0, 4))}...`); K.drain(); }
   sec.ok(ifaceDiff(K) === null, 'after the drain the variables equal the model');
   // (b) coalescing: moves overwrite the last record when it is an E_MOVE and not the head; a full ring ending in a move coalesces too (R1)
-  pollStep(sec, IDLE_ROWS, joyOf('r'), { what: 'move 1 (ring empty: appended)', display: false });
-  pollStep(sec, IDLE_ROWS, joyOf('r'), { what: 'move 2 (the last is the head: appended)', display: false });
-  for (let i = 0; i < 5; i++) pollStep(sec, IDLE_ROWS, joyOf('r'), { what: `move ${3 + i} (coalesced)`, display: false });
+  const away = K.px > 255 ? 'l' : 'r';      // (main model) move away from the nearer edge, so every step really moves
+  pollStep(sec, IDLE_ROWS, joyOf(away), { what: 'move 1 (ring empty: appended)', display: false });
+  pollStep(sec, IDLE_ROWS, joyOf(away), { what: 'move 2 (the last is the head: appended)', display: false });
+  for (let i = 0; i < 5; i++) pollStep(sec, IDLE_ROWS, joyOf(away), { what: `move ${3 + i} (coalesced)`, display: false });
   sec.ok(K.count === 2, 'model: two E_MOVE records only (the first is the head, the rest coalesced into the second)');
   pollStep(sec, IDLE_ROWS, joyOf('rf'), { what: 'move + DOWN', display: false });
   pollStep(sec, IDLE_ROWS, joyOf('r'), { what: 'move + UP', display: false });

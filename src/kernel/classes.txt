@@ -19,3 +19,6 @@ class View : Object             # 16 bytes
   field id     1
   method Destroy view_destroy
   method HitTest view_hittest
+
+class Group : View              # a view that routes pointer events to its children (docs/OBJECTS_EVENTS.md 15.1)
+  method Event group_event

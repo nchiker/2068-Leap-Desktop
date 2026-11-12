@@ -25,10 +25,10 @@ const cls = Object.fromEntries(js.classes.map(c => [c.name, c]));
 const off = c => Object.fromEntries(cls[c].fields.map(f => [f.name, f.offset]));
 
 eq(js.classes.map(c => c.name),
-  ['Object', 'View', 'TLog', 'TLog2', 'TSz8', 'TSz9', 'TSz16', 'TSz24', 'TSz32', 'TSz33', 'TSz40', 'TSz255'], 'definition order');
+  ['Object', 'View', 'Group', 'TLog', 'TLog2', 'TSz8', 'TSz9', 'TSz16', 'TSz24', 'TSz32', 'TSz33', 'TSz40', 'TSz255', 'TBox'], 'definition order');
 eq(js.classes.map(c => c.id), js.classes.map((_, i) => i + 1), 'ids in definition order');
 eq(js.classes.map(c => c.parent),
-  [null, 'Object', 'View', 'TLog', ...Array(8).fill('Object')], 'parents');
+  [null, 'Object', 'View', 'View', 'TLog', ...Array(8).fill('Object'), 'View'], 'parents');   // Group and TBox added in K3
 
 const v = off('View');
 eq(['parent', 'child', 'next', 'x', 'y', 'w', 'h', 'flags', 'id'].map(n => v[n]), [2, 4, 6, 8, 10, 11, 13, 14, 15], 'View offsets');

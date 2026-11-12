@@ -21,6 +21,8 @@ export const TARGETS = {
   spike6: { src: 'src/spike6.asm', chunks: [0, 1, 4, 5], tables: true }, // docs/GRAPHICS_SPIKE.md section 17
   kern3: { src: 'src/kern3.asm', chunks: [0, 1, 4, 5], tables: true,     // docs/OBJECTS_EVENTS.md section 13
     classes: ['src/kernel/classes.txt', 'src/kern3-classes.txt'], keymap: 'src/kernel/keymap.txt' },
+  kern3demo: { src: 'src/kern3.asm', chunks: [0, 1, 4, 5], tables: true, defs: { DEMO: 1 },   // section 15.4
+    classes: ['src/kernel/classes.txt', 'src/kern3-classes.txt'], keymap: 'src/kernel/keymap.txt' },
 };
 
 /** Assemble one target; returns { img (64 KB), syms, dck, dckPath }. */
@@ -42,7 +44,7 @@ export function build(name, defs = {}) {
   const args = ['--nologo', '--lstlab', `--lst=${join(dir, 'out.lst')}`, `--sym=${join(dir, 'out.sym')}`,
     `-I${join(ROOT, 'src')}`];
   if (TARGETS[name].classes || TARGETS[name].keymap) args.push(`-I${dir}`);
-  for (const [k, v] of Object.entries(defs)) args.push(`-D${k}=${v}`);
+  for (const [k, v] of Object.entries({ ...TARGETS[name].defs, ...defs })) args.push(`-D${k}=${v}`);
   args.push(join(ROOT, src));
   try { execFileSync('sjasmplus', args, { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] }); }
   catch (e) { throw new Error(`sjasmplus failed on ${src}:\n${e.stdout || ''}${e.stderr || ''}`); }

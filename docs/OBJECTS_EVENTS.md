@@ -677,7 +677,7 @@ R's children and E, F (`G_FRAME`, the id in `G_TEXT8`, a focused
 | Per event (`E_KEY`) | Event in the ring (or posted: the worse), `K_FOCUS` = a `TBox` that consumes: direct call of a stub `T_EVONE` (`CALL K_GETEV`, `CALL K_DISPATCH`, `RET`), stepped until PC = `t_event`; T from `T_EVONE`'s first instruction |
 | Bubble level | The same with a focus k levels deep that does not consume, a consuming ancestor: (T(k) - T(0)) / k, the worst for k = 1..7 |
 | `E_DOWN`, `Group` of 8 `TBox` children | Root `Group` with 8 children side by side, the point in the last (focusable, consumes), focus elsewhere: to `t_event` of the last |
-| `K_SETFOCUS` | Old and new both `TBox` (their methods log and return): the whole call |
+| `K_SETFOCUS` | Old and new views whose `M_FOCUS` / `M_BLUR` are `k_nop` (section 8: "handlers that RET"), the whole call. **Amended in K3**: draft 2 said `TBox` here, which counts about 900 T of the test methods' own bodies; `TBox` is reported |
 | `K_FOCUSNEXT` / `K_FOCUSPREV`, 32 views | Trees of 32 views (a root `Group` and 31 `TBox` in chains and fans, depth <= 8), every start, the candidates placed for the longest walk: the worst |
 | Bytes | `K_CODE_END - K_CODE` + 14: <= 2,048 (section 8) |
 
@@ -793,3 +793,71 @@ sections 2, 5-9, 13 and 14 without reading the code.
 - A full ring whose last record is a move still coalesces.
 - A key with code 0 counts as newly down for the repeat rule.
 - An interrupt during `K_GETEV` from the ring may land before or after the copy; either order is correct.
+
+### 16.3 Slice K3 (2026-11-12)
+
+**Result: routing, `Group` and focus behave exactly as the model says, and the self-test matches it (26 records, sum 7,550,
+focus on B). Of the K3 bounds, only `K_SETFOCUS` and the stack pass; six are missed.** Interface: section 15. Amendments during K3:
+- 15.4: the self-test sum covers the code, IX and tag bytes only (BC and DE are not fixed for messages the kernel sends);
+- 15.3: `K_ROOT` = 0 makes the focus walk do nothing, and the focus routines count as routing routines for the stack;
+- 15.5: `K_SETFOCUS` is measured as section 8 words it.
+
+| Measure (15.5) | Measured | Bound | Result |
+|---|---|---|---|
+| Per event: `E_KEY` through `K_GETEV` + `K_DISPATCH` to the focused view's handler (posted / ring) | **537** / 526 | <= 500 | **MISSED** (37 T) |
+| Bubble, each level to a parent (`View` ancestors) | **278** | <= 200 | **MISSED** |
+| `E_DOWN` through a root `Group` of 8 `TBox`, the last hit, focus moving from the first | **5,142** | <= 3,500 | **MISSED** |
+| The same with the focus already on the last child (no focus change) / the first child hit | 4,016 / 2,160 | report | |
+| `K_SETFOCUS`, handlers that return at once / `TBox` to `TBox` (with the test methods' bodies) | 498 / 1,172 | <= 500 / report | pass (2 T margin) |
+| `K_FOCUSNEXT`, 32 views, worst of 1,188 walks | **10,881** | <= 5,000 | **MISSED** |
+| `K_FOCUSPREV`, 32 views, worst of 1,188 walks | **17,952** | <= 8,000 | **MISSED** |
+| Stack: `K_DISPATCH` through 7 `Group`s / `K_FOCUSNEXT` from depth 8 | 46 / 18 bytes | <= 128 | pass |
+| `T_SELFTEST` (two 8 KB arena resets, 8 views, 17 script lines) | 244,240 | report | |
+| **Bytes in the always-mapped pool**: `K_CODE_END - K_CODE` + 14 | **2,272** (K1 602, K2 1,191 with the 120-byte `KEYMAP`, K3 479) | <= 2,048 | **MISSED** |
+
+**Why they miss.**
+- **Fields through IX.** Every field of a view is read with `LD r,(IX+d)` at 19 T, and moving from view to view costs a
+  `PUSH` / `POP IX` pair (25 T).
+- **The focus walk:** about 300 T per view. Each child, sibling or parent step reads two fields and moves IX, and climbing out of a
+  subtree visits each ancestor again. `K_FOCUSPREV` always walks the whole tree.
+- **`Group` hit testing** sends `M_HITTEST` to each child in turn, about 450 T a child, and the focus change adds the
+  `M_BLUR` / `M_FOCUS` sends.
+- **The estimates in section 8 assumed about 100 T per view.**
+- **Bytes:** K2's input decode came to about twice its estimate.
+- **The pool still has room:** after step 3 it has about 9,470 bytes free (11,739 - 2,272), against about 6-9 KB still to place
+  (CODE_SIZE 1).
+
+**Options (the owner decides; estimates, not measured):**
+
+| Change | Effect |
+|---|---|
+| **D.** Walk the tree with HL / DE pointers instead of IX | About 30 % off the walk and the routing loops; about 20 bytes more |
+| **E.** `Group` tests a child's rectangle itself when the child's HitTest is `view_hittest` (one compare of the method slot), sending `M_HITTEST` only to other classes | About 250 T less per child tested |
+| **F.** Keep a ring of the focusable views (one more word in `View`), kept up to date by `K_ADDCHILD`, `K_UNLINK` and the flag changes | `K_FOCUSNEXT` / `K_FOCUSPREV` become a few hundred T; `View` grows to 18 bytes (a 24-byte pool block) |
+| **G.** Keep the code; set the bounds to the measured figures | No change. A TAB costs at most about 18 k T (a third of a frame) at 32 views |
+
+**How K3 is built** (`src/kernel/focus.asm`, the `Group` class; `src/kern3k3.asm` for the self-test and demo):
+- `K_DISPATCH` keeps IX by one `PUSH` around the routing.
+- `group_event` walks the children with IX, saving the group on the stack.
+- The focus walk is one loop for both directions: IY holds the last candidate, BC the start, and `K_SCRATCH` counts the wraps.
+
+**A fault the main model found before the tests ran:** `k_evto` ended with `RST $08` and no `RET`. `RST` is a call, so after the
+method returned, execution fell into `group_event`, and every unconsumed event reached its view twice (the self-test logged 31
+records, not 26). Fixed.
+
+**Tests** (`tests/kern-model3.mjs`, `tests/kern-k3.mjs`, K3 rows in `tests/kern-perf.mjs`): written by a Sonnet agent from
+sections 2-10 and 13-15 without reading the code.
+- About 28,000 assertions a seed:
+  - the self-test three times;
+  - 3,500 random steps over trees of up to 32 views with every class, random events, focus calls, destroys and re-roots;
+  - stack probes at depth 8.
+- Six deliberate model faults were each caught by the harness.
+- Passes on seeds 1, 2 (the agent) and 3 (the main model). K1 (seed 6) and K2 (seeds 1, 2, 6) pass with K3 included.
+- **Two test fixes by the main model:**
+  - K2 test 3c assumed the pointer could move right, and seed 6 left it at the right edge. It now moves away from the nearer edge.
+  - The generator self-test listed the class set before `Group` and `TBox`.
+
+**The demo** (`kern3demo`, `web/?cart=kern3demo`):
+- The status line reads `LEAP K3 SUM 1D7E PASS` and then the last event's bytes and the keyboard-pointer mode.
+- Views 0-2 and 4-7 are framed; 3 is hidden.
+- TAB (CAPS SHIFT + 4), the arrows and a click move the focus, shown by a thicker frame.

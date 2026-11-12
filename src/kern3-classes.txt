@@ -38,3 +38,11 @@ class TSz40 : Object
 class TSz255 : Object
   field pad 253
 
+
+class TBox : View               # size 17: a View with geometric hit testing that logs (15.1)
+  field tag 1
+  method Destroy t_destroy
+  method Draw    t_draw
+  method Event   t_event
+  method Focus   t_focus
+  method Blur    t_blur
