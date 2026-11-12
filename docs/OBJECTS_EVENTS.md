@@ -835,7 +835,7 @@ focus on B). Of the K3 bounds, only `K_SETFOCUS` and the stack pass; six are mis
 | `K_FOCUSPREV`, 32 views, worst of 1,188 walks | **17,952** | <= 8,000 | **MISSED** |
 | Stack: `K_DISPATCH` through 7 `Group`s / `K_FOCUSNEXT` from depth 8 | 46 / 18 bytes | <= 128 | pass |
 | `T_SELFTEST` (two 8 KB arena resets, 8 views, 17 script lines) | 244,240 | report | |
-| **Bytes in the always-mapped pool**: `K_CODE_END - K_CODE` + 14 | **2,272** (K1 602, K2 1,191 with the 120-byte `KEYMAP`, K3 479) | <= 2,048 | **MISSED** |
+| **Bytes in the always-mapped pool**: `K_CODE_END - K_CODE` + 14 | **2,272** (K1 602, K2 1,191 with the 120-byte `KEYMAP`, K3 479); **2,279** after the review's D1 fix (16.2) | <= 2,048 | **MISSED** |
 
 **Why they miss.**
 - **Fields through IX.** Every field of a view is read with `LD r,(IX+d)` at 19 T, and moving from view to view costs a
