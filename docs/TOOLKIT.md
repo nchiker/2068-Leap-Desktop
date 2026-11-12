@@ -270,3 +270,190 @@ is 50,696 T per 1,000 pixels. That is 1.80 x `Button`'s, against the 1.5 x bound
     characters in about 60 k T (**EST**), against about 150 k proportional.
   - Its one-line scroll is then a whole character row (byte-aligned).
   - It suits the tape catalogue: tape names are fixed width.
+
+## 10. T2 and T3 interface (designed 2026-11-12, binding for the T2 / T3 code and tests)
+
+The tests are written from sections 1-9 and this section, never from the code. Coordinates are absolute; x, y, w, h are the
+view's rectangle. "Fill", "frame", "line" are gfx6's `G_FILL`, `G_FRAME`, `G_HLINE`, in the op named.
+
+### 10.1 Amendments to sections 2-7
+
+- **Placement.** Chunk 5 has 445 bytes left after the launcher, so `List`'s and `Field`'s code goes in a new file,
+  `src/kernel/tk2.asm`, assembled by `desk5` in **chunk 1 after `kernel1.asm`** (1,514 bytes free there). It is pool code like
+  `tk.asm` (mapping K, always mapped). The two class descriptors join `tk-classes.txt` (chunk 5).
+- **`List`'s scroll** redraws the whole `List` (9.8). There is no `G_SCROLLV` and no 40,000 T bound; 10.6 sets the bound at the
+  figure measured.
+- **A `List` draws one line only** when that is all that changed: a selection moved within the lines shown, the focus or the
+  blur. It is still `W_DRAWVIEW` of the `List` (section 4), with an internal "one line" mode that `M_DRAW` reads; the pixels are
+  exactly those of a full draw.
+- **`E_SCROLL` reaches a `List` through `M_EVENT` with DE -> the record** (9.1). A `List` reads every event through DE.
+- **A `List`'s focus look** (section 3 left it open): the selected line is **inverted when the `List` has the focus, and outlined
+  when it has not**.
+- **Disabled look** (section 2, bit 3, for `List` and `Field`): drawn last, `CLR` fill (x + 1, r, w - 2, 1) for every row
+  r = y + 2, y + 4, ... below y + h - 1. The program sets it together with `View`'s bit 2 (disabled: no events, no focus); a
+  `List` with bit 3 is always drawn in full.
+
+### 10.2 Shared drawing rules
+
+- **The inside clip.** Both controls draw their frame, then narrow the clip to its intersection with the inside
+  (x + 1, y + 1, w - 2, h - 2), and **put the caller's clip back before returning** (`group_draw` draws the siblings with it).
+- **Text** is `SET`. PROP6 is drawn by `G_TEXTP` (row 0 of the 8 is blank, so the ink is rows 1-7); the 8 x 8 font by
+  `G_TEXT8`, which draws only whole cells inside the clip, opaque.
+
+### 10.3 `List` (`View`; `items` 2 @16, `count` 1 @18, `sel` 1 @19, `top` 1 @20, `bar` 2 @21; size 23)
+
+**Flags:** bit 0 focusable (the program's), bit 3 disabled look, bit 4 **cell lines**.
+
+**Line geometry** (LY0 = the first line's top row, P = the pitch, n = the lines shown):
+
+| | LY0 | P | n | Line k's text |
+|---|---|---|---|---|
+| Proportional (bit 4 = 0) | y + 1 | 9 | floor((h - 2) / 9) | `G_TEXTP` at (x + 3, LY0 + 9 k) |
+| Cell lines (bit 4 = 1) | 8 r0, r0 = (y + 8) >> 3 | 8 | floor((y + h - 1) / 8) - r0 | `G_TEXT8` at the cell (c0, r0 + k), c0 = (x + 9) >> 3 |
+
+- Line k (0 <= k < n) shows item top + k when top + k < count. Its **band** is (x + 1, LY0 + P k, w - 2, P).
+- Cell lines: c0 is the first whole cell at or right of x + 2, r0 the first whole cell row at or below y + 1. A program puts the
+  `List` at x = 8 a + 6, y = 8 b + 7 and h = 8 n + 2 to waste nothing; then w = 8 m + 4 shows m codes. Any rectangle works.
+- **Binding on programs:** h >= 11 (one line); `top` and `sel` are the `List`'s, set only through `TK_SETITEMS`.
+
+**Draw (full):**
+1. `CLR` fill (x, y, w, h); `SET` frame (x, y, w, h).
+2. The inside clip (10.2).
+3. Each line shown with an item: its text, then, when the item is `sel`:
+   - focused (`K_FOCUS` = the `List`, and not being drawn by its blur): `XOR` fill of the band;
+   - otherwise: `SET` frame of the band.
+4. The disabled look (bit 3), then the caller's clip back.
+
+**Draw (one line, item i):** the same steps for line i - top only: the inside clip, `CLR` fill of its band, its text, its
+selection look, the clip back. Nothing else is touched.
+
+**Keys** (`E_KEY`):
+- **DOWN:** sel = top when sel = $FF, else sel + 1 when sel + 1 < count. **UP:** sel = top when sel = $FF, else sel - 1 when
+  sel > 0. Consumed always (an empty `List` changes nothing).
+- **Selecting item j** (keys or pointer): old = sel, sel = j. Then top' = j when j < top; j - n + 1 when j >= top + n; else
+  top.
+  - top' = top: one-line draws of old (when it is not $FF and shown) and of j.
+  - top' differs: top = top', a full draw, then the bar is set (below).
+- **ENTER:** when sel is not $FF, `E_CMD` posted as `Button`'s (WINDOWS 17.3); consumed. With sel = $FF it is not consumed.
+- Every other key is not consumed (LEFT, RIGHT, TAB move the focus).
+
+**Pointer:**
+- **`E_DOWN`** at (px, py): k = floor((py - LY0) / P) when py >= LY0. When k < n and top + k < count, the item is
+  j = top + k:
+  - if the last `E_DOWN` taken by a `List` was on this `List`, on item j, and `V_FRAMES` - its frame <= 20, and j = sel:
+    `E_CMD` is posted and the memory cleared (a third click starts again);
+  - otherwise j is selected (above), and this `List`, j and `V_FRAMES` are remembered.
+
+  A press elsewhere in the `List` clears the memory. `E_DOWN` is always consumed.
+- **`E_UP`:** consumed. **`E_MOVE`:** consumed when `K_CAPTURE` is the `List`, else not.
+
+**`E_SCROLL`** (from its bar, DE -> the record): top' = min(data 1, max(0, count - n)). When top' differs: top = top', a full
+draw. Consumed. The bar is not told (no loop, section 2).
+
+**Focus / Blur:** a one-line draw of `sel` when it is not $FF and shown (the blur without the focus look, as `Button`'s).
+
+**The bar** (when `bar` is not 0): "set" means `TK_SETBAR` with value = top, max = max(0, count - n), page = n. The program
+makes the bar's `target` the `List`.
+
+**`TK_SETITEMS`** (IX = a `List`, HL = items, A = count): items and count stored; sel = $FF; top = 0; the click memory cleared;
+the bar set; a full draw. Clobbers AF, BC, DE, HL; preserves IX.
+
+### 10.4 `Field` (`View`; `buf` 2 @16, `cap` 1 @18, `caret` 1 @19, `first` 1 @20; size 21)
+
+**Flags:** bit 0 focusable (the program's), bit 3 disabled look. `buf` -> a string: a length byte L (0..cap), then room for
+`cap` codes. tw(i, j) is the width of codes i..j - 1 (PROP6 advances; 0 when j <= i). ty = y + floor((h - 8) / 2).
+
+**Draw:**
+1. `CLR` fill (x, y, w, h); `SET` frame (x, y, w, h).
+2. The inside clip.
+3. Codes first..L - 1 by `G_TEXTP` at (x + 3, ty).
+4. Focused (as `List`'s): the **caret**, `SET` fill (x + 2 + tw(first, caret), ty, 1, 9). It is in the blank column after the
+   code before it (PROP6's last column of every glyph is blank).
+5. The disabled look, then the caller's clip back.
+
+**Binding on programs:** h >= 11, w >= 16, cap <= 254.
+
+**First adjusted** (after every change, A = w - 5):
+1. first = caret when first > caret;
+2. while tw(first, caret) > A: first + 1;
+3. while first > 0 and tw(first - 1, L) <= A: first - 1.
+
+So the caret always shows (its column is at most x + w - 3), and when there is room the text slides right to fill it.
+
+**Keys** (`E_KEY`), each consumed:
+- **32-126:** when L < cap, the code is inserted at caret, L + 1, caret + 1; when L = cap nothing changes (no draw).
+- **DELETE (12):** when caret > 0, code caret - 1 is removed, caret - 1.
+- **LEFT (8) / RIGHT (9):** caret - 1 when > 0 / caret + 1 when < L.
+- **ENTER (13):** `E_CMD` posted as `Button`'s. Nothing is drawn.
+- After a change of the text or the caret: first adjusted, then `W_DRAWVIEW`. A key that changes nothing draws nothing.
+- Every other key is not consumed (TAB, UP, DOWN move the focus; section 8 decision 3).
+
+**Pointer:**
+- **`E_DOWN`** at px: the caret goes before the first code (from `first`) whose middle is right of px. Walking k = first..L - 1
+  with pen = x + 3 + tw(first, k) and a = the advance of code k: caret = the first k with px < pen + floor(a / 2); caret = L when
+  there is none. Then first adjusted and `W_DRAWVIEW` (always). Consumed.
+- **`E_UP`:** consumed. **`E_MOVE`:** consumed when `K_CAPTURE` is the `Field`, else not.
+
+**Focus / Blur:** as `Button`'s (drawn again; the blur without the caret).
+
+**`TK_SETTEXT`** (IX = a `Field`, HL = a string): L = min(its length, cap), its first L codes copied; caret = L; first = 0, then
+adjusted; `W_DRAWVIEW`. Clobbers AF, BC, DE, HL; preserves IX.
+
+### 10.5 The demo grows (`desk5`, program 2)
+
+The window is now a `CWindow` at **(176, 32, 320, 144)**. T1's controls keep their rectangles and behaviour (9.4, SHELL 5).
+Added, after them in the window's children:
+- **a `List`** at (326, 47, 132, 74), id 136, focusable: 24 items (10.7); proportional it shows 8 lines, with cell lines 9 (16
+  codes wide);
+- **its `VScroll`** at (458, 47, 12, 74), id 135, target the `List`;
+- **a `Label`** "Name:" at (184, 134, 32, 9), id 138;
+- **a `Field`** at (220, 132, 160, 12), id 137, focusable, cap 40, starting with "Leap";
+- **a status `Label`** at (184, 152, 280, 9), id 139, starting empty.
+
+Behaviour:
+- **"Grid"** (id 129) now switches the `List`'s cell lines: its checked flag is copied to the `List`'s bit 4, then
+  `TK_SETITEMS` with the same items (the selection is cleared).
+- **The `List`'s `E_CMD`:** the status reads "Open: " and the item.
+- **The `Field`'s `E_CMD`:** the status reads "Name: " and the field's text (cut at 40 codes).
+
+The focus order (pre-order) is the five T1 controls, then the `List`, then the `Field`: TAB reaches the `Field`, where the owner
+types to try the SYMBOL SHIFT layout.
+
+### 10.6 Bounds and how they are measured (section 7, for T2 and T3)
+
+| Measure | Bound |
+|---|---|
+| Bytes: `tk2.asm` (`TK2_END - TK2_CODE`) plus the two descriptors (18 each); **report** `List`, `Field` and the shared code | **<= 1,382** (the toolkit's 2,600 less T1's 1,218); step 5's pool growth stays <= 3,400 |
+| `W_DRAWVIEW` of a `List` 128 x 146, proportional, 16 lines of the standard items, item 3 selected, focused | **report** |
+| `W_DRAWVIEW` of a cell-lines `List` 132 x 130 at x = 8 a + 6, y = 8 b + 7 (16 lines of 16 cells), item 3 selected, focused | **report** |
+| **`List` scrolled by one line:** `K_DISPATCH` of `E_KEY` DOWN with sel the last line shown (top 0, sel 15), to the return. It includes the full draw and the bar's (12 x 146, or 12 x 130) | **report** each mode; the bound becomes the figure measured (9.8), rounded up to 100 T, once the owner has seen it |
+| A selection moved by DOWN within the lines shown (sel 3 -> 4), `K_DISPATCH` to the return | **report** each mode |
+| `W_DRAWVIEW` of a `Field` 160 x 12 showing 30 codes, focused | **report** |
+| **A typed code:** a `Field` 160 x 12, cap 40, holding the 30 codes "abcdefghijklmnopqrstuvwxyzabcd" set by `TK_SETTEXT`, focused; `K_DISPATCH` of `E_KEY` 'x' to the return | **<= 58,000** |
+| `E_MOVE`, no capture, over a window holding one of each control (`Check`, `VScroll`, `List`, `Field`, a `Label`) | <= 3,900 |
+| Stack: `List`'s and `Field`'s `M_DRAW` and `M_EVENT` | <= 64 bytes each |
+| `DI` / frame interrupts lost | none / 0 |
+
+Direct calls under K with a sentinel return, interrupts on for the `K_DISPATCH` rows (an `E_CMD` post needs none), the worst of
+three runs.
+
+### 10.7 The standard items
+
+24 strings, in order: "Accounts", "Address book", "Budget 1987", "Calendar", "Chess", "Diary", "Drawing 1", "Drawing 2",
+"Font editor", "Games", "Letter to Ann", "Loader", "Music", "Notes", "Phone list", "Poems", "Recipes", "Shopping", "Sprites",
+"Stock list", "To do", "Travel", "Utilities", "Zebra". The demo shows them; the bounds use them.
+
+### 10.8 Tests (Sonnet, from this contract; TSRun headless, the pattern of `tests/tk-t1.mjs`)
+
+1. **Looks:** random `List`s (both modes, any count, top, sel, focus, disabled look, rectangles partly off the grid) and
+   `Field`s (any text, cap, caret, first, focus) against a gfx6-model rendering of 10.3-10.4, drawn whole and under random
+   clips (a window partly covered); the caller's clip back after `M_DRAW`.
+2. **`List` behaviour:** random key and click sequences against a model (sel, top, the bar's value / max / page, `E_CMD`s,
+   the double click at 20 frames and not 21, `E_SCROLL` from the bar, the screen after each step).
+3. **`Field` behaviour:** random editing sequences (codes, DELETE, LEFT, RIGHT, ENTER, clicks, a full buffer) against a model
+   of the text, caret and first, and the screen after each step; `TK_SETTEXT` with strings longer than cap.
+4. **The demo** over real frames: TAB to the `List` and the `Field`, typing with SYMBOL SHIFT characters, "Grid", the status
+   line; the T1 groups updated to the new window.
+5. **Bounds:** 10.6 as a table (`tests/tk-perf.mjs` extended).
+6. **Cross-emulator:** on ZEsarUX, the Controls window after a key-driven session (a `List` selection, typed text) identical to
+   TSRun's.
