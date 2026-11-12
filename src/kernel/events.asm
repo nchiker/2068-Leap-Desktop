@@ -28,7 +28,7 @@ K_KPMODE    EQU $F08E
 K_CAPS      EQU $F08F
 ; K_POLL's internal state (14.1: not part of the interface).  All 0 is the idle state.
 K_NOW       EQU $F090           ; 8 bytes: the half-rows as last read (bit set = down)
-K_KANY      EQU $F098           ; non-zero when any key was down last time
+K_KANY      EQU $F098           ; non-zero when a key is down in K_NOW
 K_HOLD      EQU $F099           ; acceleration: frames a direction has been held (0..30)
 K_RKEY      EQU $F09A           ; the repeating key's index (0 = none: key 0 is CAPS SHIFT, which never repeats)
 K_RCODE     EQU $F09B
@@ -220,10 +220,8 @@ K_POLL:
     in a,($FE)
     cpl
     and $1F
-    ld hl,K_KANY
-    ld b,(hl)
-    ld (hl),a
-    or b
+    ld hl,K_KANY                ; any key in the half-rows stored last time (set by k_keys from K_NOW)
+    or (hl)
     call nz,k_keys              ; something is or was down
     ld a,14                     ; 3. joystick
     out (PORT_AYR),a
@@ -422,6 +420,14 @@ k_keys:
     ld a,(K_CHG)
     or a
     jp z,.repeat                ; nothing changed: only the repeat runs
+    ld hl,K_NOW                 ; K_KANY from the stored half-rows (not the all-rows read: a key may change between reads)
+    xor a
+    ld b,8
+.any:
+    or (hl)
+    inc l
+    djnz .any
+    ld (K_KANY),a
     ld a,(K_NOW)                ; the toggle: only CS and SS down, one of them new
     cp 1
     jr nz,.notog
@@ -657,8 +663,6 @@ k_press:
     or e
     ld e,a                      ; E = data 2
     ld (K_RMODS),a
-    ld a,c
-    ld (K_RCODE),a
     ld a,30
     ld (K_RCNT),a
     ld hl,(K_TMPK)              ; L = k, H = its half-row (K_TROW follows K_TMPK)

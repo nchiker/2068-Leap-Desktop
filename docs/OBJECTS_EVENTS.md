@@ -184,12 +184,12 @@ and moves never fill the ring.
 1. save the registers; increment `V_FRAMES`;
 2. `$F4 = $33`; `P_ISR` (unchanged: the pointer deadline depends only on what comes before it);
 3. `K_POLL`;
-4. write the shadows back: `$F4`, and the AY register latch (`V_AYREG`);
+4. write the shadows back: `$F4`, and the AY register latch (`K_AYREG`);
 5. restore, `EI`, `RET`. Stack: at most 32 bytes with the return address (binding: `G_CLS`).
 
 **AY rule.** Boot sets AY register 7 bit 6 = 0 once. `K_POLL` selects register 14 to read the joystick; the ISR's item 4 puts
-the shadow latch back. Any other code that selects an AY register stores `V_AYREG` before the `OUT` (as `$F4`), so the ISR may arrive
-between select and access.
+the shadow latch back. Any other code that selects an AY register stores `K_AYREG` before the `OUT` (as `$F4`), so the ISR may arrive
+between select and access. Code that writes AY register 7 (the mixer) keeps bit 6 = 0, or the joystick read fails.
 
 **Keyboard** (port `$FE`):
 - One read with all rows selected; if no key is down and none was down last frame, the keyboard part ends (the idle path).
@@ -733,10 +733,10 @@ below.
 |---|---|---|---|
 | `K_POST` | 166 | <= 200 | pass |
 | `K_GETEV` posted / ring / empty | 218 / 207 / 63 | <= 250 / 250 / 100 | pass |
-| `K_POLL` idle | 291 | <= 300 | pass |
-| `K_POLL` a key held | 862 | <= 900 | pass |
-| `K_POLL` worst frame (full-speed move, button change, two new keys; 1,296 frames) | **4,560** | <= 2,000 | **MISSED** |
-| Whole frame ISR, worst (`P_ISR` moving + `K_POLL`; 2,508 frames) | **10,898** | <= 9,500 | **MISSED** |
+| `K_POLL` idle | 280 | <= 300 | pass |
+| `K_POLL` a key held | 851 | <= 900 | pass |
+| `K_POLL` worst frame (full-speed move, button change, two new keys): the perf grid of 1,296 frames / the review's search over every pair of keys | **4,736** / **4,954** (5,202 with a shift key also newly down) | <= 2,000 | **MISSED** |
+| Whole frame ISR, worst (`P_ISR` moving + `K_POLL`; 2,508 frames) | **11,074** (about 11,900 with the review's worst `K_POLL`, **EST**) | <= 9,500 | **MISSED** |
 | Pointer deadline (largest `T_ISRP` offset + 1,500) | 8,194 | <= 8,960 | pass (unchanged: `K_POLL` runs after `P_ISR`) |
 | ISR stack, return address included | 26 bytes | <= 32 | pass |
 | `K_POLL`: one new key / a repeat fires / mode toggle / joystick move only / button only | 2,046 / 1,072 / 2,418 / 1,266 / 668 | report | |
@@ -757,8 +757,9 @@ measured 5,308 / 11,612. Merging the half-row compare with the decode, and skipp
 
 | Change | Effect |
 |---|---|
-| **A.** The ISR appends a raw key event (key index, CS / SS, caps lock, repeat bit); `K_GETEV` decodes it through `KEYMAP` | About 700 T less per key in the ISR; `K_GETEV` about 150 T more per key event. Events seen by programs are unchanged; the ring's contents change (14.3 and the K2 tests' ring checks are amended) |
-| **B.** At most one new key decoded per frame; further new keys wait a frame | The worst frame drops by about 1,750 T. A second key held down together appears a frame later |
+| **A.** The ISR appends a raw key event (key index, CS / SS, caps lock, repeat bit); `K_GETEV` decodes it through `KEYMAP` | 150-250 T less per key in the ISR (the review's estimate; the main model's first estimate of 700 was too high); `K_GETEV` more per key event. Events seen by programs are unchanged; the ring's contents change |
+| **B.** At most one new key decoded per frame; further new keys wait a frame | The worst frame drops by the second key's cost, measured at 740-974 T. A second key held down together appears a frame later |
+| **A + B + small code changes** (the review: skip the second `k_pdata`, tighten `k_row`, store the repeat state once a frame; about 350-400 T) | A frame with a move, a button change and **one** key already measures 3,352 T, so 2,000 is not reachable this way. Only C, or an ISR that records changed half-rows and leaves all decoding to `K_GETEV`, removes the miss |
 | **C.** Keep the code; replace the bound with the measured worst | No change. Programs lose up to about 4,500 T (8 %) of a frame in the worst input frame, and the pointer is unaffected |
 
 **How K2 is built** (`src/kernel/events.asm`; `P_ISRMOVE` and `P_ARROW` in `src/gfx6/pointer.asm`):
@@ -768,6 +769,27 @@ measured 5,308 / 11,612. Merging the half-row compare with the decode, and skipp
   last frame's. Only a changed half-row is stored and decoded. The modifiers and the plane are read once, at the first change.
 - **Joystick:** an idle port (`$FF`) skips the decode.
 - **Keyboard-pointer keys** are worked out only in frames where the keys change.
+
+**Independent review (Fable agent, given the code and the contract; 2026-11-12).**
+- **Interleavings:** no fault in the queues, `K_POLL`, `P_ISRMOVE` or the ISR with input that changes between frames.
+  - About 109,000 injected runs and 293,000 whole ISRs per seed (4 seeds), with **two** interrupts inside one routine.
+  - Every boundary pair of `K_GETEV`, `K_POST`, `K_WARP` and `P_MOVE`, and shielded `G_FILL` and `G_CLS` with input.
+  - Every key x plane x caps lock, the repeat schedule, the toggles, warps and clamps.
+  - Stack 26 / 14 bytes.
+  - The AY rule is shown necessary and sufficient: the shadow stored after the `OUT` fails 18 of 66 runs.
+- **Defect D1, fixed:** a key that changed between `K_POLL`'s all-rows read and its half-row reads (contact bounce on hardware;
+  not reachable on an emulator) left `K_NOW` stale.
+  - The idle test used the previous all-rows read, so later frames skipped the keyboard.
+  - Effects: a missed `E_KEY`, an armed repeat, and in keyboard-pointer mode a pointer running to the edge.
+  - Now `K_KANY` is the OR of the stored half-rows.
+  - The review's reproducer (`tests/review-hw.mjs` parts 1 and 1b) shows the right behaviour after the fix.
+- **D2, corrected above:** the worst frame was under-measured (4,560 reported; 4,954 by an exhaustive search after the D1 fix).
+- **D3, fixed:** test 3c's own precondition (see 16.3, test fixes).
+- **Noted, not changed:**
+  - An interrupt inside a second `K_WARP` drops the first warp if the ISR had not taken it yet.
+  - An event that arrives between `K_GETEV`'s empty check and the loop's `HALT` waits a frame.
+- **The review's checkers are kept** as `tests/review-*.mjs` (`review-inject`, `review-kpoll`, `review-hw`, `review-ay`,
+  `review-profile`, with `review-lib`).
 
 **A fault the tests found:** `K_POLL` clamped y between adding the down step and subtracting the up step, so up + down at the bottom
 edge drifted upward with a spurious `E_MOVE` (against 14.3 step 5). Fixed: up and down together leave y alone. The main model's
