@@ -1,4 +1,4 @@
-# keymap.txt -- the kernel's key map (docs/OBJECTS_EVENTS.md 14.4).  DRAFT for the owner's review (2026-11-12).
+# keymap.txt -- the kernel's key map (docs/OBJECTS_EVENTS.md 14.4).  Accepted as drafted for now (owner, 2026-11-12): judged once tried.
 # CS+1 = TAB and CS+4 = ESC (owner, 2026-11-12, docs/WINDOWS.md 13: PC Tab gives CS+1 on the web page).
 # One line per key in matrix order (key index k = 5 r + b, half-rows $FE $FD $FB $F7 $EF $DF $BF $7F, bits 0-4).
 # Columns: key name, plain, CAPS SHIFT, SYMBOL SHIFT.  An entry is one printable character, '-' (no event), or a name:
