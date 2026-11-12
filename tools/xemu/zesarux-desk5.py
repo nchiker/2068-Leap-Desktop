@@ -9,6 +9,8 @@ released 3 frames, as in TSRun.  Sequence (as the reference): (1) the shell: K_P
 ($4000-$57FF, $6000-$77FF) read 20 frames apart are equal; (2) ENTER (opens the focused icon, Calculator): until K_PROG = 1, 30 frames, settled;
 (3) 1 2 3 . 4 5 * 6 ENTER ('.' = SS+M, '*' = SS+B; digits: ASCII; ENTER 129; SYMBOL SHIFT = 137 = UTIL_KEY_ALT_R, verified through K_NOW at $F090);
 (4) SYMBOL SHIFT + Q (CLOSE): until K_PROG = 0, 30 frames, settled.
+(5) the Controls session (docs/TOOLKIT.md 10.8 item 6; steps and keys are read from the reference's keys.json, written by desk5-ref.mjs): TAB (CAPS SHIFT + 1) to the
+Controls icon, ENTER (K_PROG = 2): "ctl"; TAB x5, DOWN x10 (CS+6): "list"; TAB, LEFT x2 (CS+5), x, SS+P, SS+Z, DELETE (CS+0): "field"; ENTER: "status"; SS+Q: "back2".
 Rows: the settled screens "shell", "calc", "typed", "back" = TSRun's .bin byte for byte; "back" = "shell"; K_PROG after each step = TSRun's;
 the display string "0" after the launch and after each key = TSRun's, the typed one "740.7"; per key K_NOW shows the keys down; the pointer
 K_PX, K_PY = TSRun's; DOCK chunks 0-5 (memory zone 19) = the DCK after the run.
@@ -27,8 +29,13 @@ from ts2068_debug.zrcp import ZRCPClient  # noqa: E402
 ZDIR = Path.home() / "Applications/ZEsarUX-13.0"
 ROOT = Path(__file__).resolve().parents[2]
 NCHUNK = 6
-KEY_SS, KEY_ENTER = 137, 129
+KEY_SS, KEY_ENTER, KEY_CAPS = 137, 129, 135
 # name: [(zesarux code, K_NOW row, bit), ...]   rows $FE $FD $FB $F7 $EF $DF $BF $7F
+# the keyboard matrix as the reference's keys.json gives it: [row, bit] -> ZEsarUX key code (rows $FE $FD $FB $F7 $EF $DF $BF $7F)
+MATRIX = [
+    [KEY_CAPS, ord("z"), ord("x"), ord("c"), ord("v")], [ord(k) for k in "asdfg"], [ord(k) for k in "qwert"], [ord(k) for k in "12345"],
+    [ord(k) for k in "09876"], [ord(k) for k in "poiuy"], [KEY_ENTER, ord("l"), ord("k"), ord("j"), ord("h")], [128, KEY_SS, ord("m"), ord("n"), ord("b")],
+]
 KEYS = {
     "1": [(ord("1"), 3, 0)], "2": [(ord("2"), 3, 1)], "3": [(ord("3"), 3, 2)], "4": [(ord("4"), 3, 3)], "5": [(ord("5"), 3, 4)],
     "6": [(ord("6"), 4, 4)],
@@ -165,6 +172,24 @@ def main():
                             f"K_NOW {now.hex(' ')} / {now2.hex(' ')}"))
             wait_frames(3)
 
+        def press_chord(pairs):
+            """Hold a chord of [row, bit] pairs 3 frames, release, 3 frames; return whether K_NOW showed every key down (at either read)."""
+            codes = [MATRIX[r][b] for r, b in pairs]
+            for code in codes:
+                c.command(f"send-keys-event {code} 1")
+            wait_frames(2)
+            now = rd(c, Z(0xF090), 8)
+            wait_frames(1)
+            now2 = rd(c, Z(0xF090), 8)
+            for code in reversed(codes):
+                c.command(f"send-keys-event {code} 0")
+            want = [0] * 8
+            for r, b in pairs:
+                want[r] |= 1 << b
+            down = all((now[r] & want[r]) == want[r] for r in range(8)) or all((now2[r] & want[r]) == want[r] for r in range(8))
+            wait_frames(3)
+            return down
+
         def until_prog(n):
             nb = 0
             while True:
@@ -214,6 +239,48 @@ def main():
         up, nb = until_prog(0)
         back = step("back", "SS+Q quit to the shell", up, nb)
         results.append(("\"back\" screen = \"shell\" screen on ZEsarUX itself, byte for byte", back == shell_cur, "equal" if back == shell_cur else "differ"))
+
+        # 5. the Controls session (TOOLKIT 10.8 item 6)
+        ck = refk["ctl"]
+        cnames = ("ctl", "list", "field", "status", "back2")
+        cref = {n: (refdir / f"{n}.bin").read_bytes() for n in cnames}
+        crefj = {n: json.loads((refdir / f"{n}.json").read_text()) for n in cnames}
+
+        def run_keys(label, seq):
+            downs = [press_chord(pairs) for _, pairs in seq]
+            results.append((f"{label}: K_NOW shows every key down ({len(seq)} presses: " + " ".join(n for n, _ in seq) + ")", all(downs),
+                            f"{sum(downs)} of {len(downs)}"))
+
+        def csettle(tag, label, extra):
+            ok, cur, used = settle(extra)
+            res = compare(f"settled \"{tag}\" screen = TSRun's {tag} ({label})", cur, cref[tag], tag)
+            results.append((res[0], res[1] and ok, res[2] + f"; settled {ok} after {used} more frames"))
+            results.append((f"K_PROG after \"{tag}\" = TSRun's", kprog() == crefj[tag]["K_PROG"], f"{kprog()}, TSRun {crefj[tag]['K_PROG']}"))
+            return cur
+
+        run_keys("TAB to the Controls icon", [("TAB", ck["tabIcon"])])
+        run_keys("ENTER opens Controls", [("ENTER", ck["enter"])])
+        up, nb = until_prog(2)
+        wait_frames(30)
+        ok, cur, used = settle(300)
+        res = compare("settled \"ctl\" screen = TSRun's ctl (Controls as opened, K_PROG 2)", cur, cref["ctl"], "ctl")
+        results.append((res[0], res[1] and ok and up, res[2] + f"; settled {ok} after {used} more frames; K_PROG reached after {nb} frame stops"))
+        results.append(("K_PROG after \"ctl\" = TSRun's", kprog() == crefj["ctl"]["K_PROG"], f"{kprog()}, TSRun {crefj['ctl']['K_PROG']}"))
+        run_keys("list: TAB x5, DOWN x10", ck["list"])
+        csettle("list", "the List scrolled, bar moved", 60)
+        run_keys("field: TAB, LEFT x2, x, SS+P, SS+Z, DELETE", ck["field"])
+        csettle("field", "Field edited", 60)
+        run_keys("status: ENTER in the Field", ck["status"])
+        csettle("status", "status line Name: ...", 60)
+        run_keys("SS+Q", [("SS+Q", ck["close"])])
+        up, nb = until_prog(0)
+        wait_frames(30)
+        ok, cur, used = settle(300)
+        res = compare("settled \"back2\" screen = TSRun's back2 (SS+Q quit to the shell)", cur, cref["back2"], "back2")
+        results.append((res[0], res[1] and ok and up, res[2] + f"; settled {ok} after {used} more frames; K_PROG reached after {nb} frame stops"))
+        results.append(("K_PROG after \"back2\" = TSRun's", kprog() == crefj["back2"]["K_PROG"], f"{kprog()}, TSRun {crefj['back2']['K_PROG']}"))
+        results.append(("\"back2\" screen = \"shell\" screen on ZEsarUX itself (as TSRun: " + str(refk["back2EqShell"]) + ")", (cur == shell_cur) == refk["back2EqShell"],
+                        "equal" if cur == shell_cur else "differ"))
 
         c.command("set-memory-zone 19")
         dock_bad = {}

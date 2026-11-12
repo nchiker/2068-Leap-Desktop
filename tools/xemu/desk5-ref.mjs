@@ -8,6 +8,9 @@
 //   3. 1 2 3 . 4 5 SS+B 6 ENTER through the keyboard matrix (m.keyMatrix, active low, index = half-row in the order $FE $FD $FB $F7 $EF $DF
 //      $BF $7F, bit 0-4), each key (or chord) held 3 frames, released 3 frames ('.' = SS+M; 123.45 * 6 = 740.7); settled: "typed"
 //   4. SYMBOL SHIFT + Q (CLOSE, held 3 frames); until K_PROG = 0, 30 frames more, settled: "back", which must equal "shell" byte for byte.
+//   5. (T2/T3, docs/TOOLKIT.md 10.8 item 6) the Controls session: TAB (CAPS SHIFT + 1) focuses the Controls icon, ENTER opens it: "ctl" (K_PROG 2);
+//      TAB x5 (to the List), DOWN x10 (CS+6): "list"; TAB (the Field), LEFT x2 (CS+5), x, SS+P ('"'), SS+Z (':'), DELETE (CS+0): "field";
+//      ENTER (the status line reads Name: ...): "status"; SYMBOL SHIFT + Q: "back2" (K_PROG 0; whether it equals "shell" is reported, not required).
 // Per checkpoint NAME: NAME.bin (display RAM: $4000-$57FF then $6000-$77FF, 12,288 bytes), NAME.pbm (rendered 512x192, P4, 1 = ink),
 // NAME.json (display string, K_PROG, V_FRAMES, K_PX, K_PY, frame counts).  Also keys.json (the typed keys, display string after each key,
 // K_PROG after each step) for the other runners.
@@ -33,6 +36,12 @@ const SEQ = [
 ];
 const EXPECT = '740.7';
 const CLOSEKEYS = [SS, KQ];
+const CS = [0, 0], KZ = [0, 1], KX = [0, 2], KP = [5, 0], K0 = [4, 0];
+const TAB = [CS, D1], LEFT = [CS, D5], DOWN = [CS, D6], DELETE = [CS, K0], SSP = [SS, KP], SSZ = [SS, KZ];
+const CTL = [['TAB', TAB], ['ENTER', [ENTER]]];
+const LISTSEQ = [...Array(5).fill(['TAB', TAB]), ...Array(10).fill(['DOWN', DOWN])];
+const FIELDSEQ = [['TAB', TAB], ['LEFT', LEFT], ['LEFT', LEFT], ['x', [KX]], ['SS+P', SSP], ['SS+Z', SSZ], ['DELETE', DELETE]];
+const STATUSSEQ = [['ENTER', [ENTER]]];
 
 const rd16 = (m, a) => m.ram[a] | (m.ram[a + 1] << 8);
 const prog = (m) => m.ram[S.K_PROG];
@@ -122,14 +131,43 @@ const backSettled = settle(300);
 const back = dump('back', backSettled);
 kprog.back = back.K_PROG;
 
-writeFileSync(join(outDir, 'keys.json'), JSON.stringify({ seq: SEQ.map((s) => s[0]), afterKey, expect: EXPECT, kprog }) + '\n');
+// 5. the Controls session
+const pressSeq = (seq) => { for (const [, keys] of seq) press(keys); };
+pressSeq(CTL.slice(0, 1));                  // TAB: the focus to the Controls icon
+press(CTL[1][1]);                            // ENTER: opens it
+const ctlUp = untilProg(2);
+run(30);
+const ctlSettled = settle(300);
+const ctl = dump('ctl', ctlSettled);
+pressSeq(LISTSEQ);
+const listSettled = settle(60);
+const list = dump('list', listSettled);
+pressSeq(FIELDSEQ);
+const fieldSettled = settle(60);
+const field = dump('field', fieldSettled);
+pressSeq(STATUSSEQ);
+const statusSettled = settle(60);
+const status = dump('status', statusSettled);
+press(CLOSEKEYS);
+const back2Up = untilProg(0);
+run(30);
+const back2Settled = settle(300);
+const back2 = dump('back2', back2Settled);
+const back2EqShell = same(readFileSync(join(outDir, 'back2.bin')), readFileSync(join(outDir, 'shell.bin')));
+const ctlKeys = { tabIcon: CTL[0][1], enter: CTL[1][1], list: LISTSEQ, field: FIELDSEQ, status: STATUSSEQ, close: CLOSEKEYS };
+
+writeFileSync(join(outDir, 'keys.json'), JSON.stringify({ seq: SEQ.map((s) => s[0]), afterKey, expect: EXPECT, kprog, ctl: ctlKeys, ctlKprog: { ctl: ctl.K_PROG, list: list.K_PROG, field: field.K_PROG, status: status.K_PROG, back2: back2.K_PROG }, back2EqShell }) + '\n');
 console.log('display after each key: ' + afterKey.map(([k, s]) => `${k}:"${s}"`).join(' '));
 const rd_ = (n) => readFileSync(join(outDir, `${n}.bin`));
 const backEqShell = same(rd_('back'), rd_('shell'));
 console.log(`back screen equals shell screen byte for byte: ${backEqShell}`);
 const ok = shellUp && shellSettled && shell.K_PROG === 0 && calcUp && calcSettled && calc.K_PROG === 1 && calc.display === '0' &&
   typedSettled && typed.K_PROG === 1 && typed.display === EXPECT && backUp && backSettled && back.K_PROG === 0 && backEqShell && mismatch === 0 &&
-  !same(rd_('shell'), rd_('calc')) && !same(rd_('calc'), rd_('typed'));
+  !same(rd_('shell'), rd_('calc')) && !same(rd_('calc'), rd_('typed')) &&
+  ctlUp && ctlSettled && ctl.K_PROG === 2 && listSettled && list.K_PROG === 2 && fieldSettled && field.K_PROG === 2 && statusSettled && status.K_PROG === 2 &&
+  back2Up && back2Settled && back2.K_PROG === 0 &&
+  ['ctl', 'list', 'field', 'status'].every((n, i, a) => i === 0 || !same(rd_(n), rd_(a[i - 1])));
+console.log(`controls session: ctl/list/field/status K_PROG ${ctl.K_PROG}/${list.K_PROG}/${field.K_PROG}/${status.K_PROG}, back2 K_PROG ${back2.K_PROG}, back2 equals shell ${back2EqShell}`);
 console.log(`${ok ? 'PASS' : 'FAIL'}: desk5 reference: shell up after ${framesToShell} frames (settled ${shellSettled}), calc "${calc.display}" K_PROG ${calc.K_PROG}, typed "${typed.display}" (expected "${EXPECT}") K_PROG ${typed.K_PROG}, ` +
   `back K_PROG ${back.K_PROG} = shell ${backEqShell}, rendered-vs-RAM mismatches ${mismatch}; written to ${outDir}`);
 process.exitCode = ok ? 0 : 1;
