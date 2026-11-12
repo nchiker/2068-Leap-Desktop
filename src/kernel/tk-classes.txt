@@ -19,3 +19,24 @@ class VScroll : View            # 23 bytes (9.3)
 class CWindow : Window          # 21 bytes (docs/SHELL.md 10.1): a Window with a close box; flags bit 5 the box pressed
   method Draw  cw_draw
   method Event cw_event
+
+class List : View               # 23 bytes (TOOLKIT 10.3); flags bit 3 disabled look, bit 4 cell lines
+  field items 2
+  field count 1
+  field sel   1
+  field top   1
+  field bar   2
+  method Draw  list_draw
+  method Event list_event
+  method Focus ls_focus
+  method Blur  ls_blur
+
+class Field : View              # 21 bytes (TOOLKIT 10.4); flags bit 3 disabled look
+  field buf   2
+  field cap   1
+  field caret 1
+  field first 1
+  method Draw  field_draw
+  method Event field_event
+  method Focus button_fb
+  method Blur  button_blur

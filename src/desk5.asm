@@ -150,6 +150,7 @@ ISR_BODY:
     INCLUDE "gfx6/tables.inc"
 
     INCLUDE "kernel/kernel1.asm"
+    INCLUDE "kernel/tk2.asm"    ; the toolkit's List and Field (docs/TOOLKIT.md 10.1: chunk 5 is full)
     ASSERT $ <= $4000           ; chunks 0-1 only
 
     ORG $8000                   ; DOCK chunk 4: page-aligned tables
