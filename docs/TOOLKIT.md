@@ -1,4 +1,4 @@
-# Toolkit: contract (draft 1, 2026-11-12, for the owner)
+# Toolkit: contract (draft 1, 2026-11-12, owner approved)
 
 Roadmap step 5 (`docs/FEASIBILITY.md`): the controls the shell, Write and later programs need, beside the kernel's `Button`
 and `Label` (`docs/WINDOWS.md` 4). They live in the always-mapped pool (`docs/BANKING.md` 3, decision 1), so `W_UPDATE`
@@ -102,12 +102,126 @@ All 8 pixels of text line height, PROP6 (rows 1-7 inked), as `Button`.
 | Stack: any control's `M_DRAW` / `M_EVENT` | <= 64 bytes each |
 | `DI` / frame interrupts lost | none / 0 |
 
-## 8. Decisions for the owner
+## 8. Decisions (owner, 2026-11-12: the recommendations taken)
 
-1. **The four controls and what is out** (section 1). Is anything missing that the shell or Write will need first?
-2. **The caret does not blink** until timers exist (a solid bar while focused). Or: add `E_TIMER` to the ISR now (a small
-   kernel change: one event every N frames when a program asks), and blink it. **Recommended: solid now.**
-3. **In a `Field`, LEFT and RIGHT move the caret,** so focus moves on with TAB, UP and DOWN only (section 4).
-4. **The pool budget:** <= 2,600 bytes for the toolkit (section 7). That leaves about 700 bytes of step 5's 3,400 for the
-   shell's always-mapped needs (the launcher, `Icon` if the shell wants it in the pool).
-5. **Order:** T1, T2, T3, with a demo window in `desk5` after each slice, or all three, then the demo.
+1. **The four controls,** and what is out (section 1). `Icon` is the shell's contract's; alerts are built from `Dialog`,
+   `Label` and `Button`.
+2. **A solid caret** until a contract that needs timers adds `E_TIMER`.
+3. **In a `Field`, LEFT and RIGHT move the caret;** TAB, UP and DOWN move the focus.
+4. **<= 2,600 bytes** in the pool for the toolkit.
+5. **Order:** T1, then a stop for the owner to review the look in a demo; then T2 and T3 in one run, the demo at the end (where
+   the owner tries the SYMBOL SHIFT layout).
+
+## 9. T1 interface (designed 2026-11-12, binding for the T1 code and tests)
+
+The tests are written from sections 1-7 and this section, never from the code.
+
+### 9.1 Amendments to sections 2 and 5
+
+- **No `M_SCROLL`.** `VScroll` tells its target by sending **`M_EVENT` with DE -> a 4-byte record `TK_EV`:** type
+  `E_SCROLL` (11), data 1 = the new value, data 2 = the bar's `View_id`, data 3 = 0.
+  - A new message would add a slot to every `View` class's method table, and change `kern3`'s and `kern4`'s cartridges.
+  - Every view already takes `M_EVENT`, and one that does not know `E_SCROLL` does not consume it.
+  - With `target` = 0 the bar posts `E_CMD` instead, as `Button` does.
+- **The classes are in their own file, `src/kernel/tk-classes.txt`** (generated `tk-classes.inc`). `tk.asm` and the classes are
+  assembled only by step 5 cartridges (`desk5` now), in chunk 5 after the kernel. `kern3`, `kern4` and `bank5` stay
+  byte-identical.
+- **T1's tests run on `desk5`.** The demo is banked program code (in Calculator's chunk), so the controls are already driven
+  from a banked program. There is no `tk5` cartridge in T1.
+- **The toolkit uses `V_FRAMES`** (the cartridge's word, incremented by the ISR; `$E080` in every step 5 cartridge) to time
+  repeats.
+
+### 9.2 `Check` (`View`; `text` 2 at offset 16; size 18)
+
+**Flags:** bit 0 focusable (the program sets it), bit 3 checked, bit 4 radio, bit 5 pressed (internal).
+
+**Draw** (x, y, w, h = its rectangle; tw = `G_TEXTW` of its text):
+1. `CLR` fill (x, y, w, h).
+2. `SET` frame (x, y, 13, 8). It is 13 pixels by 8 rows: in mode 6 that looks about square.
+3. Checked:
+   - **a check box:** `SET` lines (x + 3, y + 2)-(x + 9, y + 5) and (x + 3, y + 5)-(x + 9, y + 2);
+   - **a radio:** `SET` fill (x + 4, y + 3, 5, 2).
+4. A radio's box has its 4 corner pixels cleared (`CLR`): (x, y), (x + 12, y), (x, y + 7), (x + 12, y + 7).
+5. The text, `SET`, `G_TEXTP` at (x + 17, y).
+6. Focused (as `Button`, 17.5 step 4): `SET` `G_HLINE` (x + 17, y + 8, tw).
+7. Pressed: `XOR` fill (x + 1, y + 1, 11, 6).
+
+The program must make h >= 9, and w >= 17 + tw.
+
+**Events:**
+- **`E_DOWN`:** pressed = 1, `W_DRAWVIEW`; consumed.
+- **`E_MOVE` while `K_CAPTURE` = self:** pressed = the point is inside the rectangle; `W_DRAWVIEW` when that changes; consumed.
+  `E_MOVE` otherwise: not consumed.
+- **`E_UP`:** if pressed: pressed = 0, then *activate*. Consumed either way.
+- **`E_KEY` SPACE (32):** *activate*; consumed. Other keys are not consumed.
+- ***Activate*:**
+  - **a check box:** checked toggles;
+  - **a radio:** every sibling (the same parent) whose class is `Check` with the radio bit and checked gets checked = 0 and is
+    drawn; then self's checked = 1;
+  - then `W_DRAWVIEW` of self, and `E_CMD` posted as `Button`'s (17.3: C = `View_id`, E = the window's slot).
+- **Focus / Blur:** as `Button`'s (drawn again; the blur without the focus look).
+
+### 9.3 `VScroll` (`View`; `value` 1 @16, `max` 1 @17, `page` 1 @18, `target` 2 @19, internal 2 @21; size 23)
+
+**Geometry** (x, y, w, h; h >= 32):
+- the up box (x, y, w, 10); the down box (x, y + h - 10, w, 10);
+- the track: rows y + 10 .. y + h - 11, tl = h - 20 rows;
+- the thumb, when max > 0:
+  - th = max(6, floor(tl x page / (max + page))), but never more than tl;
+  - ty = y + 10 + floor((tl - th) x value / max).
+
+  With max = 0 there is no thumb.
+
+**Draw:**
+1. `CLR` fill (x, y, w, h); `SET` frame (x, y, w, h).
+2. `SET` `G_HLINE` (x, y + 9, w) and (x, y + h - 10, w).
+3. **The arrows,** with cx = x + floor(w / 2):
+   - up: `SET` `G_HLINE` (cx - 2k, y + 3 + k, 4k + 1) for k = 0, 1, 2;
+   - down: the same at rows y + h - 4 - k.
+4. **The thumb:** `SET` fill (x + 2, ty, w - 4, th).
+5. **A pressed arrow** (internal state): `XOR` fill (x + 1, y + 1, w - 2, 8) for up, (x + 1, y + h - 9, w - 2, 8) for down.
+
+**`E_DOWN` at the point (px, py)** starts **tracking**: a loop inside the handler, like `W_DRAG`'s (WINDOWS 17.4).
+- **The part pressed:**
+  - **up arrow:** py < y + 10;
+  - **down arrow:** py >= y + h - 10;
+  - **thumb:** ty <= py < ty + th;
+  - **page up:** above the thumb;
+  - **page down:** below the thumb.
+- **A step:** -1 or +1 (an arrow), -page or +page (the track), clamped to 0..max. The arrow is drawn pressed.
+- **The step is taken at once.** It repeats 15 frames after the press, then every 6 frames (counted by `V_FRAMES`), while the
+  pointer is inside that part. For the track, the part is the side of the thumb it started on.
+- **The thumb:** the grab is py - ty. On each `E_MOVE`:
+  - ty' = clamp(py - grab, y + 10, y + 10 + tl - th);
+  - value = round((ty' - y - 10) x max / (tl - th)), with halves up; when tl - th = 0, value is unchanged.
+- **The loop:** `K_GETEV`; with carry, `HALT`, the repeat check, and loop.
+  - **`E_MOVE`:** as above.
+  - **`E_UP`:** the arrow is drawn released; tracking ends.
+  - **Anything else:** dropped.
+- **After each change of value:** `W_DRAWVIEW` of the bar, then the target is told (9.1).
+- `E_DOWN` is consumed. The bar takes no keys and is not focusable.
+
+**`TK_SETBAR`** (IX = a `VScroll`; A = value, C = max, B = page): max and page stored, value = min(A, max), `W_DRAWVIEW`. It
+tells nobody.
+
+### 9.4 The demo (`desk5`; the "Calc" menu gains item 3, "Controls...")
+
+A window "Controls" at (352, 16, 144, 112). It is built by Calculator's code (DOCK 2-3), once; afterwards the item raises it.
+It holds:
+- **check boxes** "Sound" and "Grid", at (360, 32, 72, 9) and (360, 44, 72, 9);
+- **radios** "Small", "Medium" and "Large", at (360, 60, 72, 9), (360, 72, 72, 9) and (360, 84, 72, 9), with "Medium" checked;
+- **a `VScroll`** at (476, 32, 12, 80), with max 20 and page 5. Its target is a demo view, so `E_SCROLL` reaches it.
+- **a `Label`** at (360, 100, 100, 9), showing "Value: n".
+
+`E_CMD` from the demo's controls carry ids >= 128, so Calculator's loop sends them to the demo, not to `C_KEY`.
+
+### 9.5 How the T1 bounds are measured (section 7)
+
+- **Bytes:** `TK_END - TK_CODE`, plus the descriptors in `tk-classes.inc`, reported per class.
+- **`W_DRAWVIEW`:**
+  - of "Sound" checked and focused;
+  - of the bar 12 x 80 with max 20, page 5 and value 10.
+
+  Both are reported, with the figure per 1,000 pixels against `Button`'s 64 x 16 (28,816 T).
+- **An arrow click:** from `K_DISPATCH` of the `E_DOWN` to the bar redrawn and the target told. **Report.**
+- **The stack:** in `Check`'s and `VScroll`'s `M_EVENT` and `M_DRAW` (tracking included). <= 64 bytes each.

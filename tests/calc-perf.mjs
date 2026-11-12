@@ -94,9 +94,9 @@ const fmtIn = (x, op, y) => `${typeValue(x[0], x[1], x[2])} ${op} ${typeValue(y[
   for (let i = 0; i < NDIV; i++) one(randV(), '/', rng.chance(0.1) ? EDGES[rng.int(0, EDGES.length - 1)] : randV());
   for (let i = 0; i < NOPS; i++) one(randV(), rng.pick(['+', '-', '*']), randV());
   const top = (op) => { const s = stats[op].top.sort((a, b) => b[0] - a[0]).slice(0, 3); return s.map(([t, w]) => `${t} for ${w}`).join('; '); };
-  row(`C_KEY '=' doing a division (worst of ${stats['/'].n}, mean ${Math.round(stats['/'].sum / stats['/'].n)})`, stats['/'].max, 120000, `slowest: ${top('/')}; 70,000 estimated`);
-  for (const op of ['+', '-', '*']) row(`C_KEY '=' doing ${op} (worst of ${stats[op].n}, mean ${Math.round(stats[op].sum / stats[op].n)})`, stats[op].max, 120000, `slowest: ${top(op)}`);
-  // the operator key that performs the pending operation (chained calculation) does the same arithmetic: reported against the same 120,000
+  row(`C_KEY '=' doing a division (worst of ${stats['/'].n}, mean ${Math.round(stats['/'].sum / stats['/'].n)})`, stats['/'].max, 175000, `slowest: ${top('/')}; the owner set 175,000 from the measured 174,661 (option A)`);
+  for (const op of ['+', '-', '*']) row(`C_KEY '=' doing ${op} (worst of ${stats[op].n}, mean ${Math.round(stats[op].sum / stats[op].n)})`, stats[op].max, 175000, `slowest: ${top(op)}`);
+  // the operator key that performs the pending operation (chained calculation) does the same arithmetic: reported against the same 175,000
   let chain = { max: 0, where: '' };
   for (let i = 0; i < 1500; i++) {
     const x = randV(), y = rng.chance(0.15) ? EDGES[rng.int(0, EDGES.length - 1)] : randV(), op = rng.pick(['/', '/', '*', '+', '-']);
@@ -104,7 +104,7 @@ const fmtIn = (x, op, y) => `${typeValue(x[0], x[1], x[2])} ${op} ${typeValue(y[
     const t = press(rng.pick([43, 45, 42, 47]));
     if (t > chain.max) chain = { max: t, where: fmtIn(x, op, y) + ' then an operator key' };
   }
-  row('C_KEY of an operator key that performs the pending operation (chained; contract bounds only "="; same 120,000 shown for reference)', chain.max, null, `slowest: ${chain.max} for ${chain.where}${chain.max > 120000 ? ' (OVER 120,000)' : ''}`);
+  row('C_KEY of an operator key that performs the pending operation (chained; contract bounds only "="; same 175,000 shown for reference)', chain.max, null, `slowest: ${chain.max} for ${chain.where}${chain.max > 175000 ? ' (OVER 175,000)' : ''}`);
 }
 
 // ---- W_DRAWVIEW of the display showing "-0.0000001" ------------------------------------------------------------------------------------------

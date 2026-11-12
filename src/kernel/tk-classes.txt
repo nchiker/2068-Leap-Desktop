@@ -1,0 +1,17 @@
+# The toolkit's classes (docs/TOOLKIT.md 9.1): assembled only by step 5 cartridges, after the kernel, with src/kernel/tk.asm.
+class Check : View              # 18 bytes (9.2): a check box, or a radio with flags bit 4
+  field text 2
+  method Draw  check_draw
+  method Event check_event
+  method Focus button_fb
+  method Blur  button_blur
+
+class VScroll : View            # 23 bytes (9.3)
+  field value  1
+  field max    1
+  field page   1
+  field target 2
+  field press  1                # internal: 1 the up arrow drawn pressed, 2 the down arrow
+  field pad    1
+  method Draw  vs_draw
+  method Event vs_event

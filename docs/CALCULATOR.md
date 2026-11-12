@@ -142,7 +142,7 @@ Any other code is not a Calculator key.
 | Its RAM image | <= 512 |
 | `desk5`'s pool bytes beyond `kern4`'s kernel (`far.asm` in page 0 not counted: BANKING 6.1) | <= 100 (**EST** 40) |
 | `C_KEY` for a digit, with the display string written | <= 3,000 |
-| `C_KEY` for `=` doing the slowest operation (a division) | <= 120,000 (**EST** 70 k, about 1.2 frames) |
+| `C_KEY` for `=` doing the slowest operation (a division) | <= 175,000 (owner, 2026-11-12, option A: the measured 174,661; was 120,000, **EST** 70 k) |
 | `W_DRAWVIEW` of the display, "-0.0000001" | **report** |
 | A click on a button to the display redrawn | **report** |
 | Interrupts lost over every frame test | 0 |
@@ -203,7 +203,7 @@ division (`c_round`). This took `=` from 155 k to 104 k T at worst.
   - Fuse 1.9.1: the boot screen, 5 of 5 rows. Fuse cannot take typed input headless.
 - **`tests/calc-perf.mjs`:** 8 pass, **1 missed**, 3 reported.
 
-**Missed bound, reported to the owner before any change:** `C_KEY` for `=` doing a division takes **174,661 T** at worst,
+**Missed bound (owner's decision, 2026-11-12: option A, the bound is now 175,000):** `C_KEY` for `=` doing a division takes **174,661 T** at worst,
 against 120,000 (about 3 frames).
 - The mean is 100,806 T.
 - The slowest inputs found are 9.9999999 / 6.6666667 and 9.9999999 / 1.
@@ -218,5 +218,5 @@ against 120,000 (about 3 frames).
   would then need raising to about 2,600.
 
 **Not yet done:**
-- **The owner's choice** on the missed bound (A or B above).
+- **The owner's review of the look and the rules** on screen (`web/?cart=desk5`).
 - **The owner's review on screen:** `web/?cart=desk5`, with the Mouse switch on.

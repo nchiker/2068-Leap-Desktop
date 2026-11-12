@@ -18,6 +18,7 @@ RESULT      EQU $FF00
 KARENA_BASE EQU $F500
 KARENA_END  EQU $FB00
 C_IMG_ADDR  EQU $C000           ; Calculator's RAM image (docs/CALCULATOR.md 2)
+D_IMG_ADDR  EQU $C100           ; the toolkit demo's (docs/TOOLKIT.md 9.4)
 AARENA_BASE EQU $C200
 AARENA_END  EQU $E000
 
@@ -98,6 +99,7 @@ ENTRY:
     ld (RESULT),hl              ; marker: booted
 ; The launch (docs/CALCULATOR.md 2): the image, the app arena, then the program (it never returns).
     KFAR C_INIT
+    KFAR D_INIT                 ; the toolkit demo's image (docs/TOOLKIT.md 9.4)
     ld hl,K_AARENA
     ld de,AARENA_BASE
     ld bc,AARENA_END
@@ -159,8 +161,13 @@ ISR_BODY:
 
     ORG $A000                   ; DOCK chunk 5: the kernel
     INCLUDE "kernel/kernel.asm"
+    INCLUDE "kernel/tk.asm"     ; the toolkit (docs/TOOLKIT.md)
+    INCLUDE "tk-classes.inc"
     ASSERT $ <= $C000           ; chunk 5 only
 
     INCLUDE "apps/calc.asm"     ; DOCK chunks 2-3
+    ASSERT C_IMG_ADDR + C_IMG_LEN <= D_IMG_ADDR
+    INCLUDE "apps/demo.asm"
+    ASSERT $ <= $8000
 
     SAVEBIN "mem.bin", 0, 65536

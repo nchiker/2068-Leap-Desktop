@@ -20,7 +20,7 @@ C_INIT:
 ; ---------------------------------------------------------------------------------------------------------------------------
 ; C_MAIN (section 3): the menu, the window, the mouse, then the event loop.  Never returns.
 C_MAIN:
-    ld hl,C_MENUS
+    ld hl,D_MENUS               ; the desktop's menu (demo.asm)
     KFAR MB_SET
     call c_build
     ld ix,(C_WIN)
@@ -59,7 +59,7 @@ c_loop:
     jr z,.key
     ld a,(K_EV+2)
     cp 2
-    jr nz,c_loop
+    jp nz,D_MENU                ; item 3: the toolkit demo (demo.asm)
     ld a,'e'
 .key:
     call C_KEY
@@ -1276,13 +1276,6 @@ C_S6:       DB 1, "6"
 C_S7:       DB 1, "7"
 C_S8:       DB 1, "8"
 C_S9:       DB 1, "9"
-C_MENUS:                        ; one menu: Calc (1): Clear (1), Clear entry (2)
-    DB 1
-    DW C_M1
-C_M1:
-    DB 1, 4, "Calc", 2
-    DB 1, 0, 5, "Clear"
-    DB 2, 0, 11, "Clear entry"
 ; Variables (C_KEY "C" sets the state; the rest is scratch).
 C_WIN:      DW 0                ; the window
 C_DISP:     DW 0                ; the display view
