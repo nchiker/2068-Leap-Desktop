@@ -1,6 +1,6 @@
 "use strict";
-// gfx6-model.mjs -- the reference model for the gfx6 graphics library, slices S1, S2 and S3 (docs/GRAPHICS_SPIKE.md sections 3-6,
-// 12, 14 and 15).  Written from the contract, not from the code.  A 512 x 192 bit screen (one byte per pixel here, 1 = ink) and the
+// gfx6-model.mjs -- the reference model for the gfx6 graphics library, slices S1, S2, S3 and S4 (docs/GRAPHICS_SPIKE.md sections 3-6,
+// 12, 14, 15 and 16 (S4: PointerModel and the byte-rectangle helpers, near the end of the file)).  Written from the contract, not from the code.  A 512 x 192 bit screen (one byte per pixel here, 1 = ink) and the
 // operations: draw op, clip rectangle, G_FILL, G_HLINE, G_VLINE, G_FRAME, G_CLS, plus G_ADDR / G_ROWADDR / ROWTAB (S1); the line
 // height GLH, G_TEXT8, G_TEXTP, G_TEXTW, the font parsers (fonts/prop6.txt, src/font.inc) and the expected generated tables
 // PROP6_W / PROP6_I / FONTP / SHR / SHL (S2).
@@ -540,6 +540,136 @@ export function wrapGreedy(text, limit = 500) {
   }
   if (line !== '') lines.push(line);
   return lines;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// S4 (section 16): the pointer, drawn by the frame interrupt, and the shield.  Written from 16.2 and 16.4.  Readings:
+//  S4a. A byte rectangle is { c0, c1, y0, y1 }, all INCLUSIVE (byte columns c0..c1, pixel rows y0..y1); null is "empty".
+//  S4b. The shield's byte rectangle clamps (x, y, w, h) to the screen as G_SETCLIP does (x0 = max(x, 0), x1 = min(x + w, 512), ...);
+//       empty (null) when w <= 0, h <= 0 or a range is empty.  Arguments are wrapped through s16() like every GA word.
+//  S4c. P_INIT / P_MOVE clamp each coordinate: clamp(s16(v), 0, 511) and clamp(s16(v), 0, 191).
+//  S4d. The model keeps TWO things: `scr`, a Gfx6Model holding the screen WITHOUT the pointer (what shielded drawing made of it;
+//       tests draw into it), and the pointer state.  display() is "the screen with the pointer image at D" (16.4), a fresh
+//       Gfx6Model with the whole-screen clip; the real display bytes are compared with it.  The model's draw ops never see the
+//       pointer: a draw outside the shield rule (16.3 "How to use the shield") is not modelled.
+//  S4e. Interrupts: the model has no notion of an interrupt.  16.4 says the display after "the routine, then P_ISR" is what the
+//       model gives however the frame ISR fell, so a test injecting an interrupt compares with `routine; isr()` only.
+//  S4f. unknown(): after a script batch the drawn state D is not known (ISRs ran at uncontrolled moments); D := null with the screen
+//       known is the state from which the next isr() gives "screen + pointer at the position", which is all 16.4 promises.
+
+/** Clamp a pointer position (S4c): [x, y] each clamped to 0..511 / 0..191 after the s16() wrap. */
+export const clampPos = (x, y) => [Math.min(Math.max(s16(x), 0), SCR_W - 1), Math.min(Math.max(s16(y), 0), SCR_H - 1)];
+
+/** The pointer's byte rectangle at (px, py) (16.2): byte columns c0 = px >> 3 .. min(c0 + 2, 63), rows py .. min(py + 15, 191). */
+export function pointerRect(px, py) {
+  const c0 = px >> 3;
+  return { c0, c1: Math.min(c0 + 2, 63), y0: py, y1: Math.min(py + 15, SCR_H - 1) };
+}
+
+/** The shield's byte rectangle of (x, y, w, h) (16.2): clamped as G_SETCLIP does; null when empty. */
+export function shieldRect(x, y, w, h) {
+  x = s16(x); y = s16(y); w = s16(w); h = s16(h);
+  if (w <= 0 || h <= 0) return null;
+  const ax = Math.max(x, 0), bx = Math.min(x + w, SCR_W), ay = Math.max(y, 0), by = Math.min(y + h, SCR_H);
+  if (ax >= bx || ay >= by) return null;
+  return { c0: ax >> 3, c1: (bx - 1) >> 3, y0: ay, y1: by - 1 };
+}
+
+/** Two byte rectangles meet when they share a (byte column, row); an empty one (null) meets nothing (16.2). */
+export const meets = (a, b) => !!a && !!b && a.c0 <= b.c1 && b.c0 <= a.c1 && a.y0 <= b.y1 && b.y0 <= a.y1;
+
+/** The set of (byte column, row) cells of a list of byte rectangles, as a Uint8Array(64 * 192) (1 = in the union). */
+export function rectUnion(rects) {
+  const v = new Uint8Array(64 * SCR_H);
+  for (const r of rects) if (r) for (let y = r.y0; y <= r.y1; y++) for (let c = r.c0; c <= r.c1; c++) v[y * 64 + c] = 1;
+  return v;
+}
+
+/** Build a 16 x 16 pointer bitmap in G_BLIT's pair format (64 bytes) from 16 strings of 16 characters: '#' ink (mask 0, image 1),
+ *  'o' outline in paper (mask 0, image 0), anything else transparent (mask 1, image 0). */
+export function arrowFromArt(art) {
+  const out = new Uint8Array(64);
+  for (let k = 0; k < 16; k++) for (let b = 0; b < 2; b++) {
+    let mk = 0, im = 0;
+    for (let j = 0; j < 8; j++) {
+      const ch = art[k][8 * b + j] ?? '.', bit = 0x80 >> j;
+      if (ch === '#') im |= bit; else if (ch !== 'o') mk |= bit;
+    }
+    out[2 * (2 * k + b)] = mk; out[2 * (2 * k + b) + 1] = im;
+  }
+  return out;
+}
+/** An arrow for the model's own self-test and for stand-ins (the cartridge's own P_ARROW is read from the image). */
+export const TEST_ARROW = arrowFromArt([
+  'o...............', 'oo..............', 'o#o.............', 'o##o............', 'o###o...........', 'o####o..........', 'o#####o.........', 'o######o........',
+  'o#######o.......', 'o########o......', 'o#####ooooo.....', 'o##o##o.........', 'o#o o##o........', 'oo  o##o........', 'o    o##o.......', '      oo........',
+]);
+
+/**
+ * The S4 pointer model (16.4) over a pointer-free screen `scr` (a Gfx6Model).  `arrow`: the 64 bytes of P_ARROW.
+ * State: pos {x, y}; on; S (shield byte rectangle or null); D (drawn position {x, y} or null).
+ */
+export class PointerModel {
+  constructor(scr, arrow) {
+    if (arrow.length !== 64) throw new RangeError('P_ARROW must be 64 bytes');
+    this.scr = scr; this.arrow = Uint8Array.from(arrow);
+    this.on = false; this.pos = { x: 0, y: 0 }; this.S = null; this.D = null;
+    this.calls = 0;                    // number of P_MOVE / P_SHIELD / P_UNSHIELD / P_INIT calls since the last isr() (the "skip" test)
+  }
+  /** A copy with its own screen (for "what would this give" questions). */
+  clone() {
+    const c = new PointerModel(new Gfx6Model(), this.arrow);
+    c.scr.px.set(this.scr.px); c.scr.op = this.scr.op; c.scr.glh = this.scr.glh; c.scr.clip = { ...this.scr.clip };
+    c.on = this.on; c.pos = { ...this.pos }; c.S = this.S && { ...this.S }; c.D = this.D && { ...this.D }; c.calls = this.calls;
+    return c;
+  }
+  /** P_INIT(x, y): position = clamped; on; no shield; nothing drawn. */
+  init(x, y) { const [cx, cy] = clampPos(x, y); this.pos = { x: cx, y: cy }; this.on = true; this.S = null; this.D = null; this.calls++; }
+  /** P_MOVE(x, y). */
+  move(x, y) { const [cx, cy] = clampPos(x, y); this.pos = { x: cx, y: cy }; this.calls++; }
+  /** P_SHIELD(x, y, w, h): replaces any shield; erases the drawn pointer at once when its byte rectangle meets the shield's. */
+  shield(x, y, w, h) {
+    this.S = shieldRect(x, y, w, h); this.calls++;
+    if (this.D && meets(pointerRect(this.D.x, this.D.y), this.S)) this.D = null;
+  }
+  /** P_UNSHIELD. */
+  unshield() { this.S = null; this.calls++; }
+  /** Would the pointer be visible now (on, and its byte rectangle at the position does not meet the shield)? */
+  visible() { return this.on && !meets(pointerRect(this.pos.x, this.pos.y), this.S); }
+  /** P_ISR (16.4).  Returns what it did: 'none' (nothing drawn or erased), 'erase', 'draw' or 'move' (erase + draw). */
+  isr() {
+    this.calls = 0;
+    if (!this.on) return 'none';
+    const vis = this.visible();
+    let did = 'none';
+    if (this.D && (!vis || this.D.x !== this.pos.x || this.D.y !== this.pos.y)) { this.D = null; did = 'erase'; }
+    if (vis && !this.D) { this.D = { ...this.pos }; did = did === 'erase' ? 'move' : 'draw'; }
+    return did;
+  }
+  /** S4f: forget where the pointer is drawn (the screen is known, the pointer is not). */
+  unknown() { this.D = null; }
+  /** The display this state implies (16.4): the screen with the pointer image at D, a fresh model with the whole-screen clip. */
+  display() {
+    const d = new Gfx6Model();
+    d.px.set(this.scr.px);
+    if (this.D) d.blit(this.D.x, this.D.y, 16, 16, this.arrow);
+    return d;
+  }
+  /** Compare the display bytes in a RAM array with display(): null when equal, else { count, first }. */
+  compareRam(ram) { return this.display().compareRam(ram); }
+  /** The display bytes this state implies (12,288, file A then file B). */
+  displayBytes() { return this.display().toBytes(); }
+  /** The byte rectangles of everything the state may touch: the pointer at the position and at D. */
+  rects() { return [pointerRect(this.pos.x, this.pos.y), this.D && pointerRect(this.D.x, this.D.y)].filter(Boolean); }
+}
+
+// The 12,288 display bytes of a 64 KB RAM array equal `want` (displayBytes())?  null when equal, else the first difference.
+export function compareBytes(ram, want) {
+  for (let k = 0; k < want.length; k++) {
+    const a = k < FILE_SIZE ? FILE_A + k : FILE_B + k - FILE_SIZE;
+    if (ram[a] !== want[k]) return { index: k, addr: a, got: ram[a], want: want[k] };
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------
@@ -1152,6 +1282,125 @@ async function selfTest() {
       }
       C.check('scrollv = the contract rule written row by row, 400 random rectangles, clips and n', !bad, bad);
     }
+  }
+  // ---- S4: the pointer model (16.2, 16.4) ---------------------------------------------------------------------------------
+  {
+    const rj = (r) => JSON.stringify(r);
+    const pr = (x, y) => rj(pointerRect(x, y));
+    C.check('pointerRect: (0,0) -> c 0..2 rows 0..15; (7,0) -> c 0..2; (8,0) -> c 1..3; (495,0) -> c 61..63; (496,0) -> c 62..63; (504,185) -> c 63..63 rows 185..191; (511,191) -> c 63 row 191',
+      pr(0, 0) === rj({ c0: 0, c1: 2, y0: 0, y1: 15 }) && pr(7, 0) === rj({ c0: 0, c1: 2, y0: 0, y1: 15 }) && pr(8, 0) === rj({ c0: 1, c1: 3, y0: 0, y1: 15 }) &&
+      pr(495, 0) === rj({ c0: 61, c1: 63, y0: 0, y1: 15 }) && pr(496, 0) === rj({ c0: 62, c1: 63, y0: 0, y1: 15 }) &&
+      pr(504, 185) === rj({ c0: 63, c1: 63, y0: 185, y1: 191 }) && pr(511, 191) === rj({ c0: 63, c1: 63, y0: 191, y1: 191 }));
+    C.check('pointerRect: rows min(py + 15, 191): y 176 -> 176..191, y 177 -> 177..191, y 175 -> 175..190',
+      pointerRect(0, 176).y1 === 191 && pointerRect(0, 177).y1 === 191 && pointerRect(0, 175).y1 === 190);
+    const sr = (...a) => rj(shieldRect(...a));
+    C.check('shieldRect: (3,5,14,2) -> c 0..2 rows 5..6; (-10,-10,20,20) -> c 0..1 rows 0..9; (16,0,8,1) -> c 2..2; (15,0,2,1) -> c 1..2; (511,191,5,5) -> c 63 row 191; (0,0,512,192) -> c 0..63 rows 0..191',
+      sr(3, 5, 14, 2) === rj({ c0: 0, c1: 2, y0: 5, y1: 6 }) && sr(-10, -10, 20, 20) === rj({ c0: 0, c1: 1, y0: 0, y1: 9 }) && sr(16, 0, 8, 1) === rj({ c0: 2, c1: 2, y0: 0, y1: 0 }) &&
+      sr(15, 0, 2, 1) === rj({ c0: 1, c1: 2, y0: 0, y1: 0 }) && sr(511, 191, 5, 5) === rj({ c0: 63, c1: 63, y0: 191, y1: 191 }) && sr(0, 0, 512, 192) === rj({ c0: 0, c1: 63, y0: 0, y1: 191 }));
+    C.check('shieldRect: empty (null) for w = 0, h = 0, w < 0, off screen left / right / above / below, and a rectangle that ends at x = 0 or y = 0',
+      [[0, 0, 0, 5], [0, 0, 5, 0], [5, 5, -3, 4], [-20, 0, 20, 9], [512, 0, 9, 9], [0, -9, 9, 9], [0, 192, 9, 9], [600, 600, 9, 9], [-100, -100, 100, 100]].every((a) => shieldRect(...a) === null));
+    C.check('shieldRect wraps its arguments like a GA word (65535 = -1, 65536 + 3 = 3)', sr(65535, 0, 9, 1) === rj({ c0: 0, c1: 0, y0: 0, y1: 0 }) && sr(65536 + 3, 0, 9, 1) === rj({ c0: 0, c1: 1, y0: 0, y1: 0 }));
+    const a = { c0: 2, c1: 4, y0: 10, y1: 20 };
+    C.check('meets: shares at least one (byte column, row); touching edges inside the rectangle count, adjacent ones do not; null meets nothing; symmetric',
+      meets(a, { c0: 4, c1: 9, y0: 20, y1: 30 }) && !meets(a, { c0: 5, c1: 9, y0: 10, y1: 20 }) && !meets(a, { c0: 2, c1: 4, y0: 21, y1: 30 }) && !meets(a, { c0: 0, c1: 1, y0: 0, y1: 99 }) &&
+      !meets(a, null) && !meets(null, a) && !meets(null, null) && meets({ c0: 0, c1: 63, y0: 0, y1: 191 }, a) && meets(a, { c0: 3, c1: 3, y0: 15, y1: 15 }) === meets({ c0: 3, c1: 3, y0: 15, y1: 15 }, a));
+    C.check('clampPos: (-5, 300) -> (0, 191); (511, 191) stays; (512, 192) -> (511, 191); (65535, 65535) = (-1, -1) -> (0, 0); (40000, 40000) = (-25536, -25536) -> (0, 0); (16383, -16384) -> (511, 0)',
+      rj(clampPos(-5, 300)) === '[0,191]' && rj(clampPos(511, 191)) === '[511,191]' && rj(clampPos(512, 192)) === '[511,191]' && rj(clampPos(65535, 65535)) === '[0,0]' &&
+      rj(clampPos(40000, 40000)) === '[0,0]' && rj(clampPos(16383, -16384)) === '[511,0]');
+    C.check('arrowFromArt: 64 bytes, pixel (0,0) of TEST_ARROW is outline (mask 0, image 0), (1,2) is ink (mask 0, image 1), (15,15) is transparent (mask 1, image 0)',
+      TEST_ARROW.length === 64 && !(TEST_ARROW[0] & 0x80) && !(TEST_ARROW[1] & 0x80) && !(TEST_ARROW[2 * (2 * 2)] & 0x40) && (TEST_ARROW[2 * (2 * 2) + 1] & 0x40) &&
+      (TEST_ARROW[2 * (2 * 15 + 1)] & 1) && !(TEST_ARROW[2 * (2 * 15 + 1) + 1] & 1));
+
+    // The image: bitmap pixel (j, k) at (px + j, py + k): new = (old AND m) OR i, cut at the right and bottom edges; compared with a
+    // direct per-pixel reading of the arrow and with preshift + blitSet (15.2), over every position class of 16.6.1.
+    const R = (() => { let s = 0x5EED4; return (lo, hi) => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return lo + (s >>> 8) % (hi - lo + 1); }; })();
+    const XS = [0, 1, 7, 8, 9, 15, 16, 100, 255, 256, 495, 496, 497, 503, 504, 505, 511], YS = [0, 1, 5, 7, 8, 100, 175, 176, 177, 183, 190, 191];
+    let bad = '', n = 0;
+    for (const px of XS) for (const py of YS) {
+      const scr = new Gfx6Model(); for (let i = 0; i < scr.px.length; i++) scr.px[i] = R(0, 1);
+      const pm = new PointerModel(scr, TEST_ARROW); pm.init(px, py); pm.isr();
+      const disp = pm.display(), want = scr.px.slice(), set = scr.preshift(16, 16, TEST_ARROW), viaSet = new Gfx6Model();
+      viaSet.px.set(scr.px); viaSet.blitSet(px, py, 16, 16, set);
+      for (let k = 0; k < 16; k++) for (let j = 0; j < 16; j++) {
+        const x = px + j, y = py + k;
+        if (x >= SCR_W || y >= SCR_H) continue;
+        const mk = (TEST_ARROW[2 * (2 * k + (j >> 3))] >> (7 - (j & 7))) & 1, im = (TEST_ARROW[2 * (2 * k + (j >> 3)) + 1] >> (7 - (j & 7))) & 1;
+        want[y * SCR_W + x] = (want[y * SCR_W + x] & mk) | im;
+      }
+      let diff = 0, outside = 0;
+      const rect = pointerRect(px, py);
+      for (let i = 0; i < want.length; i++) {
+        if (disp.px[i] !== want[i]) diff++;
+        if (disp.px[i] !== scr.px[i]) { const x = i % SCR_W, y = (i / SCR_W) | 0; if ((x >> 3) < rect.c0 || (x >> 3) > rect.c1 || y < rect.y0 || y > rect.y1) outside++; }
+      }
+      if (diff || outside || disp.compare(viaSet)) bad += ` (${px},${py}): ${diff} differ from the per-pixel reading, ${outside} changed outside the byte rectangle, via the set: ${disp.compare(viaSet) ? 'differs' : 'equal'};`;
+      n++;
+    }
+    C.check('pointer image = per-pixel (old AND m) OR i, cut at the right and bottom edges, only inside the byte rectangle, equals preshift + blitSet: 17 x 12 positions', !bad, bad || `${n} positions`);
+    {
+      const scr = new Gfx6Model(); scr.px.fill(1);
+      const pm = new PointerModel(scr, TEST_ARROW); pm.init(100, 50); pm.isr();
+      const d = pm.display(); let changed = 0; for (let i = 0; i < d.px.length; i++) if (d.px[i] !== 1) changed++;
+      const scr2 = new Gfx6Model(); const pm2 = new PointerModel(scr2, TEST_ARROW); pm2.init(100, 50); pm2.isr(); const d2 = pm2.display();
+      C.check('TEST_ARROW is a visible pointer on ink (some pixels become paper: outline) and on paper (some become ink)', changed > 0 && d2.count() > 0, `${changed} pixels erased on ink, ${d2.count()} drawn on paper`);
+    }
+  }
+
+  // The state machine, hand-worked (16.4).
+  {
+    const R = (() => { let s = 0x5EED5; return (lo, hi) => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return lo + (s >>> 8) % (hi - lo + 1); }; })();
+    const mk = () => { const scr = new Gfx6Model(); for (let i = 0; i < scr.px.length; i++) scr.px[i] = (i * 7 + (i >> 5)) & 1; return new PointerModel(scr, TEST_ARROW); };
+    const same = (pm, ref) => !pm.display().compare(ref);
+    const ref = (pm) => { const r = new Gfx6Model(); r.px.set(pm.scr.px); return r; };
+    let pm = mk(), plain = ref(pm);
+    C.check('before P_INIT the pointer is off: P_ISR does nothing, move / shield do not turn it on, the display is the plain screen',
+      (pm.isr(), pm.D === null) && (pm.move(10, 10), pm.isr(), pm.D === null) && (pm.shield(0, 0, 9, 9), pm.unshield(), pm.isr(), pm.D === null) && same(pm, plain));
+    pm.init(300, 100);
+    C.check('P_INIT: position clamped, on, no shield, nothing drawn (display = plain screen) until the next P_ISR', pm.on && pm.S === null && pm.D === null && same(pm, plain) && pm.pos.x === 300 && pm.pos.y === 100);
+    C.check('P_ISR draws at the position: D = (300, 100), display = screen + image there, differs from the plain screen', pm.isr() === 'draw' && pm.D.x === 300 && !same(pm, plain));
+    C.check('P_ISR again with nothing changed does nothing (D unchanged, display unchanged)', (() => { const was = pm.display(); return pm.isr() === 'none' && !pm.display().compare(was); })());
+    pm.move(301, 100);
+    C.check('P_MOVE draws nothing (D still (300, 100)); the next P_ISR erases and draws at (301, 100) (a "move")', pm.D.x === 300 && pm.isr() === 'move' && pm.D.x === 301);
+    pm.move(301, 100);
+    C.check('P_MOVE to the same position: P_ISR does not erase or draw', pm.isr() === 'none' && pm.D.x === 301);
+    // shield meeting the drawn pointer: erased at once; shield not meeting: nothing
+    pm.shield(320, 100, 8, 8);            // byte column 40: the pointer at px 301 covers columns 37..39 -> no meet
+    C.check('P_SHIELD whose byte rectangle does not meet the drawn pointer (columns 37..39 vs 40): the pointer stays', pm.D !== null);
+    pm.shield(312, 100, 8, 8);            // byte column 39: meets (even though pixels 312.. are beyond the arrow: 301 + 15 = 316 is inside column 39)
+    C.check('P_SHIELD that meets (column 39) erases at once: D = none, display = plain screen', pm.D === null && same(pm, plain));
+    C.check('P_ISR with the pointer still meeting the shield: nothing drawn (hidden), even after P_MOVE to another position that meets', pm.isr() === 'none' && pm.D === null && (pm.move(300, 104), pm.isr() === 'none' && pm.D === null));
+    pm.move(0, 0);
+    C.check('P_MOVE to a position that does not meet the shield: the next P_ISR draws it even though the shield is still set (a draw, not a move)', pm.isr() === 'draw' && pm.D.x === 0);
+    pm.shield(0, 0, 0, 5);
+    C.check('P_SHIELD with an empty rectangle: the shield becomes "empty" (meets nothing): the pointer stays, and replaces the old shield', pm.S === null && pm.D !== null);
+    pm.shield(500, 0, 12, 12); pm.unshield(); pm.move(496, 0);
+    C.check('P_UNSHIELD removes the shield; draws nothing by itself', pm.S === null && pm.D.x === 0);
+    pm.shield(0, 0, 8, 1); pm.shield(496, 190, 8, 1);                  // replaces the first: the pointer at (0, 0) is NOT erased by the replaced rectangle... it met the first!
+    C.check('P_SHIELD(0,0,8,1) erases the pointer at (0,0); a second P_SHIELD replaces the first and nothing is redrawn until P_ISR', pm.D === null && pm.S.c0 === 62);
+    C.check('P_ISR: position (496, 0) rows 0..15, columns 62..63; shield rows 190..190: does not meet: draw at (496, 0)', pm.isr() === 'draw' && pm.D.x === 496 && pm.D.y === 0);
+    // erasing restores exactly
+    pm.unshield(); pm.shield(0, 0, 512, 192);
+    C.check('P_SHIELD of the whole screen: erased, display = plain screen; P_ISR keeps it hidden; P_UNSHIELD then P_ISR draws it again',
+      pm.D === null && same(pm, plain) && pm.isr() === 'none' && same(pm, plain) && (pm.unshield(), pm.isr() === 'draw') && pm.D.x === 496);
+    // drawn at one place, shield set at its new position only: erase only
+    pm.move(100, 100); pm.shield(100, 100, 4, 4);
+    C.check('P_MOVE then a P_SHIELD that meets only the NEW position: the drawn pointer stays (D = old), the next P_ISR only erases ("erase")', pm.D.x === 496 && pm.isr() === 'erase' && pm.D === null && same(pm, plain));
+    C.check('calls counter: P_ISR resets it, P_MOVE / P_SHIELD / P_UNSHIELD / P_INIT count (the "skip" case is calls == 0)', (() => { const q = mk(); q.init(1, 1); q.isr(); const a0 = q.calls; q.move(2, 2); q.shield(0, 0, 1, 1); q.unshield(); return a0 === 0 && q.calls === 3 && (q.isr(), q.calls === 0); })());
+    const cl = pm.clone(); cl.scr.px[5] ^= 1;
+    C.check('clone() has its own screen and state', pm.scr.px[5] !== cl.scr.px[5] && cl.pos.x === pm.pos.x && cl.on === pm.on);
+    // randomised: whatever the order of calls, display() == screen + image at D, and D is either null or a position the ISR has drawn
+    let bad = '';
+    for (let t = 0; t < 400 && !bad; t++) {
+      const q = mk(); q.init(R(0, 511), R(0, 191)); q.isr();
+      for (let s = 0; s < 40 && !bad; s++) {
+        const k = R(0, 4);
+        if (k === 0) q.move(R(-40, 560), R(-40, 230)); else if (k === 1) q.shield(R(-20, 520), R(-20, 200), R(0, 80), R(0, 40)); else if (k === 2) q.unshield(); else if (k === 3) q.isr(); else q.move(q.pos.x, q.pos.y);
+        if (q.D && q.S && meets(pointerRect(q.D.x, q.D.y), q.S) && k !== 1 && k !== 0) bad = `step ${s}: drawn pointer meets the shield without a P_SHIELD erase`;
+        if (k === 1 && q.D && meets(pointerRect(q.D.x, q.D.y), q.S)) bad = `step ${s}: P_SHIELD left a meeting pointer drawn`;
+        if (k === 3) { const vis = q.visible(); if (vis !== !!q.D || (q.D && (q.D.x !== q.pos.x || q.D.y !== q.pos.y))) bad = `step ${s}: after P_ISR, drawn must equal visible position`; }
+      }
+    }
+    C.check('random walk over P_MOVE / P_SHIELD / P_UNSHIELD / P_ISR (400 x 40): after P_ISR D = the position iff visible; P_SHIELD never leaves a meeting pointer drawn', !bad, bad);
   }
   C.done();
 }

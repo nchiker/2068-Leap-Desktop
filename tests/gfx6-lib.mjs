@@ -17,6 +17,13 @@ export const NEEDED = ['G_INIT', 'G_ADDR', 'G_ROWADDR', 'G_SETOP', 'G_SETCLIP', 
 export const NEEDED_S2 = ['G_TEXT8', 'G_TEXTP', 'G_TEXTW', 'GLH', 'FONTP', 'GLYPH8', 'PROP6_W', 'PROP6_I', 'SHR', 'SHL'];
 /** Extra symbols the S3 tests need (15.3). */
 export const NEEDED_S3 = ['G_LINE', 'G_BLIT', 'G_PRESHIFT', 'G_SAVERECT', 'G_RESTRECT', 'G_SCROLLV'];
+/** Extra symbols the S4 tests need (16.5): the pointer routines and shape, and the test cartridge's ISR hook, script runner and G_CLS loop. */
+export const NEEDED_S4 = ['P_INIT', 'P_MOVE', 'P_SHIELD', 'P_UNSHIELD', 'P_ISR', 'P_ARROW', 'P_CODE', 'P_CODE_END', 'T_ISRP', 'T_WAIT',
+  'T_SCRIPT', 'T_SCRDONE', 'T_SCR', 'V_SCRN', 'T_CLSPLOOP', 'T_CLSPDONE'];
+/** The pointer area (16.1, section 15.1): owned by the pointer routines, all 0 before P_INIT, never poisoned in a test that runs frames. */
+export const PTR_AREA = [0xE100, 0xE6FF];
+/** The script area (16.5): 26-byte commands at $D200-$DFFF for T_SCRIPT; never poisoned by the S4 tests. */
+export const T_SCR = 0xD200;
 /** The test save-under buffer (15.3): 4 KB at $C000-$CFFF.  It is poisoned like the rest of 12.4's RAM. */
 export const T_BUF = 0xC000, T_BUF_END = 0xCFFF;
 /** The test string buffer (14.5): 512 bytes at $D000, never poisoned, never to be written by a routine. */
@@ -141,7 +148,9 @@ export function changed(res, names = PRESERVED) {
 export const POISON_REGIONS = [[0x5800, 0x5FFF], [0x7800, 0x7FFF], [0xC000, 0xDFFF], [0xE100, 0xE6FF], [0xE800, 0xFDFF]];   // $E700-$E7FF: gfx6 code scratch (15.1)
 // Added by these tests: each routine uses at most 32 bytes of stack below its return address ($FEFE), so $FE00-$FEDD stay as they were.
 export const STACK_GUARD = [0xFE00, 0xFEFE - 32 - 1];
-const CLS_REGIONS = [[0x5800, 0x5FFF], [0x7800, 0x7FFF], [0xC000, 0xDFFF], [0xE100, 0xFAFF]];   // 12.5 for G_CLS safety
+// 12.5 for G_CLS safety, amended by 16.1: the pointer area $E100-$E6FF is NOT poisoned in a test that runs frames (the frame ISR calls
+// P_ISR, which reads it), so the last region starts at $E700.
+const CLS_REGIONS = [[0x5800, 0x5FFF], [0x7800, 0x7FFF], [0xC000, 0xDFFF], [0xE700, 0xFAFF]];
 export { CLS_REGIONS };
 
 let pool = null;

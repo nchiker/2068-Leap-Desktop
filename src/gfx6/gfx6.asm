@@ -1000,5 +1000,6 @@ G_CLS:
 
     INCLUDE "gfx6/text.asm"
     INCLUDE "gfx6/s3.asm"
+    INCLUDE "gfx6/pointer.asm"
 
 GFX6_CODE_END:

@@ -27,7 +27,7 @@ const cpu = m.cpu;
 function step1() { Z.runZ80(cpu, m.bus, 1, m); }
 if (cpu.pc === 0x38) { let g = 0; while (!(cpu.sp === 0xFF00 && cpu.pc !== 0x38) && g++ < 1000) step1(); }
 
-// Poison the listed regions ($5800-$5FFF, $7800-$7FFF, $C000-$DFFF, $E100-$FAFF; not the stack), random bytes in the display.
+// Poison the listed regions ($5800-$5FFF, $7800-$7FFF, $C000-$DFFF, $E700-$FAFF (16.1: not the pointer area $E100-$E6FF, which the ISR's P_ISR reads); not the stack), random bytes in the display.
 const tok = poison(m, rng, { stack: false, regions: CLS_REGIONS });
 seedDisplay(m, rng);
 const frames0 = rd16(m, S.V_FRAMES), cls0 = rd16(m, S.V_CLS);
@@ -54,7 +54,7 @@ let nz = 0, first = -1;
 for (const [a, b] of [[0x4000, 0x57FF], [0x6000, 0x77FF]]) for (let k = a; k <= b; k++) if (m.ram[k] !== 0) { if (first < 0) first = k; nz++; }
 C.check('all 12,288 display bytes are 0 (paper) at T_CLSDONE', nz === 0, nz ? `${nz} bytes not 0, first at ${hex(first)} = ${hex(m.ram[first], 2)}` : '12,288 bytes');
 const pz = checkPoison(m, tok);
-C.check('$5800-$5FFF, $7800-$7FFF, $C000-$DFFF, $E100-$FAFF unchanged', !pz,
+C.check('$5800-$5FFF, $7800-$7FFF, $C000-$DFFF, $E700-$FAFF unchanged', !pz,
   pz ? `${pz.n} bytes changed, first ${hex(pz.addr)} = ${hex(pz.got, 2)}, was ${hex(pz.want, 2)}` : 'poison intact');
 C.check('stack pointer and result record intact', cpu.sp === 0xFF00 && m.ram[S.RESULT] === 0xA5 && m.ram[S.RESULT + 1] === 0x5A,
   `SP ${hex(cpu.sp)}, record ${hex(m.ram[S.RESULT], 2)} ${hex(m.ram[S.RESULT + 1], 2)}`);

@@ -1448,8 +1448,6 @@ sc_wrchain:
     jp rc_wrlx
 
 ; ---------------------------------------------------------------------------------------------------------------------
-; Not written yet (S3 in progress): G_SCROLLV, G_BLIT, G_LINE.
-; ---------------------------------------------------------------------------------------------------------------------
 ; G_PRESHIFT: GA+4 w, GA+6 h, GA+8 source bitmap, GA+10 destination -> the shifted set (section 15.2) at the destination.
 ; Returns HL = the end.  Clobbers AF, BC, DE, HL.  Built once per bitmap: not bounded, written for clarity.
 P_WB        EQU $E040               ; byte: wb

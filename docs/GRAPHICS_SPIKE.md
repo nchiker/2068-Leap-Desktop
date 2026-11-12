@@ -48,7 +48,7 @@ the numbers.
 | Code and constant tables | DOCK chunks 0-1 (`$0000-$3FFF`) and 4-5 (`$8000-$BFFF`), mapped all the time (`$F4 = $33`). Page-aligned tables in chunk 4-5 |
 | Display | `$4000-$57FF` (even byte columns), `$6000-$77FF` (odd byte columns). `$FF = $06`: black ink, white paper |
 | Variables | `$E000-$E0FF` |
-| Pointer save-under and pre-shifted pointer images | `$E100-$E7FF` |
+| Pointer save-under and pre-shifted pointer images | `$E100-$E6FF` (15.1; `$E700-$E7FF` is `GCODE`) |
 | Save-under buffer for `G_SAVERECT` (menus, dialogs) and scratch | `$E800-$EFFF` (2 KB) |
 | Stack | `$FB00-$FEFF` (1 KB), canary at `$FB00` |
 | Result record | `$FF00`: marker `$A5 $5A`, state, then measurement slots |
@@ -62,7 +62,7 @@ Pixel row y has the Spectrum row address within each file.
 ## 4. Conventions
 
 - **Registers:** arguments in registers or in a fixed argument block `GA` (16 bytes at `$E000`) for routines with more than three arguments. Every routine says its clobbers; IX, IY and the alternate set are preserved unless stated.
-- **Interrupts:** no code keeps interrupts disabled for more than **1,500 T**. Two things depend on it: TSRun drops a frame interrupt that arrives under `DI`, and the pointer must be redrawn before the beam reaches it (section 5).
+- **Interrupts:** no code keeps interrupts disabled for more than **1,500 T** (the frame ISR itself is exempt, 16.1). Two things depend on it: TSRun drops a frame interrupt that arrives under `DI`, and the pointer must be redrawn before the beam reaches it (section 5).
 - **Clipping:** every drawing routine clips to the **clip rectangle** set by `G_SETCLIP` (default: the whole screen). Nothing is ever written outside it. Coordinates are signed 16-bit, so a shape can start off screen.
 - **Draw op** (byte `GOP`, set by `G_SETOP`): `SET` (ink), `CLR` (paper), `XOR` (invert). Lines, rectangles, frames and text honour it; blits have their own mask rule.
 - **Pointer shield:** any routine that draws where the pointer may be must be bracketed by `P_SHIELD` (rectangle) / `P_UNSHIELD`, as the classic Mac's `ShieldCursor`. The pointer is hidden only if it meets the rectangle.
@@ -175,7 +175,7 @@ A mock desktop drawn only with `gfx6`. Nothing in it works: no menus open and no
 | **S1** | Mode 6 addressing (`G_ADDR`, `ROWTAB`), `G_SETCLIP` / `G_SETOP`, `G_FILL`, `G_HLINE` / `G_VLINE`, `G_FRAME`, `G_CLS`; `tools/gen-tables.mjs` (`ROWTAB`); the reference model `tests/gfx6-model.mjs` and the random / edge / clip-safety tests for these routines; their section 7 bounds | Drawing code: main model. Model and tests: a Sonnet agent, from this contract, not from the code |
 | S2 | `GLYPH8` + `G_TEXT8`; shift tables; `fonts/prop6.txt` (first version drawn by the main model, reviewed by the owner) + `G_TEXTP` / `G_TEXTW` | as S1 |
 | S3 | `G_LINE` (from Leap V2 `GFX_LINE`), `G_BLIT`, `G_SAVERECT` / `G_RESTRECT`, `G_SCROLLV` | as S1 |
-| S4 | Pointer in the ISR, shield, the flicker test | main model |
+| S4 | Pointer in the ISR, shield, the flicker test (interface: section 16) | Z80: main model. Model and tests: a Sonnet agent, from section 16. Review of `P_ISR`: a Fable agent |
 | S5 | Demo cartridge `spike6`, `tests/gfx6-perf.mjs` complete, ZEsarUX and Fuse runs, "As built", the mode decision in `docs/FEASIBILITY.md` | Sonnet, results checked by the main model |
 
 ## 12. S1 interface (designed 2026-11-11, binding for the S1 code and tests)
@@ -557,6 +557,100 @@ So scroll cannot meet its bounds with `LDI`, and save / restore would need setup
 3. **Scroll:** these bounds need a copy faster than `LDI`. `POP` / `PUSH` in pieces under 1,500 T of `DI` would need an
    exception to section 4 and 15.2, and a check that the pointer's deadline still holds.
 
+### 13.4 Slice S4 (2026-11-11)
+
+**Result: every S4 bound passes.** Interface: section 16, with three changes made during S4:
+- 16.3 gained the callers' rules;
+- 16.7's grid was widened after the review;
+- `P_ARROW` was redrawn with an outline on every side.
+
+| Measure (16.7) | Measured | Bound | Result |
+|---|---|---|---|
+| `P_ISR` moving, worst of 408 cases | 6,779 (B (8, 0), A (8, 40), a shield on row 100 that meets neither); 6,554 with no shield | <= 7,000 | pass (221 T margin) |
+| `P_ISR` skipped | 50 | <= 300 | pass |
+| Deadline: largest `T_ISRP` offset + 1,500 | 6,694 + 1,500 = 8,194 (perf grid); 6,889 + 1,500 = 8,389 (flicker test) | <= 8,960 | pass |
+| `P_ISR` draw only / erase only | 4,004 / 2,788 | report | reported |
+| `P_ISR` after a `P_MOVE` to the same place / a move while hidden | 234 / 365 | report | reported |
+| `P_SHIELD` with an erase / without | 3,446 / 1,010 | report | reported |
+| `P_UNSHIELD` / `P_MOVE` | 73 / 194 | report | reported |
+| `P_INIT` (once) | 192,052 (stack 12 bytes) | report | reported |
+| Whole frame ISR in the flicker test (counter, `P_ISR`, stack fill) | min 496, mean about 5,000, max 7,195 | none | reported |
+| `G_CLS` interrupt safety with the pointer moving | 300 interrupts in 300 frames, about 235 clears; display all 0 and the poisoned RAM unchanged | 0 lost | pass |
+| Longest `DI` | 0 | <= 1,500 | pass |
+| Code size | pointer 2,106 bytes; gfx6 13,326 bytes in all (11,222 after S3) | report | over the 4 KB target |
+
+Chunk 0-1 now has about 450 bytes free below `ROWTAB` (`$3800`).
+
+#### How S4 is built (`src/gfx6/pointer.asm`)
+
+- **State and lock:**
+  - `P_MOVE`, `P_SHIELD` and `P_UNSHIELD` change the state with `PT_LOCK` held and set `PT_DIRTY`.
+  - `P_ISR` returns at once while the lock is held, and otherwise only when `PT_DIRTY` is set (the 50 T skip).
+  - Since the main program never runs inside the ISR, the lock is all the exclusion needed; there is no `DI`.
+- **Kinds:** by the first byte column c0: even c0 <= 60 and odd c0 <= 61 draw 3 byte columns through unrolled 8-row blocks,
+  entered by a table at the row count (1..16 rows = one partial pass then one full pass); c0 = 62 and 63 use row loops.
+- **Drawing (in the ISR)** reads the pre-shifted copy with `POP DE` (E mask, D image): SP points at the copy and is restored
+  afterwards. Each screen byte is saved to `PT_SAVE` (3 a row) before `(old AND mask) OR image` is written.
+- **Erasing** writes `PT_SAVE` back with ordinary loads, so `P_SHIELD` can erase with interrupts on.
+- **Rows** step with `INC H` and an inline character-row crossing.
+
+Where a 6,514 T move goes (review figures):
+
+| Part | T |
+|---|---|
+| Draw rows | 2,944 |
+| Erase rows | 1,744 |
+| Fixed overhead: entry tables, geometry, setup, `P_ISR`'s checks, pass ends | about 1,830 |
+
+#### Tests
+
+- **`tests/gfx6-model.mjs`:**
+  - the S4 model (16.2, 16.4): `PointerModel`, byte rectangles, meets, clamp;
+  - self-test of 172 checks.
+- **`tests/gfx6-s4.mjs`:** 50 checks, about 37 s a seed. It covers:
+  - more than 3,000 random direct calls, with coverage checks for every path and all 48 edge positions;
+  - interrupt injection at every instruction boundary of `P_MOVE`, `P_SHIELD`, `P_UNSHIELD` and a shielded `G_FILL` (8,412 runs);
+  - the flicker test: 601 strict frames compared pixel for pixel through `m.pixels`, and 12 script batches (83 frames) of shielded
+    drawing with interrupts on, including one `G_CLS`;
+  - `G_CLS` with the pointer moving;
+  - the longest `DI`.
+
+  Passes on seeds 1, 7, 12345 (the agent) and 99 (re-run by the main model).
+- **`tests/gfx6-perf.mjs`:** the S4 bounds and reports above.
+- **Other changes:** `gfx6-lib.mjs` `CLS_REGIONS` follows 16.1. S1, S2, S3, `gfx6-cls`, `hello` and `probe23` still pass.
+- **Written blind:** a Sonnet agent wrote the model and tests from section 16, without reading the code.
+  - Seven model-side faults were all caught, among them meets in pixels instead of bytes, no clamp, a pointer one row late and a
+    shield that does not erase.
+  - Run against an independent Z80 stub, removing the lock made the injection test fail.
+
+#### Independent review (Fable agent, given the code and the contract)
+
+**No confirmed defects.** The reviewer's own model and runs:
+- about 40,000 interrupt-injection runs (every boundary of the four routines and of shielded `G_FILL`, `G_SCROLLV` and `G_CLS`);
+- 24,000 random programs with random interrupts;
+- `P_ISR` and `P_SHIELD` at all 98,304 positions;
+- 600 frames of `T_CLSPLOOP`.
+
+It found the worst case that the first 16.7 grid missed (a shield that meets neither position), which led to the wider grid.
+
+**Risks it raised, now rules in 16.3:**
+- an ISR must not call the main-program routines, because the lock is one flag;
+- `P_SHIELD` needs the display mapped;
+- a second `P_INIT` leaves a drawn pointer on the screen.
+
+**Noted, not changed:**
+- During back-to-back shielded drawing near the pointer, the pointer stays hidden until a frame interrupt arrives outside any shield. Drawing in `P_UNSHIELD` is not possible: the drawing reads the copy with `POP`, so it needs interrupts off.
+- An NMI during the drawing would corrupt the copy; nothing raises one today.
+
+#### Options for more margin (the owner decides; estimates from the review)
+
+| Change | Saves |
+|---|---|
+| Keep the erase geometry (address, entry, passes) from the draw, so `pt_erase` skips `pt_geom` and `pt_entry` | about 330 T |
+| Work out the new position's geometry in `P_MOVE` (outside the ISR) | about 570 T more (`P_MOVE` grows to about 800 T) |
+| Erase with `POP` (needs 32 free bytes below `PT_SAVE`) | about 290 T |
+| `JP NZ` in the row step; drop the step after the last row | about 60-180 T |
+
 ## 14. S2 interface (designed 2026-11-11, binding for the S2 code and tests)
 
 Section 14 fills in what sections 3-6 leave open for slice S2 (8x8 text, proportional text, shift tables, the `PROP6` font). It
@@ -758,3 +852,188 @@ screen bytes (unchanged pixels included), so its shield rectangle must cover the
 | `G_SCROLLV` 512 x 192 by 8 rows | (0, 0, 512, 192), n in {8, -8}: the worst. **Report:** the same by 1 row and by 10 rows (n = 1, 10) |
 | Longest `DI` | `G_LINE`, `G_BLIT`, `G_PRESHIFT`, `G_SAVERECT`, `G_RESTRECT`, `G_SCROLLV`: as 12.5 |
 | Code size | as 12.5, report |
+
+## 16. S4 interface (designed 2026-11-11, binding for the S4 code and tests)
+
+Section 16 fills in what sections 4, 5 and 7 leave open for slice S4: the pointer, drawn by the frame interrupt, and the shield.
+It adds to sections 12, 14 and 15; nothing in them changes except where 16.1 says so. The tests are written from sections 3-7,
+12, 14, 15 and this section, never from the code.
+
+### 16.1 Amendments and memory
+
+- **Section 4, interrupts:** the 1,500 T limit is for code that runs with interrupts on and turns them off. The frame ISR is
+  exempt: it runs once per frame, right after the interrupt, and its own bound is section 7's pointer row. `P_ISR` never
+  executes `EI` or `DI`.
+- **Section 5, shield:** `P_SHIELD` must erase the pointer **at once** (in the caller, before it returns) when the pointer is
+  drawn where the shield is, because the caller draws there next. Only the redraw is left to the ISR. `P_UNSHIELD` only sets a
+  flag.
+- **Section 11:** S4's model and tests are written by a Sonnet agent from this section (owner's standing instruction, CLAUDE.md);
+  the Z80 code is the main model's. An independent review of `P_ISR` is done by a separate Fable agent.
+- **Pointer area `$E100-$E6FF`** (section 3, 15.1) belongs to the pointer routines. Its layout is internal. It must be all 0
+  before `P_INIT` is called (`gfx6t` clears `$E000-$EFFF` at boot), and nothing else writes it.
+  - **Tests that run frames** (the ISR calls `P_ISR`) must not poison it.
+  - **Amends 12.5:** `G_CLS` interrupt safety poisons `$5800-$5FFF`, `$7800-$7FFF`, `$C000-$DFFF` and `$E700-$FAFF` (not
+    `$E100-$E6FF`).
+- **The pointer shape** is `P_ARROW`: a 16 x 16 bitmap in `G_BLIT`'s pair format (15.2: wb = 2, 64 bytes) in the cartridge. The
+  model reads these 64 bytes from the image. The hot spot is the bitmap's top-left pixel (0, 0), so the pointer is cut only at
+  the right and bottom screen edges.
+
+### 16.2 Definitions
+
+- **Position** `(px, py)`: the hot spot, always on the screen: 0 <= px <= 511, 0 <= py <= 191.
+- **The pointer's byte rectangle** at (px, py): byte columns `c0 = px >> 3` to `min(c0 + 2, 63)`, rows py to `min(py + 15, 191)`.
+  These are the only display bytes the pointer code ever writes.
+- **The shield's byte rectangle** of (x, y, w, h): clamp to the screen as `G_SETCLIP` does, giving [ax, bx) and [ay, by). Empty
+  when either range is empty. Otherwise byte columns `ax >> 3` to `(bx - 1) >> 3`, rows ay to by - 1.
+- **Meets:** two byte rectangles meet when they share at least one (byte column, row). An empty rectangle meets nothing.
+- **Pointer image** at (px, py) over a screen: bitmap pixel (j, k), j, k in 0..15, at screen (px + j, py + k) when that is on the
+  screen: new = (old AND m) OR i (m, i: its mask and image bits in `P_ARROW`). This is `G_BLIT` with the clip set to the
+  whole screen.
+
+### 16.3 Routines
+
+All preserve IX, IY and the alternate registers, and clobber AF, BC, DE, HL. None executes `DI` or `EI`. None changes `GOP`,
+`GLH` or `GCLIP`.
+
+**Callers (added after the S4 review):**
+- `P_INIT`, `P_MOVE`, `P_SHIELD` and `P_UNSHIELD` are called **only from the main program, never from an ISR**. The lock is one flag, not a count, so an ISR's call would release the main program's lock. A future mouse poll in the ISR records its movement elsewhere and calls nothing here.
+- `P_SHIELD` may write the display, so it runs with the display mapped (`$F4` = `$33`). An application in DOCK 2-3 reaches it through a kernel trampoline.
+- `P_INIT` is called once. Calling it again while the pointer is drawn would leave the drawn image on the screen.
+
+| Routine | In | Effect | Stack |
+|---|---|---|---|
+| `P_INIT` | HL = x, DE = y (signed words) | Builds the pointer's 8 pre-shifted copies from `P_ARROW` (with `G_PRESHIFT`), sets the position to (x, y) clamped, removes the shield, turns the pointer **on**. Draws nothing: the next `P_ISR` draws it. Called once, after boot and before anything else in 16.3. Interrupts may be on. `GA` is undefined afterwards | <= 48 |
+| `P_MOVE` | HL = x, DE = y (signed words) | Position = (clamp(x, 0, 511), clamp(y, 0, 191)). Draws nothing: the next `P_ISR` moves the pointer. `GA` unchanged | <= 32 |
+| `P_SHIELD` | `GA`: x, y, w, h | The shield becomes this rectangle (replacing any shield). If the pointer is drawn and its byte rectangle (where it is drawn) meets the shield's byte rectangle, it is erased before `P_SHIELD` returns. `GA` unchanged | <= 32 |
+| `P_UNSHIELD` | | Removes the shield. Draws nothing: the next `P_ISR` redraws a pointer that was hidden | <= 32 |
+| `P_ISR` | | Called by the frame ISR, interrupts off, with the display mapped (`$F4` = `$33`). Brings the drawn pointer up to date (16.4). Does nothing before `P_INIT` | <= 16 |
+
+"Stack" is the most bytes used below the routine's return address. The cartridge's whole ISR (return address included) stays within
+12.2's 32 bytes.
+
+**How to use the shield** (binding on callers): a routine that reads or writes display bytes runs between `P_SHIELD` and
+`P_UNSHIELD`, and the shield's byte rectangle covers every display byte it reads or writes. For `G_FILL`, `G_TEXT*`, `G_LINE`
+and `G_SCROLLV` the routine's own rectangle is enough (they write only bytes that hold its pixels). For `G_BLIT`, `G_SAVERECT`
+and `G_RESTRECT` the shield covers the whole bytes (15.2). For `G_CLS` it is the whole screen.
+
+### 16.4 The pointer's state (the model)
+
+State: position (px, py); on (false until `P_INIT`); shield S (a byte rectangle, or none); drawn D (a position, or none). The
+display always equals **the screen with the pointer image at D** when D is a position. "The screen" is what shielded drawing
+made of it; the pointer code never changes it.
+
+- `P_INIT(x, y)`: position = clamped (x, y); on = true; S = none; D = none.
+- `P_MOVE(x, y)`: position = clamped (x, y).
+- `P_SHIELD(r)`: S = byte rectangle of r; if D is a position whose byte rectangle meets S: erase (D = none).
+- `P_UNSHIELD`: S = none.
+- `P_ISR`: visible = on, and not (S is set and the byte rectangle at the position meets S).
+  - If D is a position and (not visible, or D differs from the position): erase (D = none).
+  - Then if visible and D is none: draw at the position (D = the position).
+  - Erasing restores exactly the bytes the drawing changed; drawing changes only the pointer's byte rectangle.
+
+**Interrupts during the other routines:** the frame ISR may arrive at any instruction of `P_MOVE`, `P_SHIELD`, `P_UNSHIELD` or
+a shielded drawing routine. However that falls, once the routine has returned and `P_ISR` has run once more, the display
+equals what this model gives for "the routine, then `P_ISR`". (The routines take a lock that makes `P_ISR` skip a frame; the
+lock is internal.)
+
+**Skip:** when nothing in 16.3 was called since the last `P_ISR`, `P_ISR` writes nothing and costs at most 300 T.
+
+**Tearing:** `P_ISR` erases and draws the whole pointer before the beam reaches the first row of either the old position or the
+new one (section 5), so no frame shows part of a pointer. Erasing in `P_SHIELD` runs in the main program at any moment and may
+show a part of a pointer for one frame. The main program's drawing may also show part-drawn shapes. Both are drawing on the visible
+screen, not pointer tearing.
+
+### 16.5 Test cartridge additions (`gfx6t`)
+
+**Symbols:** `P_INIT`, `P_MOVE`, `P_SHIELD`, `P_UNSHIELD`, `P_ISR`, `P_ARROW`, `P_CODE`, `P_CODE_END` (the pointer code, inside
+`GFX6_CODE`..`GFX6_CODE_END`), `T_ISRP`, `T_WAIT`, `T_SCRIPT`, `T_SCRDONE`, `T_SCR`, `V_SCRN`, `T_CLSPLOOP`, `T_CLSPDONE`.
+
+- **Boot is unchanged.** It does not call `P_INIT`: the pointer stays off until a test calls it.
+- **ISR** (IM 1, at `$0038`):
+  1. saves AF, BC, DE, HL;
+  2. increments `V_FRAMES`;
+  3. sets `$F4` = `$33`, calls `P_ISR`, writes the shadow `V_SHADOW_F4` back to `$F4`. `T_ISRP` is the address right after
+     `CALL P_ISR`;
+  4. leaves `$FF` bytes in its frame down to 32 bytes below the interrupted SP (as 12.4, now 32 deep);
+  5. restores the registers, `EI`, `RET`.
+- **`T_WAIT`:** `HALT`, `RET`. A script command that waits for the next frame interrupt.
+- **Script runner** `T_SCRIPT`: entered with interrupts off (it executes `EI`) and SP = `$FF00`. It runs the commands at `T_SCR`
+  = `$D200` (`$D200-$DFFF`, 137 commands at most), then idles at `T_SCRDONE` (a `HALT` loop).
+  - A command is 26 bytes: +0 the routine's address (word; 0 = end of the script), +2 HL, +4 DE, +6 BC, +8 A, +9 unused,
+    +10..+25 sixteen bytes copied to `GA` before the call.
+  - After each command returns, the word `V_SCRN` is incremented.
+  - The runner keeps its place in IX. Routines only read `T_SCR`, and tests do not poison it.
+- **`T_CLSPLOOP`:** `EI`, then forever:
+  1. move the pointer: x = (x + 37) mod 512, y = (y + 13) mod 192, from (0, 0), with `P_MOVE`;
+  2. `P_SHIELD` (0, 0, 512, 192), `G_CLS`;
+  3. `T_CLSPDONE`: `P_UNSHIELD`, increment `V_CLS`.
+
+  The test calls `P_INIT` first.
+
+### 16.6 Tests (`tests/gfx6-s4.mjs`; S1-S3, `gfx6-cls` and `hello` must still pass)
+
+Each comparison below is of all 512 x 192 pixels against the model (16.4 over the S1-S3 model).
+
+1. **Random direct calls** (interrupts off, as 12.4):
+   - at least 3,000 steps a seed, each a random one of `P_MOVE`, `P_SHIELD`, `P_UNSHIELD`, `P_ISR` and "shielded drawing"
+     (`P_SHIELD` r, then `G_FILL`, `G_TEXTP` or `G_SCROLLV` inside r, then `P_UNSHIELD`), over a random background;
+   - positions include every edge case of 16.2: x in {0, 7, 8, 495, 496, 503, 504, 511} and y in {0, 7, 8, 176, 177, 191};
+   - the display RAM is compared with the model after every step;
+   - registers (16.3) are checked; `GA`, `GOP`, `GLH` and `GCLIP` are unchanged (except after `P_INIT`);
+   - RAM outside the display files, the pointer area, `$E000-$E0FF`, `$E700-$E7FF`, `T_STR` and `T_SCR` is poisoned and
+     unchanged; the stack limits of 16.3 are checked by poisoning below them.
+2. **Interrupt injection:**
+   - For `P_MOVE`, `P_SHIELD` (one rectangle that meets the drawn pointer, one that does not), `P_UNSHIELD` and a shielded
+     `G_FILL` (32 x 16): for **every** instruction boundary k of the routine, restore a fixed starting state, call the routine
+     with interrupts on, raise the frame interrupt after k instructions (`Z.irqZ80`), and run on until it returns. Then call
+     `P_ISR` once and compare with the model.
+   - The starting state has the pointer drawn at A and a `P_MOVE` to B pending. Both cases are covered: B meets the rectangle,
+     and B does not.
+   - `V_FRAMES` rises by exactly 1 each time.
+3. **Flicker test (frames, 16.4 "Tearing"):**
+   - **Setup:** `P_INIT` (256, 96) and a background of `G_FILL` rectangles (`SET` and `XOR`), `G_TEXT8` and `G_TEXTP` lines,
+     drawn by direct calls; then two settling frames.
+   - **600 strict frames.** For each frame, in this order:
+     1. step the pending frame interrupt to the ISR's `RET`, logging the ISR's T and the offset `m.tstates - m.frameStart` at
+        `T_ISRP`;
+     2. make this frame's calls from the scripted path by direct calls: `P_MOVE`, sometimes `P_SHIELD` / `P_UNSHIELD`;
+     3. assert the offset is still below 8,960 (a harness check, so that everything is written before the beam reaches the
+        screen);
+     4. put the CPU back at `T_IDLE` (SP `$FF00`, interrupts on, not halted);
+     5. `runFrame`.
+
+     The rendered frame (`m.pixels`) must equal the model after step 2, exactly.
+   - **The path:**
+     - straight runs at 1 to 24 pixels a frame;
+     - stops (the skip);
+     - jumps to the corners and to every edge position of test 1;
+     - both parities of c0 and every px AND 7;
+     - shields held over several frames, some meeting the pointer's path and some not.
+   - **Every 50 strict frames, a script batch** (`T_SCRIPT`) of shielded drawing with interrupts on, interleaved with `P_MOVE`
+     and `T_WAIT`, so that the pointer moves while long drawings run:
+     - `G_FILL`, `G_TEXTP`, `G_SCROLLV` (one of at least 256 x 96);
+     - once in the test, `G_CLS` and a redrawn background.
+
+     Frames run until `T_SCRDONE`. In each of these frames, the pixels outside the volatile area must equal the model. The
+     volatile area is the union of the batch's shield byte rectangles and of the pointer's byte rectangles at every position
+     before and during the batch. The next strict frame then checks the whole screen.
+   - **In every frame**, `V_FRAMES` rises by exactly 1.
+   - **Report:** the ISR's T (minimum, mean, maximum), the frames, and the largest `T_ISRP` offset.
+4. **`G_CLS` with the pointer moving** (section 7; replaces the S1 note in 13.1):
+   - `P_INIT` (0, 0), poison the regions of 16.1, run `T_CLSPLOOP` for 300 frames;
+   - `V_FRAMES` rises by exactly 300;
+   - stepped on to `T_CLSPDONE`, the display is all 0 and the poisoned RAM is unchanged.
+5. **Longest `DI`** (as 12.5): `P_INIT`, `P_MOVE`, `P_SHIELD`, `P_UNSHIELD`: <= 1,500. `P_ISR` called with interrupts off returns
+   with them off.
+
+### 16.7 How the S4 bounds are measured (section 7, pointer row)
+
+| Measure | Calls |
+|---|---|
+| `P_ISR` moving (erase + draw) | Direct call, interrupts off, after `P_INIT`, `P_ISR` (drawn at A), `P_MOVE` (B). B over x in {64..71, 0, 7, 8, 488, 495, 496, 503, 504, 511}, y in {0, 5, 7, 176, 183, 191}; A = ((Bx + 200) mod 512, (By + 50) mod 192), and also A = (Bx, (By + 40) mod 192). Each pair twice: with no shield, and with a shield set that meets neither A nor B (when one exists; for example a 1-row shield on a row neither covers). The worst: <= 7,000 (**amended 2026-11-11** after the S4 review: a shield that meets neither position costs about 225 T more, and the first grid missed it) |
+| `P_ISR` skipped | `P_ISR` again with no call in between: the worst over the same positions, <= 300 |
+| `P_ISR` other paths | **Report:** draw only (after `P_UNSHIELD`), erase only (a `P_SHIELD` that meets the new position, after a `P_MOVE`), `P_MOVE` to the same position, a move while hidden by the shield |
+| Deadline | The largest `T_ISRP` offset over the strict frames of 16.6.3, plus 1,500 (the worst interrupt delay, section 4): <= 8,960 (pixel row 0, section 5) |
+| `P_SHIELD` / `P_UNSHIELD` / `P_MOVE` | **Report:** `P_SHIELD` with and without an erase, the worst over the positions above; `P_UNSHIELD`; `P_MOVE` |
+| `P_INIT` | **Report** (once, at boot) |
+| Code size | **Report:** `P_CODE_END - P_CODE`, and the new `GFX6_CODE_END - GFX6_CODE` |

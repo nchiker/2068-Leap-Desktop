@@ -3,8 +3,8 @@
 // called directly (interrupts off, so ISR time is excluded), T-states from the first instruction to the RET inclusive.  A missed
 // bound is reported with its numbers; a bound is never loosened here.  Every measured figure is printed.
 //   node tests/gfx6-perf.mjs [--seed N]
-import { checks } from './lib.mjs';
-import { start, makeRng, call, seedDisplay, setGA, w16, hex, NEEDED_S2, NEEDED_S3, T_STR, T_BUF } from './gfx6-lib.mjs';
+import { checks, M, Z, FRAME_T } from './lib.mjs';
+import { start, makeRng, call, seedDisplay, setGA, w16, hex, NEEDED_S2, NEEDED_S3, NEEDED_S4, T_STR, T_BUF, PTR_AREA } from './gfx6-lib.mjs';
 import * as G from './gfx6-model.mjs';
 
 const argv = process.argv.slice(2);
@@ -12,7 +12,7 @@ const si = argv.indexOf('--seed');
 const SEED = si >= 0 ? Number(argv[si + 1]) : (Date.now() >>> 0);
 console.log(`seed ${SEED}`);
 
-const C = checks('gfx6 S1 + S2 + S3 bounds');
+const C = checks('gfx6 S1 + S2 + S3 + S4 bounds');
 const ctx = start(C);
 if (!ctx) { C.done(); process.exit(); }
 const { m, S } = ctx;
@@ -326,6 +326,152 @@ for (const [op, name, limit] of [[0, 'SET', 3000], [2, 'XOR', 3300]]) {
       diS3('G_SCROLLV 256x96 by -1', (o) => gscroll(128, 53, 256, 96, -1, o));
       console.log(`longest DI run over the S3 calls: ${fmt(worst)} T`);
     }
+  }
+}
+
+// ===========================================================================================================================
+// S4 bounds (16.7): the pointer.  Skipped, with a FAIL that names the missing symbols, when the cartridge does not define them yet.
+{
+  const missing = NEEDED_S4.filter((n) => S[n] === undefined);
+  if (missing.length) {
+    console.log('SKIP: the S4 bounds (pointer, shield) are not measured');
+    C.check('gfx6t defines the S4 symbols (P_INIT, P_MOVE, P_SHIELD, P_UNSHIELD, P_ISR, T_ISRP, ...): the S4 bounds cannot be measured', false, `missing: ${missing.join(', ')}`);
+  } else {
+    const cpu = m.cpu;
+    const pinit = (x, y, o = {}) => call(m, S, 'P_INIT', { hl: w16(x), de: w16(y) }, { rng, ...o });
+    const pmove = (x, y, o = {}) => call(m, S, 'P_MOVE', { hl: w16(x), de: w16(y) }, { rng, ...o });
+    const pshield = (r, o = {}) => { setGA(m, S, ...r); return call(m, S, 'P_SHIELD', {}, { rng, ...o }); };
+    const punshield = (o = {}) => call(m, S, 'P_UNSHIELD', {}, { rng, ...o });
+    const pisr = (o = {}) => call(m, S, 'P_ISR', {}, { rng, ...o });
+    const rectOf = (x, y) => G.pointerRect(x, y);
+    const xs = [64, 65, 66, 67, 68, 69, 70, 71, 0, 7, 8, 488, 495, 496, 503, 504, 511], ys = [0, 5, 7, 176, 183, 191];
+    // a 1-row full-width shield on a row that neither pointer's byte rectangle covers (null when there is none)
+    const freeRow = (a, b) => {
+      const ra = rectOf(...a), rb = rectOf(...b);
+      for (const r of [100, 40, 150, 80, 20, 120, 60, 170, 0, 191]) if (!(r >= ra.y0 && r <= ra.y1) && !(r >= rb.y0 && r <= rb.y1)) return r;
+      return null;
+    };
+    seedDisplay(m, rng); init(); setOp(0);
+    m.ram.fill(0, PTR_AREA[0], PTR_AREA[1] + 1);
+    const ini = pinit(256, 96);
+    console.log(`P_INIT: ${fmt(ini.t)} T (once, at boot; report only)`);
+    C.check(`P_INIT: ${fmt(ini.t)} T (report only)`, ini.t > 0);
+    /** Get the state "pointer drawn at A, no shield, nothing pending", optionally with a shield held (its redraw done). */
+    const drawnAt = (A, shieldRow) => {
+      punshield(); pmove(...A); pisr();
+      if (shieldRow !== null && shieldRow !== undefined) { pshield([0, shieldRow, 512, 1]); pisr(); }
+    };
+    // ---- P_ISR moving / skipped -------------------------------------------------------------------------------------------
+    {
+      let worst = 0, worstAt = '', worstSkip = 0, worstSkipAt = '', n = 0, nShield = 0, noFree = 0;
+      const byCase = { 'no shield': 0, 'with shield': 0 };
+      for (const bx of xs) for (const by of ys) {
+        const B = [bx, by];
+        for (const A of [[(bx + 200) % 512, (by + 50) % 192], [bx, (by + 40) % 192]]) {
+          for (const withShield of [false, true]) {
+            let row = null;
+            if (withShield) { row = freeRow(A, B); if (row === null) { noFree++; continue; } }
+            drawnAt(A, row);
+            pmove(...B);
+            const r = pisr();
+            const label = `B (${bx}, ${by}), A (${A}), ${withShield ? `shield row ${row}` : 'no shield'}`;
+            byCase[withShield ? 'with shield' : 'no shield'] = Math.max(byCase[withShield ? 'with shield' : 'no shield'], r.t);
+            if (r.t > worst) { worst = r.t; worstAt = label; }
+            const sk = pisr();
+            if (sk.t > worstSkip) { worstSkip = sk.t; worstSkipAt = label; }
+            n++; if (withShield) nShield++;
+          }
+        }
+      }
+      console.log(`P_ISR moving: ${n} measured pairs (${nShield} with a shield, ${noFree} without a free row); worst no shield ${fmt(byCase['no shield'])} T, worst with shield ${fmt(byCase['with shield'])} T`);
+      bound(`P_ISR moving (erase + draw), worst of ${n} cases`, worst, 7000, ` at ${worstAt}`);
+      bound(`P_ISR skipped (again, no call in between), worst of ${n} cases`, worstSkip, 300, ` at ${worstSkipAt}`);
+    }
+    // ---- other paths (report) ---------------------------------------------------------------------------------------------
+    {
+      const rep = {};
+      const note = (k, t, at) => { if (!rep[k] || t > rep[k].t) rep[k] = { t, at }; };
+      const sumT = {}, cnt = {};
+      const acc = (k, t) => { sumT[k] = (sumT[k] || 0) + t; cnt[k] = (cnt[k] || 0) + 1; };
+      for (const bx of xs) for (const by of ys) {
+        const B = [bx, by], A = [(bx + 200) % 512, (by + 50) % 192], B2 = [Math.min(511, bx + 9), Math.min(191, by + 6)];
+        const at = `B (${bx}, ${by})`;
+        // draw only: hidden by a shield that meets B, then P_UNSHIELD
+        punshield(); pmove(...A); pisr(); pmove(...B); pshield([8 * rectOf(...B).c0, B[1], 24, 16]); pisr(); punshield();
+        let r = pisr(); note('draw only', r.t, at); acc('draw only', r.t);
+        // erase only: drawn at A, P_MOVE to B, P_SHIELD meets B but not A
+        punshield(); pmove(...A); pisr(); pmove(...B);
+        const row = freeRow(A, B);
+        const sh = [8 * rectOf(...B).c0, B[1], 24, 16];
+        const meetsA = G.meets(rectOf(...A), G.shieldRect(...sh));
+        if (!meetsA) { pshield(sh); r = pisr(); note('erase only', r.t, at); acc('erase only', r.t); }
+        // P_MOVE to the same position
+        punshield(); pmove(...B); pisr(); pmove(...B); r = pisr(); note('P_MOVE to the same position, then P_ISR', r.t, at); acc('P_MOVE to the same position, then P_ISR', r.t);
+        // a move while hidden by the shield: the shield covers B and B2
+        punshield(); pmove(...B); pisr(); pshield([8 * rectOf(...B).c0 - 8, Math.max(0, B[1] - 2), 64, 40]); pisr(); pmove(...B2); r = pisr();
+        note('a move while hidden by the shield', r.t, at); acc('a move while hidden by the shield', r.t);
+        void row;
+      }
+      for (const k of Object.keys(rep)) {
+        console.log(`P_ISR ${k}: worst ${fmt(rep[k].t)} T at ${rep[k].at}, mean ${(sumT[k] / cnt[k]).toFixed(0)} T over ${cnt[k]} (report only)`);
+        C.check(`P_ISR ${k}: worst ${fmt(rep[k].t)} T, mean ${(sumT[k] / cnt[k]).toFixed(0)} T (report only)`, rep[k].t > 0);
+      }
+    }
+    // ---- P_SHIELD / P_UNSHIELD / P_MOVE (report) ---------------------------------------------------------------------------
+    {
+      let wE = 0, atE = '', wN = 0, atN = '', wU = 0, wM = 0, atM = '', sE = 0, nE = 0, sN = 0, nN = 0;
+      for (const bx of xs) for (const by of ys) {
+        const A = [bx, by];
+        drawnAt(A);
+        const rr = rectOf(...A);
+        let t = pshield([8 * rr.c0, A[1], 8 * (rr.c1 - rr.c0 + 1), 16]).t;           // meets the drawn pointer: erases
+        if (t > wE) { wE = t; atE = `A (${bx}, ${by})`; } sE += t; nE++;
+        wU = Math.max(wU, punshield().t);
+        drawnAt(A);
+        const row = (by < 100) ? 150 : 40;
+        t = pshield([0, row, 512, 1]).t;                                             // does not meet: no erase
+        if (t > wN) { wN = t; atN = `A (${bx}, ${by})`; } sN += t; nN++;
+        punshield();
+        t = pmove(bx ^ 0x55 & 511, by).t;
+        if (t > wM) { wM = t; atM = `(${bx}, ${by})`; }
+      }
+      console.log(`P_SHIELD with an erase: worst ${fmt(wE)} T at ${atE}, mean ${(sE / nE).toFixed(0)}; without an erase: worst ${fmt(wN)} T at ${atN}, mean ${(sN / nN).toFixed(0)}; P_UNSHIELD worst ${fmt(wU)} T; P_MOVE worst ${fmt(wM)} T at ${atM}`);
+      C.check(`P_SHIELD with an erase: worst ${fmt(wE)} T (report only)`, wE > 0);
+      C.check(`P_SHIELD without an erase: worst ${fmt(wN)} T (report only)`, wN > 0);
+      C.check(`P_UNSHIELD: worst ${fmt(wU)} T (report only)`, wU > 0);
+      C.check(`P_MOVE: worst ${fmt(wM)} T (report only)`, wM > 0);
+    }
+    // ---- deadline: the largest T_ISRP offset over frames that move the pointer (A, B, A, B, ... over the grid of the moving measure) ---
+    {
+      const accepted = () => cpu.pc === 0x38;
+      const park = () => { cpu.halted = false; cpu.nmiPending = false; cpu.eiDelay = false; cpu.iff1 = cpu.iff2 = true; cpu.sp = 0xFF00; cpu.pc = S.T_IDLE; };
+      const step = () => Z.runZ80(cpu, m.bus, 1, m);
+      const isr = () => {                                                        // run the pending ISR to its RET; offset of T_ISRP, ISR T
+        const sp0 = cpu.sp + 2, ret = m.ram[cpu.sp] | (m.ram[cpu.sp + 1] << 8), t0 = m.tstates;
+        let off = -1, g = 0;
+        while (!(cpu.pc === ret && cpu.sp === sp0)) { if (cpu.pc === S.T_ISRP && off < 0) off = m.tstates - m.frameStart; step(); if (++g > 400000) throw new Error('ISR did not return'); }
+        return { off, t: m.tstates - t0 };
+      };
+      for (let k = 0; k < 20000 && m.tstates - m.frameStart >= FRAME_T; k++) { park(); M.runFrame(m); }
+      park(); M.runFrame(m); M.runFrame(m);
+      const seq = [];
+      for (const bx of xs) for (const by of ys) { seq.push([(bx + 200) % 512, (by + 50) % 192], [bx, by], [bx, (by + 40) % 192], [bx, by]); }
+      let maxOff = 0, maxT = 0, lost = 0, frames = 0, at = '';
+      for (const p of seq) {
+        if (!accepted()) { lost++; break; }
+        const r = isr();
+        if (r.off > maxOff) { maxOff = r.off; at = `moving to (${p})`; }
+        if (r.t > maxT) maxT = r.t;
+        pmove(...p);
+        park(); M.runFrame(m); frames++;
+      }
+      console.log(`deadline: ${frames} frames moving the pointer over the grid; largest T_ISRP offset ${fmt(maxOff)} T (${at}), largest whole-ISR time ${fmt(maxT)} T`);
+      bound(`pointer deadline: largest T_ISRP offset ${fmt(maxOff)} + 1,500`, maxOff + 1500, 8960, ` over ${frames} moving frames${lost ? `, ${lost} interrupt lost` : ''}`);
+      park();
+    }
+    const pc = S.P_CODE_END - S.P_CODE, all = S.GFX6_CODE_END - S.GFX6_CODE;
+    console.log(`pointer code ${pc} bytes (${hex(S.P_CODE)}-${hex(S.P_CODE_END)}); gfx6 code now ${all} bytes`);
+    C.check(`code size: pointer ${pc} bytes, gfx6 in all ${all} bytes (report only)`, pc > 0);
   }
 }
 
