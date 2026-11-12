@@ -652,6 +652,15 @@ resync(); fullClip(); setOp(0);
   }
   fullClip();
   e5.report();
+
+  // Found by seed 107 (2026-11-12): one whole byte column at column 0 (n1 = 0) scrolled down past a third left the source's step byte
+  // NOP after it left character row 0, and the copy ran off the display.  One column at each parity and both edges, across the thirds.
+  const e6 = new Cat('edge G_SCROLLV: one whole byte column (columns 0, 1, 2, 3, 62, 63; w 8 and 15), rows across the thirds, n = +-1, +-3, +-9, random display');
+  for (const c of [0, 1, 2, 3, 62, 63]) for (const w of [8, 15]) for (const [y, h] of [[0, 192], [56, 20], [60, 80], [67, 90], [120, 20], [100, 92]]) for (const n of [1, -1, 3, -3, 9, -9]) {
+    resync(); setOp(0);
+    scroll(e6, 8 * c, y, c === 63 ? 8 : w, h, n);
+  }
+  e6.report();
   setOp(0);
 }
 

@@ -237,7 +237,7 @@ Same size, format and pointer code, so the S4 bounds and tests carry over. The m
 
 | Measure | Bound |
 |---|---|
-| **Bytes in the always-mapped pool:** `K_CODE_END - K_CODE` plus the chunk 0 bytes (`RST $08`, ISR) and the class, key-map and acceleration tables; **report** each part and the pool's free bytes after (11,739 before, CODE_SIZE 0) | <= 2,048 (**EST** about 1,500) |
+| **Bytes in the always-mapped pool:** `K_CODE_END - K_CODE` plus the chunk 0 bytes (`RST $08`, ISR) and the class, key-map and acceleration tables; **report** each part and the pool's free bytes after (11,739 before, CODE_SIZE 0) | <= 2,400 (owner 2026-11-12, 16.4: the measured size accepted; was 2,048, **EST** about 1,500) |
 | **Message send:** `RST $08` to the method's first instruction | <= 100 (**EST** 87) |
 | **Per event:** an `E_KEY` through `K_GETEV` + `K_DISPATCH` to the focused view's handler (its first instruction), the event in the ring | <= 500 (**EST** 350) |
 
@@ -251,10 +251,11 @@ Same size, format and pointer code, so the S4 bounds and tests carry over. The m
 | `K_POST` / `K_GETEV` (posted or ring) / `K_GETEV` empty | <= 200 / <= 250 / <= 100 |
 | `K_DISPATCH` `E_KEY`, each bubble level to a parent | <= 200 |
 | `K_DISPATCH` `E_DOWN` through a root `Group` of 8 `View` children, the last one hit (focusable, consumes), to its handler | <= 3,500 |
+| `K_DISPATCH` `E_MOVE`, no capture, through the same `Group` of 8, the last one hit, to its handler (the path taken every frame the pointer moves; added 16.4) | <= 2,500 |
 | `K_SETFOCUS` (handlers that `RET`) | <= 500 |
-| `K_FOCUSNEXT` / `K_FOCUSPREV`, tree of 32 views, the worst start | <= 5,000 / <= 8,000 |
-| `K_POLL`: nothing pressed, joystick idle / a key held (no change) / the worst frame (a move, a button change, two new keys) | <= 300 / <= 900 / <= 2,000 |
-| Whole frame ISR, worst (`P_ISR` moving + `K_POLL` worst) | <= 9,500 |
+| `K_FOCUSNEXT` / `K_FOCUSPREV`, tree of 32 views, the worst start | <= 11,000 / <= 18,000 (owner 2026-11-12, option G, 16.4; were 5,000 / 8,000) |
+| `K_POLL`: nothing pressed, joystick idle / a key held (no change) / the worst frame (a move, a button change, two new keys) | <= 300 / <= 900 / <= 5,250 (owner 2026-11-12, option C, 16.4; was 2,000) |
+| Whole frame ISR, worst (`P_ISR` moving + `K_POLL` worst) | <= 12,000 (owner 2026-11-12, option C, 16.4; was 9,500) |
 | Pointer deadline with the kernel ISR (GRAPHICS_SPIKE 16.7) | <= 8,960 |
 | S4's pointer bounds with the new `P_ARROW` | unchanged (16.7) |
 | ISR stack, return address included | <= 32 bytes |
@@ -612,7 +613,7 @@ DE = `K_EV`; its carry is "consumed".
 
 **`group_event`** (Group's `M_EVENT`): for `E_MOVE`, `E_DOWN`, `E_UP` only (others: not consumed, nothing sent). The point is x =
 data 1 + 256 (data 3 AND 1), y = data 2. For each child from `View_child` along `View_next`: skip it when its flags AND 6 != 0;
-send it `M_HITTEST` (BC = x, DE = y); the first that hits is the target, and no later child is tested. No target: not consumed.
+send it `M_HITTEST` (BC = x, DE = y; a child whose HitTest slot holds `view_hittest` is tested in place with the same arithmetic instead, 16.4); the first that hits is the target, and no later child is tested. No target: not consumed.
 Else:
 1. if the event is `E_DOWN` and the target's flags bit 0 is set: `K_SETFOCUS` (target);
 2. send `M_EVENT` to the target;
@@ -677,9 +678,10 @@ R's children and E, F (`G_FRAME`, the id in `G_TEXT8`, a focused
 | Per event (`E_KEY`) | Event in the ring (or posted: the worse), `K_FOCUS` = a `TBox` that consumes: direct call of a stub `T_EVONE` (`CALL K_GETEV`, `CALL K_DISPATCH`, `RET`), stepped until PC = `t_event`; T from `T_EVONE`'s first instruction |
 | Bubble level | The same with a focus k levels deep that does not consume, a consuming ancestor: (T(k) - T(0)) / k, the worst for k = 1..7 |
 | `E_DOWN`, `Group` of 8 `TBox` children | Root `Group` with 8 children side by side, the point in the last (focusable, consumes), focus elsewhere: to `t_event` of the last |
+| `E_MOVE`, `Group` of 8 `TBox` children (16.4) | The same tree, `K_CAPTURE` = 0, the point in the last: to `t_event` of the last; no child hit and the first hit are reported |
 | `K_SETFOCUS` | Old and new views whose `M_FOCUS` / `M_BLUR` are `k_nop` (section 8: "handlers that RET"), the whole call. **Amended in K3**: draft 2 said `TBox` here, which counts about 900 T of the test methods' own bodies; `TBox` is reported |
 | `K_FOCUSNEXT` / `K_FOCUSPREV`, 32 views | Trees of 32 views (a root `Group` and 31 `TBox` in chains and fans, depth <= 8), every start, the candidates placed for the longest walk: the worst |
-| Bytes | `K_CODE_END - K_CODE` + 14: <= 2,048 (section 8) |
+| Bytes | `K_CODE_END - K_CODE` + 14: <= 2,400 (section 8, as amended in 16.4) |
 
 ## 16. As built
 
@@ -895,3 +897,46 @@ sections 2-10 and 13-15 without reading the code.
 - The status line reads `LEAP K3 SUM 1D7E PASS` and then the last event's bytes and the keyboard-pointer mode.
 - Views 0-2 and 4-7 are framed; 3 is hidden.
 - TAB (CAPS SHIFT + 4), the arrows and a click move the focus, shown by a thicker frame.
+
+### 16.4 Owner decisions on the missed bounds (2026-11-12)
+
+The owner took the main model's recommendations:
+
+| Miss | Decision |
+|---|---|
+| `K_POLL` worst frame, whole frame ISR (16.2) | **C:** the measured figures become the bounds, 5,250 and 12,000 (section 8). Redesign only if a program measures a shortfall: the way to 2,000 is an ISR that records changed half-rows and leaves all decoding to `K_GETEV` |
+| Routing: `Group` hit testing (16.3) | **E**, built by the main model (below) |
+| Per event, bubble level, `E_DOWN` and `E_MOVE` through a `Group` | **D** (walk with pointers instead of IX), a bounded job for a Fable agent in its own worktree; the bounds stay as section 8 |
+| `K_FOCUSNEXT` / `K_FOCUSPREV` (16.3) | **G:** the measured figures, rounded up, become the bounds, 11,000 / 18,000. F is not taken: an extra word in every view, and an invariant that a program writing `View_flags` directly would break without a sign |
+| Bytes (16.3) | Accepted: <= 2,400 (about 9.4 KB of the pool left, against 6-9 KB still to place) |
+| The review's two notes (16.2) | Left as they are. The usual fix for the event that waits a frame needs a `DI` window, and TSRun drops a frame interrupt that arrives under `DI`; a second `K_WARP` in one frame is a program's own choice |
+
+**A new row:** `E_MOVE` with no capture through a root `Group` of 8 is the path taken in every frame the pointer moves; the
+contract had no row for it. Bound 2,500 (section 8), set from an estimate before option E was written.
+
+**Option E as built** (`group_event`, `src/kernel/focus.asm`): the point is unpacked once into BC / DE and kept through the loop;
+a child whose class's HitTest slot holds `view_hittest` is tested in place with the same arithmetic, and any other child is sent
+`M_HITTEST` with BC and DE saved around the send. The group stays on the stack for the whole walk.
+
+| Measure | Before E | After E | Bound |
+|---|---|---|---|
+| `E_MOVE` through 8, the last hit, to its handler | 3,930 | **3,315** | <= 2,500 **MISSED** |
+| `E_MOVE` through 8, no child hit (the whole `K_DISPATCH`) | 3,517 | 2,799 | report |
+| `E_DOWN` through 8, the last hit, focus moving from the first | 5,142 | **4,527** | <= 3,500 **MISSED** |
+| Bytes, step 3 | 2,279 | 2,354 | <= 2,400 |
+
+E saves about 90 T a child, not the 250 estimated in 16.3. The send it removes is only part of a child's cost; most of the rest is
+the child's fields read through IX (19 T each), which is D's subject.
+
+**Tests:** `tests/kern-hit.mjs` (new) compares the in-place test with `view_hittest` itself, at both edges of random rectangles
+and one step either side (x above 255 and w above 255 included), for `E_MOVE`, `E_DOWN` and `E_UP`: about 9,500 points a seed,
+seeds 1 and 2. Weakening the in-place width test (`SBC A,0` for the high byte) is caught (256 points disagree). K1, K2, K3 and the
+generator test pass with E.
+
+**Found during this round, outside step 3:** a `G_SCROLLV` fault from the graphics spike: one byte column at column 0 scrolled
+down, or at column 63 scrolled up, across a third. It is fixed and recorded in GRAPHICS_SPIKE 13.3, with a new edge test.
+
+**Perf test corrections:**
+- The `K_SETFOCUS` `TBox` row in `tests/kern-perf.mjs` still carried the 500 bound. It now only reports the figure, as 15.5 was
+  amended in K3.
+- The accepted bounds above are in the test.

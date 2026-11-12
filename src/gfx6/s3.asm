@@ -797,6 +797,11 @@ G_SCROLLV:
     dec a
     ld e,a
 .ou:
+    ld a,(S_N1)             ; n1 = 0 (one column): the main set copies nothing, but sc_gs* / sc_gd* read its immediates to find
+    or a                    ; the character row, so its offset must be in the row: the alternate set's (else 32 at column 63
+    jr nz,.om               ; going up, or -1 at column 0 going down)
+    ld d,e
+.om:
     ld a,d
     ld (S_OM),a
     ld a,e

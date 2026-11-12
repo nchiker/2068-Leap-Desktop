@@ -562,6 +562,25 @@ So scroll cannot meet its bounds with `LDI`, and save / restore would need setup
 3. **Scroll:** these bounds need a copy faster than `LDI`. `POP` / `PUSH` in pieces under 1,500 T of `DI` would need an
    exception to section 4 and 15.2, and a check that the pointer's deadline still holds.
 
+#### `G_SCROLLV` fault found later (2026-11-12, during step 3)
+
+- **Found by:** `gfx6-s3` seed 107, one random call in 600. The fault was present from the S3 commit on.
+- **The case:** a region of exactly one whole byte column at column 0 scrolled down, or at column 63 scrolled up, with the copy
+  crossing a third.
+- **Effect:** the source pointer stopped advancing after leaving character row 0 (7 going up), and later rows went outside the
+  display (`$5FA0` in the failing call).
+- **Cause:** with one column the main set copies nothing (n1 = 0), but its offset was still worked out: -1 at column 0 going
+  down, 32 at column 63 going up. Both fall outside the row, so the main set's immediates sat in the wrong character row.
+  `sc_gsd` / `sc_gdd` (and the up pair) read those immediates to decide whether a pointer is near character row 0 / 7, so the
+  undo of the wrap step was skipped.
+- **Fix:** with n1 = 0 the main set takes the alternate set's offset. It costs 29 T a call (256 x 96 by 1: 75,869 T; 512 x 192 by 8:
+  234,915 T); both were already missed.
+- **Why the tests missed it:**
+  - From a blank screen the wrong copies change nothing.
+  - The edge categories never had one column at column 0 or 63 crossing a third.
+- **New test:** edge category e6 in `tests/gfx6-s3.mjs` covers one column at columns 0-3, 62 and 63 across the thirds,
+  n = ±1, ±3, ±9. Without the fix it fails 72 of 432 calls. With it, seeds 1, 5, 107 and 200-215 pass.
+
 ### 13.4 Slice S4 (2026-11-11)
 
 **Result: every S4 bound passes.** Interface: section 16, with three changes made during S4:

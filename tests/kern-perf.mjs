@@ -252,7 +252,7 @@ const warpTo = (x, y) => run('K_WARP', { hl: x, de: y });
     n++;
     if (t > worst) { worst = t; whoW = `${dir} edge ${edge} fire ${fire} keys [${kp.join(' ')}] ${lock ? 'locked' : 'unlocked'} ring ${ringSt}`; }
   }
-  row(`K_POLL worst frame: full-speed move (free / into an edge), button change, two new keys, locked / unlocked, ${n} frames (worst: ${whoW})`, worst, 2000);
+  row(`K_POLL worst frame: full-speed move (free / into an edge), button change, two new keys, locked / unlocked, ${n} frames (worst: ${whoW})`, worst, 5250);   // owner 2026-11-12, option C: the measured worst (16.4)
   void worstFrames;
   // reported: other frames
   const rep = {};
@@ -328,14 +328,14 @@ const warpTo = (x, y) => run('K_WARP', { hl: x, de: y });
     cases++;
   }
   setIn(IDLE, 0xFF);
-  row(`whole frame ISR, worst over ${stat.frames} strict frames: P_ISR moving + K_POLL worst (${stat.whoT})`, stat.maxT, 9500);
+  row(`whole frame ISR, worst over ${stat.frames} strict frames: P_ISR moving + K_POLL worst (${stat.whoT})`, stat.maxT, 12000);   // owner 2026-11-12, option C (16.4)
   row('K_POLL inside the ISR, worst (T_ISRP to T_POLLD, CALL and RET included)', stat.maxK, null);
   row('pointer deadline: largest T_ISRP offset + 1,500', stat.maxOff + 1500, 8960);
   row('ISR stack with the return address (poisoned $FB00-$FEFD)', stat.stack, 32, 'B');
   C.check(`ISR frames: V_FRAMES rose by exactly 1 in each (${stat.vErr} wrong), no frame interrupt lost (${stat.lost}); ${cases} A -> B cases`, stat.vErr === 0 && stat.lost === 0);
 }
 // ---- bytes (K1 + K2) -----------------------------------------------------------------------------------------------------------------
-row('code bytes: K_CODE_END - K_CODE + 14 (K_SEND); section 8 allows 2,048 with chunk 0 and the tables', S.K_CODE_END - S.K_CODE + 14, null, 'B');
+row('code bytes: K_CODE_END - K_CODE + 14 (K_SEND); section 8 allows 2,400 for the whole step', S.K_CODE_END - S.K_CODE + 14, null, 'B');
 row('  of which K_CODE_END - K_CODE', S.K_CODE_END - S.K_CODE, null, 'B');
 
 // ===============================================================================================================================
@@ -426,6 +426,16 @@ else {
     kids = build(); row('  the same, no focus', down(kids, 0, 7), null);
     kids = build(); row('  the same, the focus already on the last (no K_SETFOCUS work)', down(kids, kids[7], 7), null);
     kids = build(); row('  the first child hit (focus on the last)', down(kids, kids[7], 0), null);
+
+    // E_MOVE with no capture (the hot path: every frame the pointer moves), routed from the root through the same Group of 8
+    const move = (kids, x, toHandler) => {
+      wr16(S.K_CAPTURE, 0); setEv(2, x & 255, 35, (x >> 8) & 1);
+      return toHandler ? steppedT(S.K_DISPATCH, {}, S.t_event).t : steppedT(S.K_DISPATCH).t;
+    };
+    kids = build();
+    row('E_MOVE, no capture, through a root Group of 8 TBox, the last hit (to its handler)', move(kids, 8 + 62 * 7 + 5, true), 2500);
+    kids = build(); row('  the same, no child hit (the whole K_DISPATCH)', move(kids, 4, false), null);
+    kids = build(); row('  the same, the first child hit', move(kids, 8 + 5, true), null);
   }
 
   // ---- K_SETFOCUS (old and new both TBox), the whole call -------------------------------------------------------------------------
@@ -435,7 +445,7 @@ else {
     run('K_SETROOT', { de: root }); add(root, a); add(root, b); add(root, c);
     rawFocus(0); setFocus(a);
     let t = 0; for (let i = 0; i < 6; i++) t = Math.max(t, steppedT(S.K_SETFOCUS, { de: i & 1 ? a : b }).t);
-    row('K_SETFOCUS TBox -> TBox (the whole call)', t, 500);
+    row('K_SETFOCUS TBox -> TBox (the whole call)', t, null);   // report (15.5 as amended: the bound is the View row below)
     rawFocus(0); row('  K_SETFOCUS none -> TBox', steppedT(S.K_SETFOCUS, { de: a }).t, null);
     row('  K_SETFOCUS TBox -> 0', steppedT(S.K_SETFOCUS, { de: 0 }).t, null);
     rawFocus(a); row('  K_SETFOCUS the same view', steppedT(S.K_SETFOCUS, { de: a }).t, null);
@@ -494,8 +504,8 @@ else {
         }
       }
     }
-    row(`K_FOCUSNEXT, 32 views, worst of ${calls / 2} walks (${whoN})`, worstN, 5000);
-    row(`K_FOCUSPREV, 32 views, worst of ${calls / 2} walks (${whoP})`, worstP, 8000);
+    row(`K_FOCUSNEXT, 32 views, worst of ${calls / 2} walks (${whoN})`, worstN, 11000);   // owner 2026-11-12, option G (16.4)
+    row(`K_FOCUSPREV, 32 views, worst of ${calls / 2} walks (${whoP})`, worstP, 18000);   // owner 2026-11-12, option G (16.4)
   }
 
   // ---- stack at depth 8 (15.2: dispatch <= 128; the focus routines are reported against 32) --------------------------------------
@@ -518,8 +528,8 @@ else {
     row('stack: K_FOCUSPREV from depth 8', stackOf(() => { const t = chain(); setFocus(t.v[7]); }, 'K_FOCUSPREV'), 128, 'B');
   }
 
-  // ---- bytes (section 8: <= 2,048 for the whole step) -----------------------------------------------------------------------------
-  row('bytes: K_CODE_END - K_CODE + 14 (K_SEND), step 3 total', S.K_CODE_END - S.K_CODE + 14, 2048, 'B');
+  // ---- bytes (section 8: <= 2,400 for the whole step, owner 2026-11-12) -----------------------------------------------------------------------------
+  row('bytes: K_CODE_END - K_CODE + 14 (K_SEND), step 3 total', S.K_CODE_END - S.K_CODE + 14, 2400, 'B');   // owner 2026-11-12: the measured size accepted (16.4)
 }
 
 // ---- print -----------------------------------------------------------------------------------------------------------------------

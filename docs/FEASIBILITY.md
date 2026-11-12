@@ -389,12 +389,13 @@ cross-checked on ZEsarUX and Fuse. It shows:
 3. **Objects and events:** class descriptors, message send, arenas and pools, the input ISR, the event queue, focus. Contract: `docs/OBJECTS_EVENTS.md` (owner approved). **Built on emulators (2026-11-12):** slices K1-K3, the `kern3`
    test cartridge and the `kern3demo` demo; the pointer has an ink hot spot (5a).
    - K1's bounds pass: send 87 T, `K_NEW` 437 T.
-   - Speed bounds missed and recorded with options for the owner (OBJECTS_EVENTS 16.2, 16.3):
-     - the ISR's worst input frame, 4,954 T against 2,000;
-     - the per-event path, 537 T against 500;
-     - hit-test routing through 8 children, 5,142 T against 3,500;
-     - the focus walk at 32 views, 10,881 / 17,952 T against 5,000 / 8,000.
-   - Step 3 takes 2,279 bytes of the always-mapped pool (bound 2,048), leaving about 9.5 KB.
+   - Speed bounds missed and recorded with options (OBJECTS_EVENTS 16.2, 16.3); the owner's decisions are in 16.4 (2026-11-12):
+     - the ISR's worst input frame, 4,954 T against 2,000: the measured figures accepted (bounds 5,250, whole ISR 12,000);
+     - the focus walk at 32 views, 10,881 / 17,952 T: accepted (bounds 11,000 / 18,000);
+     - `Group` hit testing: tested in place for plain views (option E), `E_DOWN` through 8 children 5,142 -> 4,527 T;
+     - per event 537 / 500, bubble 278 / 200, `E_DOWN` 4,527 / 3,500 and the new `E_MOVE` row 3,315 / 2,500: a Fable job
+       (option D, walking the tree with pointers instead of IX).
+   - Step 3 takes 2,354 bytes of the always-mapped pool (bound now 2,400), leaving about 9.4 KB.
 4. **Window manager:** window list, damage repaint, menus, dialogs. Together with steps 2-3 this is the proof of concept, the first milestone.
 5. **First applications:** controls, the shell, Calculator, then Write (mode 6), Paint, tape file services.
 6. **Banking and SDK:** banked apps in DOCK 2-3, the third-party app header, the IDE SDK and templates, later a Leap-C cross-compiler and a visual designer.

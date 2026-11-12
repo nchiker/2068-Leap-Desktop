@@ -93,38 +93,80 @@ K_BACKTAB   EQU 15
 ; group_event: Group's M_EVENT.  A pointer event goes to the front-most child (not hidden, not disabled) whose M_HITTEST hits;
 ; on E_DOWN a focusable child takes the focus first, and the child that consumes it becomes the capture if there is none.
 ; Carry = the child consumed it.  Other events: not consumed.
+; A child whose HitTest slot holds view_hittest is tested here, in place, with the same arithmetic (option E, 16.4); any other
+; child gets M_HITTEST.
 group_event:
     ld a,(K_EV)
-    cp E_MOVE
-    jr c,.no
-    cp E_UP + 1
-    jr nc,.no
-    ld l,(ix+View_child)
-    ld h,(ix+View_child+1)
-.loop:
-    ld a,h
-    or l
-    jr z,.no
-    push ix
-    push hl
-    pop ix                      ; IX = the child
-    ld a,(ix+View_flags)
-    and 6
-    jr nz,.skip                 ; hidden or disabled
+    sub E_MOVE
+    cp E_UP - E_MOVE + 1
+    jr c,.ptr                   ; E_MOVE, E_DOWN, E_UP
+    or a
+    ret
+.ptr:
     ld bc,(K_EV+1)              ; C = x low, B = y
     ld e,b
     ld d,0
     ld a,(K_EV+3)
     and 1
-    ld b,a                      ; BC = x, DE = y
-    ld a,M_HITTEST
-    rst $08
+    ld b,a                      ; BC = x, DE = y, kept through the loop
+    push ix                     ; the group, on the stack until the end
+    ld l,(ix+View_child)
+    ld h,(ix+View_child+1)
+.loop:
+    ld a,h
+    or l
+    jr z,.none
+    push hl
+    pop ix                      ; IX = the child
+    ld a,(ix+View_flags)
+    and 6
+    jr nz,.skip                 ; hidden or disabled
+    ld l,(ix+0)
+    ld h,(ix+1)                 ; HL = the class
+    ld a,l
+    add a,M_HITTEST * 2
+    ld l,a                      ; its HitTest slot (a method table never crosses a page)
+    ld a,(hl)
+    cp view_hittest & $FF
+    jr nz,.send
+    inc l
+    ld a,(hl)
+    cp view_hittest >> 8
+    jr nz,.send
+    ld a,c                      ; view_hittest in place: x - View_x, unsigned, below w; y - View_y below h (D is 0)
+    sub (ix+View_x)
+    ld l,a
+    ld a,b
+    sbc a,(ix+View_x+1)
+    jr c,.skip
+    ld h,a
+    ld a,l
+    sub (ix+View_w)
+    ld a,h
+    sbc a,(ix+View_w+1)
+    jr nc,.skip
+    ld a,e
+    sub (ix+View_y)
+    jr c,.skip
+    cp (ix+View_h)
     jr c,.hit
 .skip:
     ld l,(ix+View_next)
     ld h,(ix+View_next+1)
-    pop ix
     jr .loop
+.send:
+    push bc
+    push de
+    ld a,M_HITTEST
+    rst $08
+    pop de
+    pop bc
+    jr c,.hit
+    jr .skip
+.none:
+    pop ix
+    or a
+    ret
 .hit:
     ld a,(K_EV)
     cp E_DOWN
@@ -156,7 +198,6 @@ group_event:
 .back:
     push hl
     pop ix
-.no:
     or a
     ret
 
