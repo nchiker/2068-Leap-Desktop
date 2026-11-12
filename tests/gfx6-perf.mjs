@@ -25,14 +25,26 @@ const fill = (x, y, w, h, o = {}) => { setGA(m, S, x, y, w, h); return call(m, S
 const hline = (x, y, w, o = {}) => call(m, S, 'G_HLINE', { hl: w16(x), de: w16(y), bc: w16(w) }, { rng, ...o });
 const vline = (x, y, h, o = {}) => call(m, S, 'G_VLINE', { hl: w16(x), de: w16(y), bc: w16(h) }, { rng, ...o });
 
-/** Check one bound: value <= bound. */
+/** Check one bound: value <= bound.  Returns whether it held (for the section 7 table at the end). */
 function bound(name, value, limit, extra = '') {
   C.check(`${name} (${fmt(value)} T, bound ${fmt(limit)})${extra}`, value <= limit);
+  return value <= limit;
 }
+// The section 7 table printed at the end (17.9): one row per row of section 7, in its order; a row has one part per figure it names.
+// status: true = pass, false = MISSED, 'report' = reported.  Only records what the checks above measured; nothing here judges anything.
+const S7_ROWS = ['`G_CLS` whole screen', '`G_CLS` interrupt safety', 'Longest `DI` anywhere', '`G_FILL` 512 x 192, SET', '`G_FILL` 32 x 16 at odd x, SET / XOR',
+  '`G_HLINE` 512 wide / `G_VLINE` 192 high', '`G_LINE`', '`G_TEXT8`', '`G_TEXTP`', '`G_BLIT` 16 x 16 / 32 x 32 at any x', '`G_SAVERECT` / `G_RESTRECT` 96 x 80',
+  '`G_SCROLLV` 256 x 96 by 1 row / 512 x 192 by 8 rows', 'Pointer, in the ISR', 'Code size of `gfx6`'];
+const s7 = new Map(S7_ROWS.map((r) => [r, []]));
+const sum7 = (row, fig, bnd, status) => { if (!s7.has(row)) throw new Error(`no section 7 row ${row}`); s7.get(row).push({ fig, bnd, status }); };
+s7.get('`G_CLS` interrupt safety').push({ fig: 'see gfx6-cls / gfx6-s4', bnd: '0 lost over 300 frames; RAM outside the display unchanged', status: 'see' });
+let diAllMax = 0, diAllOk = true, diAllCalls = 0;
+const diNote = (r) => { diAllCalls++; if (r.maxDiRun > diAllMax) diAllMax = r.maxDiRun; if (!(r.maxDiRun <= 1500 && r.iff1 === true)) diAllOk = false; };
 /** Longest DI run of a call stepped with interrupts on, <= 1,500 T. */
 let diWorst = 0;
 function di(name, run) {
   const r = run({ ints: true });
+  diNote(r);
   if (r.maxDiRun > diWorst) diWorst = r.maxDiRun;
   C.check(`longest DI run in ${name} (${fmt(r.maxDiRun)} T, bound 1,500)`, r.maxDiRun <= 1500 && r.iff1 === true);
 }
@@ -43,7 +55,7 @@ init();
 // G_CLS whole screen: one direct call, interrupts off.
 {
   const r = call(m, S, 'G_CLS', {}, { rng });
-  bound('G_CLS whole screen', r.t, 80000);
+  sum7('`G_CLS` whole screen', `${fmt(r.t)} T`, '<= 80,000', bound('G_CLS whole screen', r.t, 80000));
   const zero = m.ram.slice(0x4000, 0x5800).every((v) => !v) && m.ram.slice(0x6000, 0x7800).every((v) => !v);
   C.check('G_CLS left all 12,288 display bytes at 0', zero);
 }
@@ -52,7 +64,7 @@ init();
 {
   seedDisplay(m, rng); init(); setOp(0);
   const r = fill(0, 0, 512, 192);
-  bound('G_FILL 512x192 SET', r.t, 150000);
+  sum7('`G_FILL` 512 x 192, SET', `${fmt(r.t)} T`, '<= 150,000', bound('G_FILL 512x192 SET', r.t, 150000));
 }
 
 // G_FILL 32 x 16 at odd x: the worst over x in {1, 3, 9, 101, 255, 477}, y in {0, 5}, for SET and XOR.
@@ -63,7 +75,7 @@ for (const [op, name, limit] of [[0, 'SET', 3000], [2, 'XOR', 3300]]) {
     const t = fill(x, y, 32, 16).t;
     if (t > worst) { worst = t; at = `x ${x}, y ${y}`; }
   }
-  bound(`G_FILL 32x16 at odd x ${name}, worst of 12 positions`, worst, limit, ` at ${at}`);
+  sum7('`G_FILL` 32 x 16 at odd x, SET / XOR', `${name} ${fmt(worst)} T`, `<= ${fmt(limit)}`, bound(`G_FILL 32x16 at odd x ${name}, worst of 12 positions`, worst, limit, ` at ${at}`));
 }
 
 // G_HLINE 512 wide (0, y) for y in {0, 100, 191}; G_VLINE 192 high (x, 0) for x in {0, 7, 100, 511}: the worst, SET.
@@ -71,10 +83,10 @@ for (const [op, name, limit] of [[0, 'SET', 3000], [2, 'XOR', 3300]]) {
   seedDisplay(m, rng); init(); setOp(0);
   let worst = 0, at = '';
   for (const y of [0, 100, 191]) { const t = hline(0, y, 512).t; if (t > worst) { worst = t; at = `y ${y}`; } }
-  bound('G_HLINE 512 wide, worst of y 0/100/191', worst, 2500, ` at ${at}`);
+  sum7('`G_HLINE` 512 wide / `G_VLINE` 192 high', `HLINE ${fmt(worst)} T`, '<= 2,500', bound('G_HLINE 512 wide, worst of y 0/100/191', worst, 2500, ` at ${at}`));
   worst = 0; at = '';
   for (const x of [0, 7, 100, 511]) { const t = vline(x, 0, 192).t; if (t > worst) { worst = t; at = `x ${x}`; } }
-  bound('G_VLINE 192 high, worst of x 0/7/100/511', worst, 7000, ` at ${at}`);
+  sum7('`G_HLINE` 512 wide / `G_VLINE` 192 high', `VLINE ${fmt(worst)} T`, '<= 7,000', bound('G_VLINE 192 high, worst of x 0/7/100/511', worst, 7000, ` at ${at}`));
 }
 
 // Longest DI (section 7): the measured calls again, stepped from iff1 = true.
@@ -114,8 +126,8 @@ for (const [op, name, limit] of [[0, 'SET', 3000], [2, 'XOR', 3300]]) {
         res[op] = text8(0, 10, s64).t / 64;
         console.log(`G_TEXT8 64 chars ${OPNAME[op]}: ${fmt(res[op] * 64)} T = ${per(res[op], 1)} T per character`);
       }
-      bound('G_TEXT8 per character, SET (64-char line)', res[0], 260);
-      bound('G_TEXT8 per character, XOR (64-char line)', res[2], 340);
+      sum7('`G_TEXT8`', `SET ${per(res[0], 1)} T per character`, '<= 260', bound('G_TEXT8 per character, SET (64-char line)', res[0], 260));
+      sum7('`G_TEXT8`', `XOR ${per(res[2], 1)} T per character`, '<= 340', bound('G_TEXT8 per character, XOR (64-char line)', res[2], 340));
       C.check(`G_TEXT8 per character, CLR: ${per(res[1], 1)} T (report only)`, res[1] > 0);
     }
 
@@ -132,7 +144,7 @@ for (const [op, name, limit] of [[0, 'SET', 3000], [2, 'XOR', 3300]]) {
         res[op] = t / total;
         console.log(`G_TEXTP paragraph ${OPNAME[op]}: ${fmt(t)} T over ${total} codes = ${per(res[op], 1)} T per glyph`);
       }
-      bound('G_TEXTP per glyph, SET (sample paragraph mean, spaces included)', res[0], 700);
+      sum7('`G_TEXTP`', `SET ${per(res[0], 1)} T per glyph`, '<= 700', bound('G_TEXTP per glyph, SET (sample paragraph mean, spaces included)', res[0], 700));
       C.check(`G_TEXTP per glyph, XOR: ${per(res[2], 1)} T (report only)`, res[2] > 0);
       C.check(`G_TEXTP per glyph, CLR: ${per(res[1], 1)} T (report only)`, res[1] > 0);
     }
@@ -142,13 +154,14 @@ for (const [op, name, limit] of [[0, 'SET', 3000], [2, 'XOR', 3300]]) {
       seedDisplay(m, rng); init(); setOp(0);
       const byW = new Map();
       for (let c = 32; c <= 126; c++) { const w = F.prop6.I[c]; if (!byW.has(w)) byW.set(w, []); byW.get(w).push(c); }
-      let rows = 0;
+      let rows = 0, wMean = [];
       for (const w of [...byW.keys()].sort((a, b) => a - b)) {
         let t = 0, n = 0, lo = Infinity, hi = 0;
         for (const c of byW.get(w)) for (let p = 0; p < 8; p++) { const d = textp(64 + p, 50, [c]).t; t += d; n++; lo = Math.min(lo, d); hi = Math.max(hi, d); }
         console.log(`G_TEXTP one code, ink width ${w}${w === 0 ? ' (no ink)' : ''}: ${byW.get(w).length} glyphs x 8 shifts, mean ${per(t, n)} T (min ${lo}, max ${hi})`);
-        rows++;
+        rows++; wMean.push(t / n);
       }
+      sum7('`G_TEXTP`', `per-width means ${fmt(Math.round(Math.min(...wMean)))}-${fmt(Math.round(Math.max(...wMean)))} T per one-code call (${rows} ink widths, listed above)`, 'report', 'report');
       C.check(`G_TEXTP per-width figures reported for ${rows} ink widths (report only)`, rows > 0);
     }
 
@@ -173,6 +186,7 @@ for (const [op, name, limit] of [[0, 'SET', 3000], [2, 'XOR', 3300]]) {
       let worst = 0;
       const diS2 = (name, run) => {
         const r = run({ ints: true });
+        diNote(r);
         if (r.maxDiRun > worst) worst = r.maxDiRun;
         C.check(`longest DI run in ${name} (${fmt(r.maxDiRun)} T, bound 1,500)`, r.maxDiRun <= 1500 && r.iff1 === true);
       };
@@ -227,7 +241,7 @@ for (const [op, name, limit] of [[0, 'SET', 3000], [2, 'XOR', 3300]]) {
           C.check(`G_LINE SET by major axis: x-major ${per(tx, xPix)}, y-major ${per(ty, pixels - xPix)} T per pixel (report only)`, tx > 0 && ty > 0);
         }
       }
-      bound('G_LINE per pixel, SET (mean over 200 random lines)', res[0], 150);
+      sum7('`G_LINE`', `${per(res[0], 1)} T per pixel (SET, mean of 200 lines)`, '<= 150', bound('G_LINE per pixel, SET (mean over 200 random lines)', res[0], 150));
       C.check(`G_LINE per pixel, XOR: ${per(res[2], 1)} T (report only)`, res[2] > 0);
     }
 
@@ -259,7 +273,7 @@ for (const [op, name, limit] of [[0, 'SET', 3000], [2, 'XOR', 3300]]) {
           if (t > worst) { worst = t; at = `x ${64 + p}, y ${y}`; }
         }
         console.log(`G_BLIT ${w}x${h} at y 0 by p: ${row.join(', ')}`);
-        bound(`G_BLIT ${w}x${h} (from a G_PRESHIFT set), worst of 16 positions`, worst, limit, ` at ${at}`);
+        sum7('`G_BLIT` 16 x 16 / 32 x 32 at any x', `${w}x${h} ${fmt(worst)} T`, `<= ${fmt(limit)}`, bound(`G_BLIT ${w}x${h} (from a G_PRESHIFT set), worst of 16 positions`, worst, limit, ` at ${at}`));
         if (w === 16) C.check(`G_BLIT 16x16 at y 0 for p = 0..7: ${row.join(', ')} T (report only)`, row.length === 8);
       }
     }
@@ -279,8 +293,8 @@ for (const [op, name, limit] of [[0, 'SET', 3000], [2, 'XOR', 3300]]) {
         if (rs.t > worstS) { worstS = rs.t; atS = `x ${x}, y ${y}`; }
         if (rr.t > worstR) { worstR = rr.t; atR = `x ${x}, y ${y}`; }
       }
-      bound('G_SAVERECT 96x80, worst of x 64/72 x y 0/53', worstS, 20000, ` at ${atS}`);
-      bound('G_RESTRECT 96x80, worst of x 64/72 x y 0/53', worstR, 20000, ` at ${atR}`);
+      sum7('`G_SAVERECT` / `G_RESTRECT` 96 x 80', `SAVERECT ${fmt(worstS)} T`, '<= 20,000', bound('G_SAVERECT 96x80, worst of x 64/72 x y 0/53', worstS, 20000, ` at ${atS}`));
+      sum7('`G_SAVERECT` / `G_RESTRECT` 96 x 80', `RESTRECT ${fmt(worstR)} T`, '<= 20,000', bound('G_RESTRECT 96x80, worst of x 64/72 x y 0/53', worstR, 20000, ` at ${atR}`));
       C.check('G_SAVERECT returned buf + 4 + nc nr and each G_RESTRECT put back exactly its own save (model compare)', ok, why);
     }
 
@@ -292,13 +306,13 @@ for (const [op, name, limit] of [[0, 'SET', 3000], [2, 'XOR', 3300]]) {
         const t = gscroll(128, y, 256, 96, n).t;
         if (t > worst) { worst = t; at = `y ${y}, n ${n}`; }
       }
-      bound('G_SCROLLV 256x96 by 1 row, worst of y 48/53 x n 1/-1', worst, 55000, ` at ${at}`);
+      sum7('`G_SCROLLV` 256 x 96 by 1 row / 512 x 192 by 8 rows', `256x96 by 1 ${fmt(worst)} T`, '<= 55,000', bound('G_SCROLLV 256x96 by 1 row, worst of y 48/53 x n 1/-1', worst, 55000, ` at ${at}`));
       worst = 0; at = '';
       for (const n of [8, -8]) {
         const t = gscroll(0, 0, 512, 192, n).t;
         if (t > worst) { worst = t; at = `n ${n}`; }
       }
-      bound('G_SCROLLV 512x192 by 8 rows, worst of n 8 / -8', worst, 200000, ` at ${at}`);
+      sum7('`G_SCROLLV` 256 x 96 by 1 row / 512 x 192 by 8 rows', `512x192 by 8 ${fmt(worst)} T`, '<= 200,000', bound('G_SCROLLV 512x192 by 8 rows, worst of n 8 / -8', worst, 200000, ` at ${at}`));
       for (const n of [1, 10]) {
         const t = gscroll(0, 0, 512, 192, n).t;
         console.log(`G_SCROLLV 512x192 by ${n} row${n > 1 ? 's' : ''}: ${fmt(t)} T`);
@@ -311,6 +325,7 @@ for (const [op, name, limit] of [[0, 'SET', 3000], [2, 'XOR', 3300]]) {
       let worst = 0;
       const diS3 = (name, run) => {
         const r = run({ ints: true });
+        diNote(r);
         if (r.maxDiRun > worst) worst = r.maxDiRun;
         C.check(`longest DI run in ${name} (${fmt(r.maxDiRun)} T, bound 1,500)`, r.maxDiRun <= 1500 && r.iff1 === true);
       };
@@ -384,8 +399,8 @@ for (const [op, name, limit] of [[0, 'SET', 3000], [2, 'XOR', 3300]]) {
         }
       }
       console.log(`P_ISR moving: ${n} measured pairs (${nShield} with a shield, ${noFree} without a free row); worst no shield ${fmt(byCase['no shield'])} T, worst with shield ${fmt(byCase['with shield'])} T`);
-      bound(`P_ISR moving (erase + draw), worst of ${n} cases`, worst, 7000, ` at ${worstAt}`);
-      bound(`P_ISR skipped (again, no call in between), worst of ${n} cases`, worstSkip, 300, ` at ${worstSkipAt}`);
+      sum7('Pointer, in the ISR', `moving ${fmt(worst)} T`, '<= 7,000', bound(`P_ISR moving (erase + draw), worst of ${n} cases`, worst, 7000, ` at ${worstAt}`));
+      sum7('Pointer, in the ISR', `skipped ${fmt(worstSkip)} T`, '<= 300', bound(`P_ISR skipped (again, no call in between), worst of ${n} cases`, worstSkip, 300, ` at ${worstSkipAt}`));
     }
     // ---- other paths (report) ---------------------------------------------------------------------------------------------
     {
@@ -466,7 +481,7 @@ for (const [op, name, limit] of [[0, 'SET', 3000], [2, 'XOR', 3300]]) {
         park(); M.runFrame(m); frames++;
       }
       console.log(`deadline: ${frames} frames moving the pointer over the grid; largest T_ISRP offset ${fmt(maxOff)} T (${at}), largest whole-ISR time ${fmt(maxT)} T`);
-      bound(`pointer deadline: largest T_ISRP offset ${fmt(maxOff)} + 1,500`, maxOff + 1500, 8960, ` over ${frames} moving frames${lost ? `, ${lost} interrupt lost` : ''}`);
+      sum7('Pointer, in the ISR', `deadline: T_ISRP offset ${fmt(maxOff)} + 1,500 = ${fmt(maxOff + 1500)} T`, '<= 8,960 (before the beam)', bound(`pointer deadline: largest T_ISRP offset ${fmt(maxOff)} + 1,500`, maxOff + 1500, 8960, ` over ${frames} moving frames${lost ? `, ${lost} interrupt lost` : ''}`) && !lost);
       park();
     }
     const pc = S.P_CODE_END - S.P_CODE, all = S.GFX6_CODE_END - S.GFX6_CODE;
@@ -480,5 +495,26 @@ for (const [op, name, limit] of [[0, 'SET', 3000], [2, 'XOR', 3300]]) {
   const size = S.GFX6_CODE_END - S.GFX6_CODE;
   C.check(`code size of gfx6: ${fmt(size)} bytes (${hex(S.GFX6_CODE)}-${hex(S.GFX6_CODE_END)}), target <= 4,096, report only`, size > 0);
   console.log(`code size ${size} bytes ${size <= 4096 ? '(within' : '(OVER'} the 4 KB target)`);
+  sum7('Code size of `gfx6`', `${fmt(size)} bytes (GFX6_CODE to GFX6_CODE_END)`, `report; target <= 4,096 (${size <= 4096 ? 'within' : 'OVER'})`, 'report');
 }
 C.done();
+
+// ===========================================================================================================================
+// Section 7 as a table (17.9): every row, this run's figure, its bound, pass / MISSED / reported.  The checks above are the only judges.
+{
+  if (diAllCalls) sum7('Longest `DI` anywhere', `${fmt(diAllMax)} T (${diAllCalls} stepped calls)`, '<= 1,500', diAllOk);
+  const label = (st) => (st === true ? 'pass' : st === false ? 'MISSED' : st === 'report' ? 'reported' : 'see test');
+  const out = [['Section 7 row', 'Measured (this run)', 'Bound', 'Result']];
+  for (const [row, parts] of s7) {
+    if (!parts.length) { out.push([row.replace(/`/g, ''), 'not measured', '', '-']); continue; }
+    const sts = parts.map((x) => label(x.status));
+    out.push([row.replace(/`/g, ''), parts.map((x) => x.fig).join(' / '), parts.map((x) => x.bnd).join(' / '),
+      sts.every((x) => x === sts[0]) ? sts[0] : sts.join(' / ')]);
+  }
+  const wd = out[0].map((_, c) => Math.max(...out.map((r) => r[c].length)));
+  console.log('\nSection 7 summary (seed ' + SEED + '):');
+  out.forEach((r, i) => {
+    console.log(r.map((v, c) => v.padEnd(wd[c])).join(' | ').trimEnd());
+    if (i === 0) console.log(wd.map((w) => '-'.repeat(w)).join('-+-'));
+  });
+}

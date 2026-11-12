@@ -206,6 +206,35 @@ The kernel's graphics core is written for all three from the start. Within each 
 row layout (32 bytes a row). Mode 6 changes only which file a byte column lives in; modes 0 and 2 differ only in where the colour
 goes. So one row table and one set of per-row routines serve all three, with a per-mode "next byte" step and colour hook.
 
+## 5a. The mode decision after the graphics spike (2026-11-11)
+
+The spike (`docs/GRAPHICS_SPIKE.md`, slices S1-S5) built the mode 6 graphics core and a mock desktop, `spike6`. All figures are
+TSRun T-states (**EMU**, no contention); the demo's screens are identical on ZEsarUX 13.0 and Fuse 1.9.1.
+
+**Judgement: keep mode 6.** Its three open questions (spike section 1) are answered well enough. Its real costs are code size and
+whole-window copies, not drawing speed, and neither is solved by changing the mode.
+
+| Question | Answer from the spike |
+|---|---|
+| **1. Text speed** | 8x8 text 232 T a character; proportional text 668 T a glyph at about 88 characters a line, against the 400-500 T this review estimated. A full screen of proportional text (about 2,100 glyphs) is about 1.4 M T, a quarter of a second on TSRun. Short strings pay a line setup of about 2,760 T each, so a menu of five items costs 65-87 k T: the kernel should draw a list in one call. |
+| **2. Drawing on the visible screen** | Solved for the pointer. The frame ISR erases and draws it in at most 6,779 T, before the beam reaches it (8,194 T with the worst interrupt delay, against 8,960), and the shield keeps drawing and pointer apart. In the demo, menus with save-under, an XOR drag outline and the pointer leave no trace on three emulators. Drawing that runs longer than a frame makes the pointer lag one frame (4 frames in the demo's script). Per-edge shields keep the pointer visible during a drag. |
+| **3. Cost of the alternating files** | Fills, lines, blits and text meet their bounds. Copies of screen rectangles do not: save / restore 96 x 80 take 23 k T (bound 20 k), and vertical scroll 75.8 k T for 256 x 96 by 1 row and 235 k T for the whole screen by 8 rows (bounds 55 k and 200 k). These are limited by `LDI` with interrupts on, so they would be half as long in mode 0 only because mode 0 has half the bytes. A scrolling Write window (about 4 frames a step at full screen) is usable but not smooth. |
+
+**What the spike changes in this review:**
+- **Code size is the binding constraint.** gfx6 is 13.3 KB (target 4 KB): the speed came from unrolled bodies and per-op pass
+  blocks. With its tables (about 8 KB in chunk 4) it takes most of what section 4 gave the kernel in chunks 0, 1, 4 and 5. The kernel
+  (objects, events, windows, menus) must fit in the rest, or gfx6 must shrink (spike 13.2 lists 891 bytes measured; the text pass
+  blocks and the `G_FILL` bodies are the large parts), or the cartridge grows past 32 KB of always-mapped code (Verdict, condition 1).
+  This is the first decision for roadmap step 3.
+- **Section 3's map:** chunk 4 now holds gfx6's page-aligned tables, so "the active app running in place from DOCK chunks 4-5" needs
+  revisiting: apps in DOCK 2-3 (probe (a), passed) are the remaining place.
+- **Contention** (section 8, risk 2) still applies to all of the above: every figure here is a lower bound for real hardware.
+- **Pointer design:** the arrow's hot spot is a paper pixel, so the pointer cannot be seen in the bottom-right corner. Redraw it with
+  an ink hot spot before the kernel.
+
+**Not answered by the spike:** the mode 0 and mode 2 variants (roadmap step 2's last item), and how 512-pixel lines look on a real
+display (hardware phase).
+
 ## 6. Object model
 
 - **Class descriptor (in the cartridge):** parent pointer, instance size, method count, and a vtable of 2-byte method addresses. Single inheritance is **flattened at build time** by the IDE linker (or assembler macros), so there are no run-time lookups.
@@ -351,7 +380,7 @@ cross-checked on ZEsarUX and Fuse. It shows:
 
 0. **Probe (a): done, PASS on all three emulators** (`docs/PROBE_DOCK23.md`). Probe (b) and Arcade hardware checklist item 0 wait for the hardware phase.
 1. **Project setup:** the LeapG repo, vendored sources with a provenance manifest, Arcade's build tools and DCK linker, a test page in the style of Leap-IDE running TSRun, the memory map, and `desktop.json` (the ABI spec).
-2. **Graphics core, mode 6 first:**
+2. **Graphics core, mode 6 first:** mode 6 core and demo **done on emulators** (`docs/GRAPHICS_SPIKE.md` S1-S5; decision in section 5a). Left: the code-size decision and the mode 0 and 2 variants.
    - Adapt the Arcade pieces in "Graphics core: what comes from Arcade": masked blitter, pre-shift builder, shift tables, glyph planes, dirty bitmap, rectangle walker, PUSH fill.
    - Write the gaps: mode 6 addressing, lines, clip rectangles, save-under, opaque blit.
    - Then add the mode 0 and 2 variants.

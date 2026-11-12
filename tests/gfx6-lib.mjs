@@ -30,17 +30,17 @@ export const T_BUF = 0xC000, T_BUF_END = 0xCFFF;
 export const T_STR = 0xD000, T_STR_END = 0xD1FF;
 
 /** Build and boot gfx6t; returns { m, S, img, frames } or null after recording a FAIL on C (the cartridge tests cannot run). */
-export function start(C, needed = NEEDED) {
+export function start(C, needed = NEEDED, target = 'gfx6t') {
   let b;
-  try { b = build('gfx6t'); }
-  catch (e) { C.check('gfx6t cartridge builds', false, String(e.message).split('\n')[0]); return null; }
+  try { b = build(target); }
+  catch (e) { C.check(`${target} cartridge builds`, false, String(e.message).split('\n')[0]); return null; }
   const S = b.syms, missing = needed.filter((n) => S[n] === undefined);
-  if (missing.length) { C.check('gfx6t defines the symbols the tests use', false, `missing: ${missing.join(', ')}`); return null; }
+  if (missing.length) { C.check(`${target} defines the symbols the tests use`, false, `missing: ${missing.join(', ')}`); return null; }
   const m = boot(b.dck);
   const marked = (mm) => mm.ram[S.RESULT] === 0xA5 && mm.ram[S.RESULT + 1] === 0x5A;
   const frames = runFramesUntil(m, marked, 400);
   const state = m.ram[S.RESULT + 2];
-  C.check('gfx6t booted: record marker $A5 $5A, state 1', frames > 0 && state === 1, `frames ${frames}, state ${state}`);
+  C.check(`${target} booted: record marker $A5 $5A, state 1`, frames > 0 && state === 1, `frames ${frames}, state ${state}`);
   if (!(frames > 0 && state === 1)) return null;
   return { m, S, img: b.img, frames };
 }

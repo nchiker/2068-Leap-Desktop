@@ -16,6 +16,7 @@ export const TARGETS = {
   hello: { src: 'src/hello.asm', chunks: [0, 1, 4, 5] },
   probe23: { src: 'src/probe23.asm', chunks: [0, 1, 2, 3, 4, 5] },   // docs/PROBE_DOCK23.md
   gfx6t: { src: 'src/gfx6t.asm', chunks: [0, 1, 4, 5], tables: true }, // docs/GRAPHICS_SPIKE.md section 12.4
+  spike6: { src: 'src/spike6.asm', chunks: [0, 1, 4, 5], tables: true }, // docs/GRAPHICS_SPIKE.md section 17
 };
 
 /** Assemble one target; returns { img (64 KB), syms, dck, dckPath }. */

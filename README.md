@@ -3,8 +3,8 @@
 A GEOS-style graphical desktop for the **Timex Sinclair 2068**, built from Leap technology (Leap V2 and Leap Arcade). It runs from a
 DOCK cartridge, uses the 512x192 64-column video mode, and is tested on emulators.
 
-**Status:** step 1 (project setup). Nothing of the desktop exists yet. The design and the plan are in
-[`docs/FEASIBILITY.md`](docs/FEASIBILITY.md).
+**Status:** the graphics spike (slices S1-S5, `docs/GRAPHICS_SPIKE.md`) is done on emulators: TSRun, ZEsarUX 13.0 and Fuse 1.9.1.
+The mode decision (keep mode 6) and what the spike changes are in `docs/FEASIBILITY.md` section 5a; next is the code-size decision, then roadmap step 3. The design and the plan are in [`docs/FEASIBILITY.md`](docs/FEASIBILITY.md).
 
 ## Layout
 
