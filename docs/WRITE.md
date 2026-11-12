@@ -195,6 +195,7 @@ The tests are written from sections 1-10 and this section, never from the code.
     otherwise before that code (but it always holds at least one code).
   - When a space makes the sum exceed W: the line ends after that space and every space directly after it.
   - The end of the document ends the line.
+  - **A line holds at most 255 codes** (its length is a byte): the 255th code ends it (only a long run of spaces can reach it).
 - **The lines of the document:** from 0, line after line, until the end. When the document is empty, or ends with 13, the last
   line is an empty line at the end. So there is always at least one line, and the lengths sum to L.
 - **The caret's line** is the last line whose start <= caret.
@@ -214,8 +215,9 @@ The tests are written from sections 1-10 and this section, never from the code.
   are consumed.
 - **Shown:** after each of these, when the caret's line is above top, top = that line; when it is at or below top + 16, top =
   that line - 15.
-- **The bar:** value = top, max = max(0, lines - 16), page = 16, set whenever one of them changes. Its `E_SCROLL`: top =
-  min(value, max); the caret does not move.
+- **The bar** (its fields are bytes): with M = max(0, lines - 16), the scale k is the smallest of 1, 2, 4 with
+  ceil(M / k) <= 255. Value = floor(top / k), max = ceil(M / k), page = 16 / k, set (`TK_SETBAR`) whenever one of them
+  changes. Its `E_SCROLL`: top = min(value x k, M); the caret does not move.
 - **Changed:** any insert or delete sets it; the start and "New" clear it.
 - Keys not listed are not consumed (TAB has no other view to go to).
 
