@@ -33,9 +33,11 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
 - Mode 6: byte column c is in file `c AND 1` (`$4000` / `$6000`) at offset `c >> 1`; the border follows the paper, so it
   cannot signal PASS/FAIL.
 - TSRun's timings have no memory contention; real hardware will be slower on `$4000-$7FFF`.
-- Kernel layout (step 4): the main part is in DOCK chunk 5 (`$A000-$BFFF`, full); the menus are a second part,
-  `src/kernel/kernel1.asm`, assembled by each cartridge in chunk 1 after the gfx6 tables. Test cartridges keep their own code in
-  chunk 1 too. About 4.5 KB of the always-mapped pool is left (`docs/WINDOWS.md` 16.8).
+- Kernel layout: the main part is in DOCK chunk 5 from `$A000`; the menus are a second part, `src/kernel/kernel1.asm`,
+  assembled by each cartridge in chunk 1 after the gfx6 tables. Step 5 cartridges add, after the kernel in chunk 5, the toolkit
+  (`src/kernel/tk.asm`, classes in `tk-classes.txt`) and the launcher (`launch.asm`); `far.asm` sits in page 0's hole at
+  `$0068`. The pool had 4,483 bytes free before step 5 (`docs/BANKING.md` 1); step 5 has used 1,688 of its 3,400.
+  `kern3` / `kern4` / `bank5` keep their own layouts and stay as they were (one `KEYMAP` byte changed: SS+Q).
 - Input: CAPS SHIFT + 1 = TAB, CS + 4 = ESC; BREAK counts as ESC in the window manager. A Kempston mouse (ports `$xxDF`) is
   read when `K_MSET` turns it on; TSRun emulates it as `m.mouse`, and the test page has a Mouse switch.
 - Step 5 placement (owner, 2026-11-12): toolkit always mapped; shell, Calculator, Write in DOCK 2-3; DOCK 6 for resources and
@@ -73,4 +75,24 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
     (`tsrun` is a submodule). Give the agent that path. Remove it with `git worktree remove --force` and `git branch -D`.
     A worktree starts from a commit: commit first (or copy the uncommitted state in), and merge the agent's diff back only after
     re-running its tests in the main tree.
-- Commit only when the owner asks.
+- Commit only when the owner asks. **Standing request (owner, 2026-11-12): commit checkpoints as the work goes** (a slice's
+  code once it runs, then its tests once re-run), so that nothing is lost if a usage limit cuts a session off.
+
+## Where step 5 stands (hand-off, 2026-11-12)
+
+- **Done on three emulators**, each with Sonnet's model and tests, re-run by the main model:
+  - B0, the far call (`docs/BANKING.md`);
+  - Calculator (`docs/CALCULATOR.md`);
+  - toolkit T1: `Check`, `VScroll`, and `CWindow` (`docs/TOOLKIT.md`);
+  - the shell and the launcher (`docs/SHELL.md`).
+- **Waiting on the owner:**
+  - the two icons (`src/apps/icons.txt`), to review on screen;
+  - the `VScroll` 12 x 80 draw bound. `tests/tk-perf.mjs` takes the worst of three draws, 47,605 T, against the owner's
+    47,600 (set from a single draw of 47,574). Proposed: 47,700.
+- **Next:**
+  - toolkit T2 (`List`) and T3 (`Field`), in one run, starting with their interface sections in `docs/TOOLKIT.md`. T2 has
+    three settled points (TOOLKIT 9.8):
+    - full redraw, with section 7's 40,000 T scroll bound replaced by the measured figure;
+    - the owner's tile idea, a "cell lines" flag drawing with `G_TEXT8`;
+    - the Controls program grows a `List` and a `Field`, and the owner tries the SYMBOL SHIFT layout there.
+  - Then Write.
