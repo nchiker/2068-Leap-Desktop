@@ -30,12 +30,20 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
 - Mode 6: byte column c is in file `c AND 1` (`$4000` / `$6000`) at offset `c >> 1`; the border follows the paper, so it
   cannot signal PASS/FAIL.
 - TSRun's timings have no memory contention; real hardware will be slower on `$4000-$7FFF`.
+- Kernel layout (step 4): the main part is in DOCK chunk 5 (`$A000-$BFFF`, full); the menus are a second part,
+  `src/kernel/kernel1.asm`, assembled by each cartridge in chunk 1 after the gfx6 tables. Test cartridges keep their own code in
+  chunk 1 too. About 4.5 KB of the always-mapped pool is left (`docs/WINDOWS.md` 16.8).
+- Input: CAPS SHIFT + 1 = TAB, CS + 4 = ESC; BREAK counts as ESC in the window manager. A Kempston mouse (ports `$xxDF`) is
+  read when `K_MSET` turns it on; TSRun emulates it as `m.mouse`, and the test page has a Mouse switch.
+- Step 5 starts with a short contract on what stays always mapped and what runs banked (chunks 2-3, 6), with the trampoline
+  cost measured, before any toolkit or app code.
 
 ## Working method
 
 - Every routine gets a headless test against a reference model written from its spec (`tests/hello.mjs` is the pattern).
 - Cross-emulator runs: `tools/xemu/` (ZEsarUX through ZRCP, Fuse through a movie converted to `.scr` frames).
 - Stepping TSRun instruction by instruction can drop that frame's interrupt: count interrupts only over frames run normally.
+- Never run two tests of the same cartridge at once: each rebuilds `build/<name>`, and they collide.
 - **Use lower-cost subagents for routine work (owner's standing instruction).** Pass the `model` explicitly when spawning:
   - **Sonnet:**
     - source surveys and research (reading Leap-IDE, Leap V2, TSRun, the manual);
@@ -55,4 +63,6 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
     a different repo. Before spawning, from `~/Projects/LeapG`:
     `git worktree add .claude/worktrees/<name> -b <name>`, then in it `rmdir tsrun && ln -s ../../../tsrun tsrun`
     (`tsrun` is a submodule). Give the agent that path. Remove it with `git worktree remove --force` and `git branch -D`.
+    A worktree starts from a commit: commit first (or copy the uncommitted state in), and merge the agent's diff back only after
+    re-running its tests in the main tree.
 - Commit only when the owner asks.
