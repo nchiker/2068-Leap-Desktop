@@ -225,3 +225,8 @@ It holds:
   Both are reported, with the figure per 1,000 pixels against `Button`'s 64 x 16 (28,816 T).
 - **An arrow click:** from `K_DISPATCH` of the `E_DOWN` to the bar redrawn and the target told. **Report.**
 - **The stack:** in `Check`'s and `VScroll`'s `M_EVENT` and `M_DRAW` (tracking included). <= 64 bytes each.
+
+### 9.6 Owner review (2026-11-12)
+
+The owner tried the "Controls" demo (`web/?cart=desk5`, Calc -> Controls...): **"The controls look good."** T1's looks
+(9.2-9.3) are approved. T2 and T3 follow in one run (decision 5).
