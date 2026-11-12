@@ -254,7 +254,8 @@ is 50,696 T per 1,000 pixels. That is 1.80 x `Button`'s, against the 1.5 x bound
 
 **Owner's decision (2026-11-12):** the proposal is taken.
 - The 1.5 x ratio is replaced by **absolute bounds at the measured figures:** `W_DRAWVIEW` of a `Check` 72 x 9, checked and
-  focused, <= 31,200 T; of the bar 12 x 80 (max 20, page 5, value 10) <= 47,600 T.
+  focused, <= 31,200 T; of the bar 12 x 80 (max 20, page 5, value 10) <= 47,700 T (owner, 2026-11-12: was 47,600, set from
+  a single draw of 47,574; the test takes the worst of three draws, 47,605).
 - The owner tried the controls again after the fixes: "I saw nothing wrong with my interaction of the controls."
 
 ### 9.8 Owner decisions for T2 and T3 (2026-11-12)

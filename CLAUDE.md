@@ -86,8 +86,7 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
   - toolkit T1: `Check`, `VScroll`, and `CWindow` (`docs/TOOLKIT.md`);
   - the shell and the launcher (`docs/SHELL.md`).
 - **The owner approved the desktop's look,** icons included (2026-11-12: "desktop looks great").
-- **Waiting on the owner:** the `VScroll` 12 x 80 draw bound. `tests/tk-perf.mjs` takes the worst of three draws, 47,605 T, against the owner's
-    47,600 (set from a single draw of 47,574). Proposed: 47,700.
+- **The `VScroll` 12 x 80 draw bound is 47,700 T** (owner, 2026-11-12): nothing waits on the owner.
 - **Next:**
   - toolkit T2 (`List`) and T3 (`Field`), in one run, starting with their interface sections in `docs/TOOLKIT.md`. T2 has
     three settled points (TOOLKIT 9.8):

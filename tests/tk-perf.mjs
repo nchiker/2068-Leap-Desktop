@@ -75,7 +75,7 @@ const textWidthCodes = (n) => { for (let k = 0; k < 4000; k++) { const c = []; f
   const tb = meas(bAddr);
   row(`reference: W_DRAWVIEW of a kernel Button 64 x 16, normal look (the figure the contract compares with is ${fmt(BUTTON_T)}, probably a pressed / default / focused Button; the ratios below use ${fmt(BUTTON_T)})`, tb[0], null, `${fmt(tb[0])} T for ${BUTTON_PX} pixels = ${fmt(Math.round(tb[0] / BUTTON_PX * 1000))} T per 1,000 pixels; repeated ${tb.join(', ')}`);
   const perK = (t, w, h) => Math.round(t / (w * h) * 1000);
-  // absBound: 9.7's absolute bounds (Check 72 x 9 checked and focused <= 31,200 T; the bar 12 x 80 <= 47,600 T); the per-1,000-pixel figures and the other views are reported
+  // absBound: 9.7's absolute bounds (Check 72 x 9 checked and focused <= 31,200 T; the bar 12 x 80 <= 47,700 T); the per-1,000-pixel figures and the other views are reported
   const report = (what, n, focus, absBound = null) => {
     T.runCall(env, S.K_SETFOCUS, { de: 0 }, { ints: false }); if (focus) T.runCall(env, S.K_SETFOCUS, { de: n.addr }, { ints: false });
     const ts = meas(n.addr), t = absBound !== null ? Math.max(...ts) : ts[0], k = perK(t, n.w, n.h), ratio = k / BUTTON_PER_K;
@@ -91,7 +91,7 @@ const textWidthCodes = (n) => { for (let k = 0; k < 4000; k++) { const c = []; f
   report('a Check "Sound", checked and focused (9.5, 9.7)', nodes[0], true, 31200);
   report('a Check "Sound", checked, not focused', nodes[0], false);
   report(`a Check with a 40-pixel text "${String.fromCharCode(...c40)}", focused`, nodes[1], true);
-  report('a VScroll, the demo\'s bar: max 20, page 5, value 10 (9.5, 9.7)', nodes[2], false, 47600);
+  report('a VScroll, the demo\'s bar: max 20, page 5, value 10 (9.5, 9.7)', nodes[2], false, 47700);
   report('a VScroll 12 x 146, max 20, page 5, value 10 ', nodes[3], false);
   report('a VScroll 12 x 146, max 255, page 17, value 137', nodes[4], false);
   report('a VScroll 12 x 32 with no thumb (max 0)', nodes[5], false);
