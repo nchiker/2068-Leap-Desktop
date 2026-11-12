@@ -164,7 +164,7 @@ The tests are written from sections 1-10 and this section, never from the code.
 
 ### 11.2 Program 3 and the shell
 
-- `K_PROGS` gains `W_START` (program 3). The shell gains a third icon, "Write", at (176, 40) (64 x 26, SHELL 10.5), its bitmap
+- `K_PROGS` gains `WR_START` (program 3). The shell gains a third icon, "Write", at (176, 40) (64 x 26, SHELL 10.5), its bitmap
   in `icons.txt`, and its "Leap" menu an item "Write" (id 5) after "Controls". `S_NICONS` = 3.
 - **Start** (SHELL 10.3): the image copied; `MB_SET` of the "File" menu; the buffer (5,120) and the line table (1,024) taken
   with `K_ALLOC`; an empty document; the window built and opened; the focus on the text view; `K_MSET` 1; the event loop
@@ -229,12 +229,12 @@ The tests are written from sections 1-10 and this section, never from the code.
   - "Discard": the dialog closes, then the quit or the "New" goes ahead.
   - "Cancel": the dialog closes; nothing else changes.
 
-### 11.7 Symbols for the tests
+### 11.7 Symbols for the tests (prefix `WR_`: the window manager has `W_`)
 
-`W_START`, `W_END` (Write's bytes in DOCK 2-3), `W_IMG`, `W_IMG_LEN`, `W_WIN`, `W_TV` (the text view), `W_BAR`, `W_DLG` (the
-dialog, 0 until first opened), `CL_TextView`; the document: `W_BUF` (word: the buffer), `W_GS` and `W_GE` (words: the gap's
-start and end, offsets in the buffer; the caret is `W_GS`), `W_LT` (word: the line table), `W_NL` (word: lines), `W_TOP`
-(word), `W_CHG` (byte: changed). The text is the buffer's [0, `W_GS`) then [`W_GE`, 5,120).
+`WR_START`, `WR_END` (Write's bytes in DOCK 2-3), `WR_IMG`, `WR_IMG_LEN`, `WR_WIN`, `WR_TV` (the text view), `WR_BAR`, `WR_DLG` (the
+dialog, 0 until first opened), `CL_TextView`; the document: `WR_BUF` (word: the buffer), `WR_GS` and `WR_GE` (words: the gap's
+start and end, offsets in the buffer; the caret is `WR_GS`), `WR_LT` (word: the line table), `WR_NL` (word: lines), `WR_TOP`
+(word), `WR_CHG` (byte: changed). The text is the buffer's [0, `WR_GS`) then [`WR_GE`, 5,120).
 
 ### 11.8 How the bounds are measured (section 7)
 
