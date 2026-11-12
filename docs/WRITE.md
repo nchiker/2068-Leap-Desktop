@@ -1,4 +1,4 @@
-# Write: contract (draft 1, 2026-11-12, for the owner)
+# Write: contract (draft 1, 2026-11-12, owner approved)
 
 Roadmap step 5 (`docs/FEASIBILITY.md`): the word processor, the first program that holds a document. It is program 3 of
 `desk5`, in DOCK 2-3 like Calculator (`docs/BANKING.md` 3), and uses the toolkit (`docs/TOOLKIT.md`). Marks as in FEASIBILITY:
@@ -135,7 +135,7 @@ redraw of 16 long lines is about 15 frames (**EST** 870 k T: 16 x 80 glyphs at a
 - Each slice starts with its interface section here: exact pixels, routines, and how each bound is measured.
 - Z80: main model. Models and tests: Sonnet, from this contract. Runs: Haiku. A missed speed bound is recorded with options.
 
-## 10. Decisions for the owner (recommendations first)
+## 10. Decisions (owner, 2026-11-12: "i agree with your decisions", every recommendation taken)
 
 1. **Scope and slices** as section 9: editing first, then the clipboard, then files once tape services exist. *Alternative:*
    tape services before Write, so that W1 can save.
@@ -146,3 +146,104 @@ redraw of 16 long lines is about 15 frames (**EST** 870 k T: 16 x 80 glyphs at a
    about 15 frames.
 5. **Ask before discarding a changed document** (quit or "New"), since nothing can be saved until W3.
 6. **No Home / End or word moves in W1:** the TS2068 has no free keys for them; they can take SS combinations later if wanted.
+
+## 11. W1 interface (designed 2026-11-12, binding for the W1 code and tests)
+
+The tests are written from sections 1-10 and this section, never from the code.
+
+### 11.1 Amendments
+
+- **The line table holds a byte per display line, its length in codes** (2.1 said a word, its start). An edit then changes only
+  the lengths of the lines it rewraps; starts would all move by the edit's length.
+- **At most 1,024 display lines** (the table's room). A code or a paragraph end is inserted only when L < 5,120 **and** the
+  document has fewer than 1,024 lines; otherwise nothing changes (no draw).
+- **The text view is on the byte grid** (x and w multiples of 8), so that `G_SCROLLV` moves all of it.
+- **Scrolling is a drawing mode** of the text view (section 5's list gains "scroll by d lines"): inside `M_DRAW`, under each
+  clip `W_DRAWVIEW` gives, `G_SCROLLV` of the clipped text view, then the lines that meet the uncovered rows. A covered window
+  scrolls correctly that way.
+
+### 11.2 Program 3 and the shell
+
+- `K_PROGS` gains `W_START` (program 3). The shell gains a third icon, "Write", at (176, 40) (64 x 26, SHELL 10.5), its bitmap
+  in `icons.txt`, and its "Leap" menu an item "Write" (id 5) after "Controls". `S_NICONS` = 3.
+- **Start** (SHELL 10.3): the image copied; `MB_SET` of the "File" menu; the buffer (5,120) and the line table (1,024) taken
+  with `K_ALLOC`; an empty document; the window built and opened; the focus on the text view; `K_MSET` 1; the event loop
+  (`TK_DISPATCH`).
+
+### 11.3 The window
+
+| View | Class | Rectangle | Notes |
+|---|---|---|---|
+| The window, "Write" | `CWindow` | (16, 16, 480, 168) | id 255 |
+| The text view | `TextView` (banked, in the image) | (24, 30, 448, 144) | id 1, focusable |
+| Its bar | `VScroll` | (478, 28, 12, 148) | id 2, target the text view |
+
+- **The menu** (id 1) "File": "New" (id 1).
+- **The text view:** lines shown n = 16; text width W = w - 4 = 444. Line j shown (0 <= j < 16) is document line top + j:
+  - its band is (24, 30 + 9 j, 448, 9);
+  - its text is `G_TEXTP` at (27, 30 + 9 j): the line's codes, without a final 13 (PROP6's row 0 is blank: ink rows 1-7);
+  - a band with no line is paper.
+- **The caret,** when the text view has the focus (`K_FOCUS`, not being drawn by its blur): `SET` fill
+  (min(26 + tw, 471), 30 + 9 j, 1, 9), where j is the caret's line less top and tw the width of the codes from the line's start
+  to the caret. Nothing when that line is not shown.
+
+### 11.4 Lines (2.1, exact)
+
+- **A line from a start s:** walk the codes from s, summing advances.
+  - Code 13 ends the line, included in it.
+  - When a code that is not a space makes the sum exceed W: the line ends after the last space in it, when it has one;
+    otherwise before that code (but it always holds at least one code).
+  - When a space makes the sum exceed W: the line ends after that space and every space directly after it.
+  - The end of the document ends the line.
+- **The lines of the document:** from 0, line after line, until the end. When the document is empty, or ends with 13, the last
+  line is an empty line at the end. So there is always at least one line, and the lengths sum to L.
+- **The caret's line** is the last line whose start <= caret.
+- **Positions in a line** (for UP, DOWN and clicks): its start up to its last code when another line follows; up to L for the
+  last line.
+
+### 11.5 Behaviour (section 4, exact)
+
+- **Insert** (32-126 or ENTER), when allowed (11.1): the code at the caret; caret + 1.
+- **DELETE:** when caret > 0, the code before it removed; caret - 1.
+- **LEFT / RIGHT:** caret - 1 / + 1, within 0..L.
+- **UP / DOWN:** to the line above / below. The target x is the caret's tw when the first UP or DOWN of a run was pressed (any
+  other key, a click or an edit ends the run). The caret goes to the position in that line given by TOOLKIT 10.4's click rule
+  with px - pen = target x. On the first line UP puts the caret at 0; on the last line DOWN puts it at L.
+- **Click** (`E_DOWN` in the text view) at (px, py): the line top + floor((py - 30) / 9), or the last line when that is past
+  it; the position by TOOLKIT 10.4's rule with r = px - 27, within the line's positions. `E_UP`, and `E_MOVE` with the capture,
+  are consumed.
+- **Shown:** after each of these, when the caret's line is above top, top = that line; when it is at or below top + 16, top =
+  that line - 15.
+- **The bar:** value = top, max = max(0, lines - 16), page = 16, set whenever one of them changes. Its `E_SCROLL`: top =
+  min(value, max); the caret does not move.
+- **Changed:** any insert or delete sets it; the start and "New" clear it.
+- Keys not listed are not consumed (TAB has no other view to go to).
+
+### 11.6 Quit and "New"
+
+- **Quit:** the `CWindow`'s `E_CMD` (its close box, or SS+Q through `TK_DISPATCH`). **"New":** `E_MENU` 1, 1.
+- When the document has not changed: quit is `K_QUIT`; "New" empties the document (top 0, caret 0, the view drawn).
+- When it has: the **dialog** opens first: a `Dialog` (128, 64, 256, 64) with a `Label` "Discard the document?" at
+  (144, 76, 200, 9), a `Button` "Discard" at (224, 100, 64, 16), id 1, the default, and a `Button` "Cancel" at
+  (304, 100, 64, 16), id 2, the cancel.
+  - "Discard": the dialog closes, then the quit or the "New" goes ahead.
+  - "Cancel": the dialog closes; nothing else changes.
+
+### 11.7 Symbols for the tests
+
+`W_START`, `W_END` (Write's bytes in DOCK 2-3), `W_IMG`, `W_IMG_LEN`, `W_WIN`, `W_TV` (the text view), `W_BAR`, `W_DLG` (the
+dialog, 0 until first opened), `CL_TextView`; the document: `W_BUF` (word: the buffer), `W_GS` and `W_GE` (words: the gap's
+start and end, offsets in the buffer; the caret is `W_GS`), `W_LT` (word: the line table), `W_NL` (word: lines), `W_TOP`
+(word), `W_CHG` (byte: changed). The text is the buffer's [0, `W_GS`) then [`W_GE`, 5,120).
+
+### 11.8 How the bounds are measured (section 7)
+
+- **Typed code at the end of a line:** the document "The quick brown fox jumps over the lazy dog. " repeated until the first
+  line is full, the caret at the end of line 0's last word, which still fits one more code; `E_KEY` 'x' through
+  `K_DISPATCH`.
+- **At the start of an 80-code line:** line 0 of 80 codes with room for one more code, the caret at 0, `E_KEY` 'x'.
+- **Rewrap of a 10-line paragraph:** one paragraph of 10 lines, the caret at 0, `E_KEY` 'x' (every line rewraps).
+- **Caret moves:** RIGHT, LEFT, DOWN, UP with the caret in line 5 of 16 full lines.
+- **Scroll by one line:** 40 lines, top 0, the caret on line 15, `E_KEY` DOWN.
+- **Full draw:** 16 lines of about 80 codes, `W_DRAWVIEW` of the text view, focused.
+- Each the worst of three, with the text view focused and the window in front.
