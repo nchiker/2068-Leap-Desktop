@@ -1,14 +1,16 @@
 "use strict";
-// desk5-ref.mjs -- the TSRun reference for the cross-emulator runs of desk5 (docs/CALCULATOR.md 8 test 7).
+// desk5-ref.mjs -- the TSRun reference for the cross-emulator runs of desk5 (docs/SHELL.md 8 test 5).
 //   node tools/xemu/desk5-ref.mjs [OUTDIR]        (default build/xemu/desk5-ref)
 // Does NOT build: boots the existing build/desk5.dck (symbols from build/desk5/out.sym).  No mouse is attached (the Kempston ports read $FF).
-// Boot: runs frames until the display string C_DSTR is "0" (length 1, '0'), then 30 frames more, then until the display RAM is unchanged
-// over 20 frames (checked every 20 frames): checkpoint "boot".  Then the typed sequence through the keyboard matrix (m.keyMatrix, active low,
-// index = half-row in the order $FE $FD $FB $F7 $EF $DF $BF $7F, bit 0-4), each key (or key chord) held 3 frames, released 3 frames:
-//   1 2 3 . 4 5 SS+B (*) 6 ENTER      ('.' = SYMBOL SHIFT + M; 123.45 * 6 = 740.7)
-// then settled again (60 frames at most): checkpoint "typed".  Also written: the display string after every key (keys.json).
+// The cartridge boots into the shell (K_PROG 0: "Leap Desktop" window, icons Calculator and Controls, Calculator focused).  Steps:
+//   1. boot (K_PROG poisoned with $FF after reset, RAM being random) until K_PROG = 0, then 30 frames more, then until the display RAM is unchanged over 20 frames (checked every 20): "shell"
+//   2. ENTER (opens the focused icon); until K_PROG = 1, 30 frames more, settled: "calc" (C_DSTR = "0")
+//   3. 1 2 3 . 4 5 SS+B 6 ENTER through the keyboard matrix (m.keyMatrix, active low, index = half-row in the order $FE $FD $FB $F7 $EF $DF
+//      $BF $7F, bit 0-4), each key (or chord) held 3 frames, released 3 frames ('.' = SS+M; 123.45 * 6 = 740.7); settled: "typed"
+//   4. SYMBOL SHIFT + Q (CLOSE, held 3 frames); until K_PROG = 0, 30 frames more, settled: "back", which must equal "shell" byte for byte.
 // Per checkpoint NAME: NAME.bin (display RAM: $4000-$57FF then $6000-$77FF, 12,288 bytes), NAME.pbm (rendered 512x192, P4, 1 = ink),
-// NAME.json (display string, V_FRAMES, K_PX, K_PY, frame counts).  The key list is also exported as keys.json for the other runners.
+// NAME.json (display string, K_PROG, V_FRAMES, K_PX, K_PY, frame counts).  Also keys.json (the typed keys, display string after each key,
+// K_PROG after each step) for the other runners.
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,13 +27,15 @@ for (const line of readFileSync(join(ROOT, 'build/desk5/out.sym'), 'utf8').split
 }
 // [row, bit] of the matrix: rows $FE $FD $FB $F7 $EF $DF $BF $7F; row 7 = SPACE, SS, M, N, B
 const D1 = [3, 0], D2 = [3, 1], D3 = [3, 2], D4 = [3, 3], D5 = [3, 4], D6 = [4, 4];
-const SS = [7, 1], KM = [7, 2], KB = [7, 4], ENTER = [6, 0];
+const SS = [7, 1], KM = [7, 2], KB = [7, 4], ENTER = [6, 0], KQ = [2, 0];
 const SEQ = [
   ['1', [D1]], ['2', [D2]], ['3', [D3]], ['.', [SS, KM]], ['4', [D4]], ['5', [D5]], ['*', [SS, KB]], ['6', [D6]], ['ENTER', [ENTER]],
 ];
 const EXPECT = '740.7';
+const CLOSEKEYS = [SS, KQ];
 
 const rd16 = (m, a) => m.ram[a] | (m.ram[a + 1] << 8);
+const prog = (m) => m.ram[S.K_PROG];
 const dstr = (m) => { const n = m.ram[S.C_DSTR]; return String.fromCharCode(...m.ram.subarray(S.C_DSTR + 1, S.C_DSTR + 1 + Math.min(n, 40))); };
 const displayRam = (m) => {
   const out = new Uint8Array(12288);
@@ -44,6 +48,7 @@ const ramPixel = (d, x, y) => { const c = x >> 3; return (d[(c & 1) * 6144 + row
 const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
 
 const m = boot(readFileSync(join(ROOT, 'build/desk5.dck')));
+m.ram[S.K_PROG] = 0xFF;      // RAM is random at power-on: poison K_PROG so that 0 means the launcher has started the shell
 let frames = 0;
 const run = (n) => { for (let i = 0; i < n; i++) { M.runFrame(m); frames++; } };
 function settle(maxExtra) {
@@ -67,34 +72,64 @@ function dump(name, settled) {
     if (i) { pbm[y * (SCR_W / 8) + (x >> 3)] |= 0x80 >> (x & 7); ink++; }
   }
   mismatch += bad;
-  const vars = { frame: frames, settled, display: dstr(m), dstrLen: m.ram[S.C_DSTR], V_FRAMES: rd16(m, S.V_FRAMES), K_PX: rd16(m, S.K_PX), K_PY: rd16(m, S.K_PY), ink };
+  const vars = { frame: frames, settled, K_PROG: prog(m), display: dstr(m), dstrLen: m.ram[S.C_DSTR], V_FRAMES: rd16(m, S.V_FRAMES), K_PX: rd16(m, S.K_PX), K_PY: rd16(m, S.K_PY), ink };
   writeFileSync(join(outDir, `${name}.bin`), d);
   writeFileSync(join(outDir, `${name}.pbm`), Buffer.concat([Buffer.from(`P4\n${SCR_W} ${SCR_H}\n`), pbm]));
   writeFileSync(join(outDir, `${name}.json`), JSON.stringify(vars) + '\n');
-  console.log(`${name}: frame ${frames}, display "${vars.display}", settled ${settled}, V_FRAMES ${vars.V_FRAMES}, K_PX ${vars.K_PX}, K_PY ${vars.K_PY}, ink pixels ${ink}, rendered vs RAM mismatches ${bad}`);
+  console.log(`${name}: frame ${frames}, K_PROG ${vars.K_PROG}, display "${vars.display}", settled ${settled}, V_FRAMES ${vars.V_FRAMES}, K_PX ${vars.K_PX}, K_PY ${vars.K_PY}, ink pixels ${ink}, rendered vs RAM mismatches ${bad}`);
   return vars;
 }
 
-while (!(m.ram[S.C_DSTR] === 1 && m.ram[S.C_DSTR + 1] === 0x30) && frames < 1000) run(1);
-const framesToZero = frames;
-const zeroSeen = m.ram[S.C_DSTR] === 1 && m.ram[S.C_DSTR + 1] === 0x30;
-run(30);
-const bootSettled = settle(300);
-const boot_ = dump('boot', bootSettled);
-
-const afterKey = [];
-for (const [name, keys] of SEQ) {
+const press = (keys) => {
   for (const [r, b] of keys) m.keyMatrix[r] &= ~(1 << b);
   run(3);
   for (const [r, b] of keys) m.keyMatrix[r] |= 1 << b;
   run(3);
+};
+const untilProg = (n) => { while (prog(m) !== n && frames < 2000) run(1); return prog(m) === n; };
+
+// 1. the shell
+const shellUp = untilProg(0);
+const framesToShell = frames;
+run(30);
+const shellSettled = settle(300);
+const shell = dump('shell', shellSettled);
+const kprog = { shell: shell.K_PROG };
+
+// 2. ENTER opens Calculator
+press([ENTER]);
+const calcUp = untilProg(1);
+run(30);
+const calcSettled = settle(300);
+const calc = dump('calc', calcSettled);
+kprog.calc = calc.K_PROG;
+
+// 3. the typed sequence
+const afterKey = [];
+for (const [name, keys] of SEQ) {
+  press(keys);
   afterKey.push([name, dstr(m)]);
 }
 const typedSettled = settle(60);
 const typed = dump('typed', typedSettled);
-writeFileSync(join(outDir, 'keys.json'), JSON.stringify({ seq: SEQ.map((s) => s[0]), afterKey, expect: EXPECT }) + '\n');
+kprog.typed = typed.K_PROG;
+
+// 4. SYMBOL SHIFT + Q quits to the shell
+press(CLOSEKEYS);
+const backUp = untilProg(0);
+run(30);
+const backSettled = settle(300);
+const back = dump('back', backSettled);
+kprog.back = back.K_PROG;
+
+writeFileSync(join(outDir, 'keys.json'), JSON.stringify({ seq: SEQ.map((s) => s[0]), afterKey, expect: EXPECT, kprog }) + '\n');
 console.log('display after each key: ' + afterKey.map(([k, s]) => `${k}:"${s}"`).join(' '));
-const ok = zeroSeen && bootSettled && boot_.display === '0' && typedSettled && typed.display === EXPECT && mismatch === 0 && !same(readFileSync(join(outDir, 'boot.bin')), readFileSync(join(outDir, 'typed.bin')));
-console.log(`${ok ? 'PASS' : 'FAIL'}: desk5 reference: display "0" after ${framesToZero} frames, boot settled ${bootSettled}, typed display "${typed.display}" (expected "${EXPECT}"), typed settled ${typedSettled}, ` +
-  `rendered-vs-RAM mismatches ${mismatch}; written to ${outDir}`);
+const rd_ = (n) => readFileSync(join(outDir, `${n}.bin`));
+const backEqShell = same(rd_('back'), rd_('shell'));
+console.log(`back screen equals shell screen byte for byte: ${backEqShell}`);
+const ok = shellUp && shellSettled && shell.K_PROG === 0 && calcUp && calcSettled && calc.K_PROG === 1 && calc.display === '0' &&
+  typedSettled && typed.K_PROG === 1 && typed.display === EXPECT && backUp && backSettled && back.K_PROG === 0 && backEqShell && mismatch === 0 &&
+  !same(rd_('shell'), rd_('calc')) && !same(rd_('calc'), rd_('typed'));
+console.log(`${ok ? 'PASS' : 'FAIL'}: desk5 reference: shell up after ${framesToShell} frames (settled ${shellSettled}), calc "${calc.display}" K_PROG ${calc.K_PROG}, typed "${typed.display}" (expected "${EXPECT}") K_PROG ${typed.K_PROG}, ` +
+  `back K_PROG ${back.K_PROG} = shell ${backEqShell}, rendered-vs-RAM mismatches ${mismatch}; written to ${outDir}`);
 process.exitCode = ok ? 0 : 1;

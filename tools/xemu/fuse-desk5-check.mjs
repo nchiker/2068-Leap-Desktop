@@ -1,5 +1,5 @@
 "use strict";
-// fuse-desk5-check.mjs -- decode a Fuse 1.9.1 movie (.fmf) of the desk5 cartridge (docs/CALCULATOR.md 8 test 7: the boot screen only) and check it.
+// fuse-desk5-check.mjs -- decode a Fuse 1.9.1 movie (.fmf) of the desk5 cartridge (docs/SHELL.md 8 test 5: the boot screen only) and check it.
 //   node tools/xemu/fuse-desk5-check.mjs MOVIE.fmf [REFDIR] [OUTDIR]     (REFDIR default build/xemu/desk5-ref, from desk5-ref.mjs)
 //
 // Why not fmfconv: fmfconv 0.5 (fuse-utils 1.4.3, the one installed) cannot read a Fuse 1.9.1 movie of a Timex hi-res screen: it stops at the
@@ -13,8 +13,8 @@
 //   Plane RLE: a byte equal to the one before it is followed by a count n (n more copies); after a count the next byte starts afresh.
 // A hi-res frame (screen type R in its N chunk) is turned into a 512 x 192 bitmap: for y 0..191, display column dw 0..31 (screen column dw+4,
 // row y+24), pixels 0-7 are bitmap1's bits and 8-15 bitmap2's (bit 7 first): byte column c = 2 dw + file, as in CLAUDE.md.  Bit set = ink.
-// Checks: the settled boot screen of TSRun (boot.pbm, made by desk5-ref.mjs: Calculator showing "0") appears among the frames and stays to
-// the end of the movie; the typed screen (typed.pbm, "740.7") does not appear (no key is sent to Fuse); counts are reported.
+// Checks: the settled boot screen of TSRun (shell.pbm, made by desk5-ref.mjs: the shell) appears among the frames and stays to
+// the end of the movie; neither the calc screen (calc.pbm) nor the typed screen (typed.pbm, "740.7") appears (no key is sent to Fuse); counts are reported.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -90,7 +90,7 @@ const loadPbm = (name) => {
   for (let y = 0; y < 192; y++) for (let x = 0; x < 512; x++) px[y * 512 + x] = (f[at + y * 64 + (x >> 3)] >> (7 - (x & 7))) & 1;
   return px;
 };
-const settled = loadPbm('boot.pbm');
+const settled = loadPbm('shell.pbm');
 const same = (a, c) => { for (let i = 0; i < a.length; i++) if (a[i] !== c[i]) return false; return true; };
 const diffBox = (px) => {
   let n = 0, x0 = 512, x1 = -1, y0 = 192, y1 = -1;
@@ -117,9 +117,11 @@ const after = hiresFrames.filter((o) => settledAt >= 0 && o.i >= settledAt);
 const bad = after.filter((o) => !isM.has(o.i));
 rows.push(['the final settled frame (the last hi-res frame) equals it, and every hi-res frame from the settled one on does', settledAt >= 0 && bad.length === 0 && isM.has(lastHires),
   `${after.length - bad.length} of ${after.length} hi-res frames from #${settledAt} on; last hi-res frame #${lastHires}` + (bad.length ? `; the others: ${bad.map((o) => `#${o.i}`).join(', ')}` : '')]);
-const typedPx = loadPbm('typed.pbm');
-const typedSeen = hiresFrames.filter(({ f }) => same(f.px, typedPx)).length;
-rows.push(['the typed screen ("740.7") does not appear (no key is sent to Fuse)', typedSeen === 0, `${typedSeen} hi-res frames equal it`]);
+for (const [nm, what] of [['calc', 'Calculator "0"'], ['typed', 'typed "740.7"']]) {
+  const px = loadPbm(`${nm}.pbm`);
+  const seen = hiresFrames.filter(({ f }) => same(f.px, px)).length;
+  rows.push([`the ${what} screen does not appear (no key is sent to Fuse)`, seen === 0, `${seen} hi-res frames equal it`]);
+}
 const lastDiff = isM.has(lastHires) ? null : diffBox(hiresFrames.at(-1).f.px);
 if (lastDiff) console.log(`  INFO  the last hi-res frame differs from TSRun's in ${lastDiff.n} pixels, box x ${lastDiff.x0}..${lastDiff.x1}, y ${lastDiff.y0}..${lastDiff.y1}`);
 const before = hiresFrames.filter((o) => settledAt >= 0 && o.i < settledAt && !isM.has(o.i));

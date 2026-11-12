@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""Run the desk5 cartridge (Calculator, docs/CALCULATOR.md 8 test 7) in ZEsarUX 13.0 (headless, stock TS2068 ROM, ZRCP) and compare it with TSRun.
+"""Run the desk5 cartridge (the shell, Calculator; docs/SHELL.md 8 test 5) in ZEsarUX 13.0 (headless, stock TS2068 ROM, ZRCP) and compare it with TSRun.
 
   python3 tools/xemu/zesarux-desk5.py [build/desk5.dck] [--port 10783]
 
 Needs the TSRun reference: this script runs `node tools/xemu/desk5-ref.mjs` first (that script does not build anything).  ZEsarUX is started as
 zesarux-kern4.py starts it; one breakpoint at the interrupt entry $0038 stops the run once per frame, so a key is held exactly 3 frames and
-released 3 frames, as in TSRun.  Boot: frame by frame until the display string C_DSTR is "0", then 30 frames, then until the 12,288 display bytes
-($4000-$57FF, $6000-$77FF) read 20 frames apart are equal.  The keys (1 2 3 . 4 5 * 6 ENTER; '.' = SS+M, '*' = SS+B) are sent as ZRCP
-send-keys-event (digits: ASCII; ENTER 129; CAPS SHIFT 133 is not used; SYMBOL SHIFT = 137 = UTIL_KEY_ALT_R, verified through K_NOW at $F090).
-Rows: (1) the boot display string is "0" and the screen settled, (2) the settled boot screen = TSRun's boot.bin byte for byte, (3) per key: K_NOW shows
-the keys down, (4) per key: the display string = TSRun's after that key, (5) the typed display string = "740.7", (6) the settled typed screen = TSRun's
-typed.bin byte for byte, (7) DOCK chunks 0-5 (memory zone 19) = the DCK after the run.
+released 3 frames, as in TSRun.  Sequence (as the reference): (1) the shell: K_PROG = 0, 30 frames, then until the 12,288 display bytes
+($4000-$57FF, $6000-$77FF) read 20 frames apart are equal; (2) ENTER (opens the focused icon, Calculator): until K_PROG = 1, 30 frames, settled;
+(3) 1 2 3 . 4 5 * 6 ENTER ('.' = SS+M, '*' = SS+B; digits: ASCII; ENTER 129; SYMBOL SHIFT = 137 = UTIL_KEY_ALT_R, verified through K_NOW at $F090);
+(4) SYMBOL SHIFT + Q (CLOSE): until K_PROG = 0, 30 frames, settled.
+Rows: the settled screens "shell", "calc", "typed", "back" = TSRun's .bin byte for byte; "back" = "shell"; K_PROG after each step = TSRun's;
+the display string "0" after the launch and after each key = TSRun's, the typed one "740.7"; per key K_NOW shows the keys down; the pointer
+K_PX, K_PY = TSRun's; DOCK chunks 0-5 (memory zone 19) = the DCK after the run.
 """
 import argparse
 import json
@@ -34,6 +35,7 @@ KEYS = {
     ".": [(KEY_SS, 7, 1), (ord("m"), 7, 2)],
     "*": [(KEY_SS, 7, 1), (ord("b"), 7, 4)],
     "ENTER": [(KEY_ENTER, 6, 0)],
+    "SS+Q": [(KEY_SS, 7, 1), (ord("q"), 2, 0)],
 }
 
 
@@ -81,7 +83,8 @@ def main():
     refdir = ROOT / "build/xemu/desk5-ref"
     outdir = ROOT / "build/xemu/desk5-zesarux"
     outdir.mkdir(parents=True, exist_ok=True)
-    ref = {n: (refdir / f"{n}.bin").read_bytes() for n in ("boot", "typed")}
+    names = ("shell", "calc", "typed", "back")
+    ref = {n: (refdir / f"{n}.bin").read_bytes() for n in names}
     refj = {n: json.loads((refdir / f"{n}.json").read_text()) for n in ref}
     refk = json.loads((refdir / "keys.json").read_text())
     S = syms()
@@ -141,25 +144,11 @@ def main():
                          f"; dump in {outdir}")
             return (label, not diffs, text)
 
-        nb = 0
-        while True:                                          # one frame at a time until Calculator shows "0"
-            run_stop(); nb += 1
-            if dstr() == ("0", 1) or nb >= 1000:
-                break
-        zero = dstr() == ("0", 1)
-        wait_frames(30)
-        ok, cur, used = settle(300)
-        results.append((f"boot: display string is \"0\" (the machine ran free ~1.5 s after smartload, so it is already up at the first of {nb} frame stops; TSRun 122 frames) and the screen settled", zero and ok and dstr()[0] == "0",
-                        f"display string {dstr()!r}, settled {ok} after {used} more frames"))
-        res = compare("settled boot screen (30 frames after \"0\", then stable over 20) = TSRun's boot", cur, ref["boot"], "boot")
-        results.append((res[0], res[1] and ok, res[2]))
-        # the pointer position, as TSRun has it
-        px, py = (int.from_bytes(rd(c, Z(S[n]), 2), "little") for n in ("K_PX", "K_PY"))
-        results.append(("pointer K_PX, K_PY = TSRun's", (px, py) == (refj["boot"]["K_PX"], refj["boot"]["K_PY"]),
-                        f"({px}, {py}), TSRun ({refj['boot']['K_PX']}, {refj['boot']['K_PY']})"))
+        def kprog():
+            return rd(c, Z(S["K_PROG"]), 1)[0]
 
-        got_after = []
-        for name in refk["seq"]:
+        def press(name):
+            """Hold a key (chord) 3 frames as TSRun does, release, 3 frames; return (K_NOW shows it down, K_NOW text)."""
             for code, _, _ in KEYS[name]:
                 c.command(f"send-keys-event {code} 1")
             wait_frames(2)
@@ -175,16 +164,56 @@ def main():
             results.append((f"key {name}: K_NOW shows it down ({' + '.join(str(x[0]) for x in KEYS[name])})", down,
                             f"K_NOW {now.hex(' ')} / {now2.hex(' ')}"))
             wait_frames(3)
+
+        def until_prog(n):
+            nb = 0
+            while True:
+                run_stop(); nb += 1
+                if kprog() == n or nb >= 1000:
+                    return kprog() == n, nb
+
+        def step(tag, label, up, nb):
+            wait_frames(30)
+            ok, cur, used = settle(300)
+            res = compare(f"settled \"{tag}\" screen = TSRun's {tag} ({label})", cur, ref[tag], tag)
+            results.append((res[0], res[1] and ok and up, res[2] + f"; settled {ok} after {used} more frames; K_PROG reached after {nb} frame stops"))
+            results.append((f"K_PROG after \"{tag}\" = TSRun's", kprog() == refj[tag]["K_PROG"], f"{kprog()}, TSRun {refj[tag]['K_PROG']}"))
+            return cur
+
+        # 1. the shell (the machine ran free ~1.5 s after smartload, so it is already up at the first frame stop; K_PROG is random RAM until the launcher stores 0)
+        up, nb = until_prog(0)
+        shell_cur = step("shell", "K_PROG 0", up, nb)
+        px, py = (int.from_bytes(rd(c, Z(S[n]), 2), "little") for n in ("K_PX", "K_PY"))
+        results.append(("pointer K_PX, K_PY = TSRun's", (px, py) == (refj["shell"]["K_PX"], refj["shell"]["K_PY"]),
+                        f"({px}, {py}), TSRun ({refj['shell']['K_PX']}, {refj['shell']['K_PY']})"))
+
+        # 2. ENTER opens Calculator
+        press("ENTER")
+        up, nb = until_prog(1)
+        step("calc", "ENTER opened Calculator", up, nb)
+        results.append(("calc: display string \"0\" (length 1)", dstr() == ("0", 1), repr(dstr())))
+
+        # 3. the typed sequence
+        got_after = []
+        for name in refk["seq"]:
+            press(name)
             got_after.append((name, dstr()[0]))
-        ok, cur, used = settle(60)
-        d_typed, n_typed = dstr()
         want_after = [tuple(x) for x in refk["afterKey"]]
         results.append(("display string after each key = TSRun's", got_after == want_after,
                         " ".join(f"{k}:\"{s}\"" for k, s in got_after) + ("" if got_after == want_after else "  (TSRun: " + " ".join(f"{k}:\"{s}\"" for k, s in want_after) + ")")))
+        ok, cur, used = settle(60)
+        d_typed, n_typed = dstr()
         results.append((f"typed display string = \"{refk['expect']}\" (123.45 * 6)", d_typed == refk["expect"] and n_typed == len(refk["expect"]),
                         f"{d_typed!r} (length byte {n_typed})"))
-        res = compare("settled typed screen = TSRun's typed", cur, ref["typed"], "typed")
+        res = compare("settled \"typed\" screen = TSRun's typed", cur, ref["typed"], "typed")
         results.append((res[0], res[1] and ok, res[2] + f"; settled {ok} after {used} more frames"))
+        results.append(("K_PROG after \"typed\" = TSRun's", kprog() == refj["typed"]["K_PROG"], f"{kprog()}, TSRun {refj['typed']['K_PROG']}"))
+
+        # 4. SYMBOL SHIFT + Q quits to the shell
+        press("SS+Q")
+        up, nb = until_prog(0)
+        back = step("back", "SS+Q quit to the shell", up, nb)
+        results.append(("\"back\" screen = \"shell\" screen on ZEsarUX itself, byte for byte", back == shell_cur, "equal" if back == shell_cur else "differ"))
 
         c.command("set-memory-zone 19")
         dock_bad = {}

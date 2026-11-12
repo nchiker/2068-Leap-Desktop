@@ -1,6 +1,6 @@
 #!/bin/sh
-# fuse-desk5.sh -- run the desk5 cartridge (docs/CALCULATOR.md 8 test 7) in Fuse 1.9.1 (no window, no sound), record a movie, and check it
-# with fuse-desk5-check.mjs against TSRun's settled display (build/xemu/desk5-ref, made by desk5-ref.mjs, which does not build anything).
+# fuse-desk5.sh -- run the desk5 cartridge (docs/SHELL.md 8 test 5) in Fuse 1.9.1 (no window, no sound), record a movie, and check it
+# with fuse-desk5-check.mjs against TSRun's settled shell screen (build/xemu/desk5-ref, made by desk5-ref.mjs, which does not build anything).
 #   sh tools/xemu/fuse-desk5.sh [CART.dck] [OUTDIR] [SECONDS]
 # Defaults: build/desk5.dck, build/xemu/fuse-desk5, 20 seconds.  Adapted from fuse-kern4.sh (same movie handling: uncompressed .fmf,
 # decoded by the check script itself because fmfconv 0.5 cannot read Fuse 1.9.1 Timex hi-res movies).
