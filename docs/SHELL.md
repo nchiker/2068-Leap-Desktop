@@ -264,4 +264,4 @@ by their close box or SYMBOL SHIFT + Q. **Every bound passes** (`tests/shell-per
 
 **Found and fixed:** the 48-pixel `Icon` (10.5).
 
-**For the owner to review on screen:** the two icons (`src/apps/icons.txt`).
+**Owner review (2026-11-12):** "desktop looks great". The shell's look and the two icons (`src/apps/icons.txt`) are approved.
