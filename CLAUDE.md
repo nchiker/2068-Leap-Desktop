@@ -10,7 +10,7 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
 - Test target: **emulators** (TSRun headless and in `web/`; ZEsarUX 13.0 and Fuse 1.9.1 for cross-checks). Real hardware later.
 - Cartridge planned at **56 KB** (DOCK 0-6): always-mapped code 32 KB (chunks 0, 1, 4, 5); banked apps in 2-3; resources and
   display-free kernel code in 6 (`docs/CODE_SIZE.md`). Size work that costs speed waits for a measured shortfall.
-- Own **private** GitHub repo. A separate test page here, not a Leap-IDE profile. Files reach the desktop as **tapes**.
+- Own **private** GitHub repo. A separate test page here, not a Leap-IDE profile. Files reach the desktop as **tapes** (amended 2026-11-12, below: files through the browser for now, TS-Pico later).
 - Implementation goes step by step through the roadmap in `docs/FEASIBILITY.md`; each step starts with a short contract doc
   (what to build, the numbers to measure, the pass/fail bounds), as Leap Arcade does.
 
@@ -101,5 +101,8 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
     `k_zero`'s `ldir` / `ret`: 0 pool bytes). A paste that may be refused keeps overwritten codes at `$5800` (12.11).
   - Autoscroll while dragging may be revisited (12.10: options (a) and (b)).
 - **Next:**
-  - The tape services contract (FEASIBILITY roadmap 5; files reach the desktop as tapes), then Write W3 ("Open..." and
-    "Save...").
+  - **Files (owner, 2026-11-12):** one desktop file interface shaped like TS-Pico's channel calls (open by name to read or
+    write, read / write in chunks, close). For now the test page answers it, as Leap-IDE does: Save = a desktop name
+    dialog, then a browser download; Open = the browser's file picker. Later a TS-Pico driver (ports `$0E` / `$0F`,
+    `tpi:chopen` / `chrd` / `chwr` / `chclose`; `~/Projects/TS-Pico-Study`) answers the same calls. This replaces "tape
+    services before W3". Then Write W3 ("Open..." and "Save...") on it.

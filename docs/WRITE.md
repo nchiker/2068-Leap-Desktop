@@ -621,3 +621,12 @@ UP / DOWN run), rounded up to 100 T, as the scroll's were (11.10). `tests/wr-per
 - **Fuse 1.9.1, on the final build:** 6 of 6 boot rows.
 
 **W2 is closed.** Next (step 5): the tape services contract, then W3 ("Open..." and "Save...").
+
+### 12.14 Owner decision on files (2026-11-12)
+
+- **W3 does not wait for tape services.** Files go through the browser for now, as in Leap-IDE: Save asks a name in a desktop
+  dialog, then the page makes a browser download; Open shows the browser's file picker. Write calls one desktop file
+  interface shaped like TS-Pico's channel calls (open by name to read or write, read and write in chunks, close), so that a
+  TS-Pico driver can answer it later with Write unchanged (surveys: Leap-IDE's Open and Save are page buttons only, with no
+  Z80 side; TS-Pico uses ports `$0E` / `$0F` and the commands `tpi:chopen`, `chrd`, `chwr`, `chclose`, `dir`).
+- Autoscroll: the owner asked what else might be more worthwhile first; it stays in 12.10 until chosen.
