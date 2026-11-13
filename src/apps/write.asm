@@ -471,24 +471,27 @@ wr_tw:
     ex de,hl
     call wr_ptr
     pop de
-; wr_twr: HL = an address, B = codes (> 0), DE = a width -> DE + their advances.  Clobbers AF, BC, HL.
+; wr_twr: HL = an address, B = codes (> 0), DE = a width -> DE + their advances.  Clobbers AF, BC, HL (AF' kept).
 wr_twr:
-    ld a,(hl)
+    ex af,af'
+    push af
+    ld a,b                      ; A' = the count; BC -> the advance of each code
+    ld b,PROP6_W >> 8
+.l:
+    ld c,(hl)
     inc hl
-    ld c,l
-    ld l,a
-    ld a,h
-    ld h,PROP6_W >> 8
-    ld l,(hl)
-    ld h,a
-    ld a,l
-    ld l,c
+    ex af,af'
+    ld a,(bc)
     add a,e
     ld e,a
     jr nc,.n
     inc d
 .n:
-    djnz wr_twr
+    ex af,af'
+    dec a
+    jr nz,.l
+    pop af
+    ex af,af'
     ret
 
 ; wr_gap: HL = an address -> GB when it is GA.  Clobbers F.
@@ -1472,13 +1475,76 @@ wr_seldraw:
 .mask:                          ; WR_SM: the lines shown that meet either range
     ld hl,0
     ld (WR_SM),hl
-    inc l
-    ld (WR_BIT),hl
-    ld hl,(WR_TS)
-    ld (WR_RS),hl
+    ld hl,(WR_D1B)              ; WR_XE: past both ranges no line can meet them
+    ld de,(WR_D2B)
+    call wr_max
+    ld (WR_XE),hl
+    ld hl,$FFFF                 ; WR_XS: the first code of either (a range that is empty does not count)
+    ld de,(WR_D1A)
+    ld bc,(WR_D1B)
+    call .lo
+    ld de,(WR_D2A)
+    ld bc,(WR_D2B)
+    call .lo
+    ld (WR_XS),hl
+    ld hl,(WR_NL)               ; B = the lines shown: min(16, NL - top)
+    ld de,(WR_TOP)
+    or a
+    sbc hl,de
+    ld b,TV_N
+    ld a,h
+    or a
+    jr nz,.b
+    ld a,l
+    cp b
+    jr nc,.b
+    ld b,a
+.b:
+    ld hl,(WR_LT)
+    add hl,de                   ; HL -> LT[top]
+    ld de,(WR_TS)
+    ld c,0
+.sk:                            ; lines that end at or before XS are passed quickly
+    push de
+    ld a,(hl)
+    add a,e
+    ld e,a
+    jr nc,.s1
+    inc d
+.s1:
+    push hl
+    ld hl,(WR_XS)
+    or a
+    sbc hl,de
+    pop hl
+    jr c,.stop
+    pop af
+    inc hl
+    inc c
+    djnz .sk
+    jp .draw                    ; no line shown meets them
+.stop:
+    pop de
+    ld (WR_RS),de
     ld hl,(WR_TOP)
+    ld b,0
+    add hl,bc
     ld (WR_RT),hl
+    ld hl,1
+    inc c
+    jr .sh0
+.shl:
+    add hl,hl
+.sh0:
+    dec c
+    jr nz,.shl
+    ld (WR_BIT),hl
 .l:
+    ld hl,(WR_RS)
+    ld de,(WR_XE)
+    or a
+    sbc hl,de
+    jr nc,.draw
     ld hl,(WR_RT)
     ld de,(WR_NL)
     or a
@@ -1501,6 +1567,15 @@ wr_seldraw:
     jr nc,.next
 .hit:
     ld hl,(WR_SM)
+    ld a,h
+    or l
+    jr nz,.h1
+    ld hl,(WR_RT)               ; the first line met: where wr_seldelta starts
+    ld (WR_FT),hl
+    ld hl,(WR_RS)
+    ld (WR_FS),hl
+    ld hl,(WR_SM)
+.h1:
     ld de,(WR_BIT)
     ld a,l
     or e
@@ -1532,6 +1607,13 @@ wr_seldraw:
     ld (WR_SA),hl
     ld (WR_SB),de
     jp wr_menen
+.lo:                            ; HL = min(HL, DE) when DE < BC
+    ld a,e
+    sub c
+    ld a,d
+    sbc a,b
+    ret nc
+    jp wr_ord
 
 ; wr_meet: HL = x, DE = y: carry when [x, y) meets the line [WR_RS, WR_RE).  Clobbers AF, BC, HL.
 wr_meet:
@@ -1549,15 +1631,31 @@ wr_meet:
     sbc hl,de                   ; carry: the line's start < y
     ret
 
-; wr_seldelta: (in tv_draw) the lines of WR_SM: the old selection's part and the new one's, each an XOR fill.
+; wr_seldelta: (in tv_draw) each line of WR_SM: the difference between its old part and its new one, XOR filled: the two
+; strips between the old and new starts and between the old and new ends (12.3).
 wr_seldelta:
-    ld hl,(WR_TOP)
+    ld a,2                      ; XOR
+    ld (GOP),a
+    ld hl,(WR_FT)               ; from the first line met (wr_seldraw)
     ld (WR_RT),hl
-    ld hl,(WR_TS)
-    ld (WR_RS),hl
-    ld a,TV_Y
+    ld de,(WR_TOP)
+    or a
+    sbc hl,de
+    ld a,l                      ; its shown index
+    ld b,l
+    inc b
+    call wr_jy
+    ld a,l
     ld (WR_RY),a
+    ld hl,(WR_FS)
+    ld (WR_RS),hl
     ld hl,(WR_SM)
+    jr .f0
+.f1:
+    srl h
+    rr l
+.f0:
+    djnz .f1
 .j:
     ld a,h
     or l
@@ -1566,18 +1664,43 @@ wr_seldelta:
     rr l
     push hl
     jr nc,.next
-    ld hl,(WR_SA)
+    ld hl,$FFFF
+    ld (WR_TWP),hl              ; the widths cache, for this line
+    ld (WR_TWP2),hl
+    ld hl,(WR_SA)               ; the old part: OX0, OX1 (OX0 = OX1: none)
     ld de,(WR_SB)
     ld (WR_XA),hl
     ld (WR_XB),de
+    ld bc,0
+    ld (WR_OX0),bc
+    ld (WR_OX1),bc
     or a
     sbc hl,de
-    call nz,wr_selfill
-    call wr_sel
-    jr z,.next
+    jr z,.nold
+    call wr_selx
+    jr c,.nold
+    ld (WR_OX0),hl
+    ld (WR_OX1),de
+.nold:
+    call wr_sel                 ; the new part
+    jr z,.onlyo
     ld (WR_XA),hl
     ld (WR_XB),de
-    call wr_selfill
+    call wr_selx
+    jr c,.onlyo
+    ld bc,(WR_OX0)              ; both: [min x0, max x0) and [min x1, max x1)
+    push de
+    ld d,b
+    ld e,c
+    call .pair
+    pop hl
+    ld de,(WR_OX1)
+    call .pair
+    jr .next
+.onlyo:                         ; the old part only (or the new only, when the old has none)
+    ld hl,(WR_OX0)
+    ld de,(WR_OX1)
+    call wr_fillx
 .next:
     ld hl,(WR_RT)
     push hl
@@ -1594,11 +1717,42 @@ wr_seldelta:
     add a,9
     ld (WR_RY),a
     pop hl
-    jr .j
+    jp .j
+.pair:                          ; HL, DE: the strip between them
+    call wr_ord
+; wr_fillx: HL = x0, DE = x1: XOR fill (x0, WR_RY, x1 - x0, 9) when x1 > x0 (GOP is XOR).  Clobbers AF, DE, HL.
+wr_fillx:
+    ex de,hl
+    or a
+    sbc hl,de
+    ret z
+    ret c
+    ld (GA+4),hl
+    ld (GA),de
+    ld a,(WR_RY)
+    ld l,a
+    ld h,0
+    ld (GA+2),hl
+    ld l,9
+    ld (GA+6),hl
+    KFAR G_FILL
+    ret
 
 ; wr_selfill: line WR_RT (start WR_RS, band at y WR_RY): its part of [WR_XA, WR_XB) as an XOR fill (12.3); nothing when it has
 ; none.  Clobbers AF, BC, DE, HL.
 wr_selfill:
+    ld hl,$FFFF
+    ld (WR_TWP),hl
+    ld (WR_TWP2),hl
+    call wr_selx
+    ret c
+    ld a,2
+    ld (GOP),a
+    jr wr_fillx
+
+; wr_selx: line WR_RT (start WR_RS): its part of [WR_XA, WR_XB) -> HL = x0, DE = x1 (12.3); carry when it has none.  Clobbers
+; AF, BC.
+wr_selx:
     ld hl,(WR_RT)
     call wr_lt
     ld hl,(WR_RS)
@@ -1617,14 +1771,15 @@ wr_selfill:
     ld de,(WR_RB)
     or a
     sbc hl,de
-    ret nc                      ; a' >= b'
+    ccf
+    ret c                       ; a' >= b'
     ld hl,(WR_RA)               ; x0 = min(26 + tw(s, a'), 471)
     call .tw
     ld hl,TV_X + 2
     add hl,de
     ld de,TV_CMAX
     call wr_min
-    ld (GA),hl
+    push hl
     ld hl,(WR_RB)               ; x1: 472 when b' is the line's end and another line follows
     ld de,(WR_RE)
     or a
@@ -1635,7 +1790,7 @@ wr_selfill:
     ld de,(WR_NL)
     or a
     sbc hl,de
-    ld hl,TV_X + TV_W
+    ld de,TV_X + TV_W
     jr c,.x1
 .x:
     ld hl,(WR_RB)               ; else min(27 + tw(s, b'), 472)
@@ -1644,28 +1799,43 @@ wr_selfill:
     add hl,de
     ld de,TV_X + TV_W
     call wr_min
+    ex de,hl
 .x1:
-    ld de,(GA)
+    pop hl
+    or a
+    ret
+.tw:                            ; HL = an offset in the line -> DE = tw(s, HL), two kept (the line's other parts reuse them)
+    ld de,(WR_TWP)
     or a
     sbc hl,de
-    ld (GA+4),hl
-    ld a,(WR_RY)
-    ld l,a
-    ld h,0
-    ld (GA+2),hl
-    ld l,9
-    ld (GA+6),hl
-    ld a,2                      ; XOR
-    KFAR G_SETOP
-    KFAR G_FILL
+    add hl,de
+    jr nz,.t2
+    ld de,(WR_TWV)
     ret
-.tw:                            ; HL = an offset in the line -> DE = tw(s, HL)
+.t2:
+    ld de,(WR_TWP2)
+    or a
+    sbc hl,de
+    add hl,de
+    jr nz,.t3
+    ld de,(WR_TWV2)
+    ret
+.t3:
+    push hl
     ld de,(WR_RS)
     or a
     sbc hl,de
     ld b,l
     ex de,hl
-    jp wr_tw
+    call wr_tw
+    ld hl,(WR_TWP)              ; the older one goes
+    ld (WR_TWP2),hl
+    ld hl,(WR_TWV)
+    ld (WR_TWV2),hl
+    pop hl
+    ld (WR_TWP),hl
+    ld (WR_TWV),de
+    ret
 
 ; wr_replace: the selection [lo, hi) replaced by BC codes from HL (BC = 0: deleted; HL is read under K) as one edit (12.4): the
 ; caret after them, the view drawn, the "Edit" menu set.  A = 1: a paste, refused (carry, nothing changed) when the result would
@@ -2552,28 +2722,26 @@ wr_pos:
     dec hl                      ; else up to its last code
 .lastl:
     ld (WR_PE),hl
-    pop de                      ; r
-    ld hl,(WR_PS)
-.w:
-    push hl
-    push de
-    ld de,(WR_PE)
+    ld de,(WR_PS)               ; BC = the positions to step over, HL = the first code's address
     or a
     sbc hl,de
-    pop de
-    pop hl
-    ret nc                      ; at the last position
-    bit 7,d
-    ret nz                      ; r < 0
-    push hl
-    push de
+    ld b,h
+    ld c,l
+    ex de,hl
     call wr_ptr
-    ld a,(hl)
-    ld l,a
+    pop de                      ; r
+.w:
+    ld a,b
+    or c
+    jr z,.end                   ; at the last position
+    bit 7,d
+    jr nz,.end                  ; r < 0
+    push hl
+    ld l,(hl)
     ld h,PROP6_W >> 8
     ld a,(hl)                   ; the advance
-    pop de
     pop hl
+    push bc
     ld b,a
     srl a
     inc d
@@ -2581,7 +2749,7 @@ wr_pos:
     jr nz,.ge
     cp e
     jr z,.ge
-    ret nc                      ; r < floor(a / 2): here
+    jr nc,.here                 ; r < floor(a / 2): here
 .ge:
     ld a,e
     sub b
@@ -2589,8 +2757,25 @@ wr_pos:
     jr nc,.nc
     dec d
 .nc:
+    pop bc
+    dec bc
     inc hl
+    push de                     ; past the gap's start: after it
+    ld de,(WR_GA)
+    or a
+    sbc hl,de
+    add hl,de
+    pop de
+    jr nz,.w
+    ld hl,(WR_GB)
     jr .w
+.here:
+    pop bc
+.end:
+    ld hl,(WR_PE)               ; the position: PE less the steps left
+    or a
+    sbc hl,bc
+    ret
 
 ; tv_focus / tv_blur: M_FOCUS / M_BLUR: the caret shown / hidden (a caret draw).
 tv_focus:
@@ -2831,6 +3016,16 @@ WR_RE:      DW 0
 WR_RY:      DB 0
 WR_RA:      DW 0
 WR_RB:      DW 0
+WR_OX0:     DW 0                ; a line's old part's x0, x1
+WR_OX1:     DW 0
+WR_TWP:     DW 0                ; two widths kept: offset, tw
+WR_TWV:     DW 0
+WR_TWP2:    DW 0
+WR_TWV2:    DW 0
+WR_XE:      DW 0
+WR_XS:      DW 0
+WR_FT:      DW 0                ; the first line the change meets, its start
+WR_FS:      DW 0
 WR_RCK:     DB 0                ; wr_replace: count the lines; the source, n, S, lo, hi, the caret, GE, the codes kept
 WR_RSRC:    DW 0
 WR_RC:      DW 0
