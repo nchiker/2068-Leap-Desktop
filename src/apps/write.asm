@@ -697,6 +697,7 @@ wr_rewrap:
     sbc hl,de
     jr z,.eq
     jr nc,.wrap
+.pass:
     ld hl,(WR_R)                ; os += LT[r]; r + 1
     inc hl
     ld (WR_R),hl
@@ -708,12 +709,13 @@ wr_rewrap:
     add hl,de
     ld (WR_OS),hl
     jr .adv
-.eq:
+.eq:                            ; an old line starts at ns: the sync after the edit; before it, the new line replaces it
     ld hl,(WR_OS)
     ld de,(WR_OM)
     or a
     sbc hl,de
     jp nc,.sync
+    jr .pass
 .wrap:
     ld hl,(WR_NS)
     call wr_line                ; C = the new line's length
@@ -938,7 +940,7 @@ wr_edraw:
     ld de,(WR_ONL0)
     or a
     sbc hl,de
-    ld de,TV_N + 1000
+    ld de,$7FFF                 ; (to the last line shown)
     jr nz,.range
     ld hl,(WR_WE)               ; one line, the edit's: from the edit on
     ld de,(WR_F)
@@ -1482,16 +1484,17 @@ wr_ltn:
 ; wr_scroll: (in tv_draw) G_SCROLLV of the view by 9 MD rows under the clip, then the lines meeting the uncovered rows.
 wr_scroll:
     call wr_gav
-    ld a,(WR_MD)
-    ld l,a
-    add a,a
-    add a,a
-    add a,a
-    add a,l                     ; 9 d (|d| <= 15: fits)
+    ld a,(WR_MD)                ; 9 d as a signed word (135 for d = 15 does not fit a signed byte)
     ld l,a
     rla
     sbc a,a
     ld h,a
+    ld d,h
+    ld e,l
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,de
     ld (GA+8),hl
     KFAR G_SCROLLV
     ld a,(WR_MD)                ; the uncovered rows: [cy1 - 9 d, cy1) for d > 0, [cy0, cy0 + 9 |d|) for d < 0

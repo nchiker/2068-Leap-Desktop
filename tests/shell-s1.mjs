@@ -311,7 +311,7 @@ function shellGroup() {
         if (prog) afterLaunch(prog, 'ENTER'); else verifyShell('ENTER');
       } else if (r < 0.96) {
         // a press on the window's blank part and on the desk: no icon sees it (reading R3 of shell-model.mjs: it does not disturb the double click)
-        const [x, y] = rng.pick([[250, 90], [200, 60], [400, 150], [60, 160]]);
+        const [x, y] = rng.pick([[250, 90], [262, 56], [400, 150], [60, 160]]);
         L.click(env, x, y, 3, 4); stat.blanks++; rec(`click blank (${x}, ${y})`);
         verifyShell(`click at (${x}, ${y})`);
       } else { const [x, y] = [rng.int(0, 511), rng.int(10, 190)]; L.moveTo(env, x, y); env.frames_(1); stat.moves++; rec(`move (${x}, ${y})`); verifyShell('move'); }
@@ -349,7 +349,7 @@ function shellGroup() {
   }
   // ---- ENTER and TAB / arrows from the user's side (the keys are checked again in 2b)
   {
-    const sec = new Sec('2d ENTER opens the focused icon: straight after the start the first one; after TAB / DOWN / RIGHT the second; after BACKTAB / UP / LEFT from the first the second again (wrapping), and twice a key goes back to the first');
+    const sec = new Sec('2d ENTER opens the focused icon: straight after the start the first one; after TAB / DOWN / RIGHT once the second, twice the third, three times the first again; after BACKTAB / UP / LEFT from the first the third (wrapping), then the second, then the first');
     const trial = (keys, wantProg, what) => {
       freshShell(env, sec);
       for (const k of keys) { L.typeCode(env, k); env.frames_(2); }
@@ -359,8 +359,9 @@ function shellGroup() {
       if (n >= 0) sec.ok(L.quitBySSQ(env), `${what}: the shell did not come back by SS+Q`);
     };
     trial([], 1, 'at the start');
-    for (const k of [14, 10, 9, 15, 11, 8]) { trial([k], 2, `key ${k} once`); trial([k, k], 1, `key ${k} twice`); }
-    sec.end('13 trials');
+    for (const k of [14, 10, 9]) { trial([k], 2, `key ${k} once`); trial([k, k], 3, `key ${k} twice`); trial([k, k, k], 1, `key ${k} three times`); }
+    for (const k of [15, 11, 8]) { trial([k], 3, `key ${k} once`); trial([k, k], 2, `key ${k} twice`); trial([k, k, k], 1, `key ${k} three times`); }
+    sec.end('19 trials');
   }
 }
 
