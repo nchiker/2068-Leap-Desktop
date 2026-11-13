@@ -9,6 +9,10 @@
 //   - covering plain windows, M_EVENT / M_DRAW sent directly (T_SEND), the symbols (WR_*) the tests need.
 // CONTRACT? the symbols WR_WIN, WR_TV, WR_BAR, WR_DLG, WR_BUF, WR_LT are read as VARIABLES holding the object's / buffer's address (as S_WIN and D_WIN are in the shell and Calculator suites);
 // WR_GS, WR_GE, WR_NL, WR_TOP are word variables, WR_CHG a byte variable (11.7).
+// W2 (docs/WRITE.md 12; the section at the end of this file, additive): WR2_NEEDED / needWr2, readState2 / stateDiff2 (WR_AN, WR_MK, WR_CLN and the clipboard at $7800), menuBits (the kernel's menu
+// entry, WINDOWS 8 / 18: MB_ENT + ME_SIZE x menu index + ME_EN, bit n - 1 - k for item k), menuCall (WR_MENU called under mapping A with K_EV holding the E_MENU record), Drv2 (Drv plus MARK,
+// drags, the Edit menu's items, and the checks of WRITE 12.9 items 2-4 after every step), editMenu / typeMark / menuKeys (real frames).
+// CONTRACT? WR_MENU is code in DOCK 2-3 (12.6: "the Edit menu's handler" is under DOCK 2-3), so it is called under mapping A; WR_AN is a word variable, WR_MK and WR_CLN as 12.7 says (byte, word).
 import * as L from './calc-lib.mjs';
 import * as T from './tk-lib.mjs';
 import * as X from './tk-lib2.mjs';
@@ -244,7 +248,7 @@ export class Drv {
     if (t === E.KEY) { want = Doc_consumes(a1); Doc_key(doc, a1); }
     else if (t === E.DOWN) { want = true; doc.click(a1 + 256 * (a3 & 1), a2); }
     else if (t === E.UP) want = true;
-    else if (t === E.MOVE) want = rd16(env.m, env.S.K_CAPTURE) === tv;
+    else if (t === E.MOVE) { want = rd16(env.m, env.S.K_CAPTURE) === tv; if (want) doc.drag(a1 + 256 * (a3 & 1), a2); }      // W2 (12.4): E_MOVE with the capture is a drag (W1: consumed, nothing else)
     else if (t === E.SCROLL) { want = undefined; doc.scrollTo(a1); }       // CONTRACT? consumed or not is not settled for E_SCROLL
     if (want !== undefined) this.secs.doc.ok(!!r.carry === !!want, () => `${this.ctx()}: record ${JSON.stringify(rec)}: consumed (carry) ${r.carry}, want ${want ? 1 : 0}`);
     this.check(r, before, o);
@@ -333,3 +337,150 @@ export function dialogButtons(env) {
   return discard && cancel ? { discard, cancel } : null;
 }
 export const clickView = (env, v) => L.click(env, v.x + (v.w >> 1), v.y + (v.h >> 1), 3, 6);
+
+// ===========================================================================================================================================================================================
+// W2 (docs/WRITE.md 12).  Everything below is additive: W1's suites still load against a build that has no W2 symbols (they just do not call these).
+export const WR2_NEEDED = ['WR_AN', 'WR_MK', 'WR_CLN', 'WR_CLIP', 'WR_MENU', 'K_LDIR', 'MB_ENT', 'ME_EN', 'ME_SIZE'];
+/** A clear failure (not a crash somewhere later) when the cartridge is not a W2 build. */
+export function needWr2(S) {
+  const miss = WR2_NEEDED.filter((n) => S[n] === undefined);
+  if (miss.length) throw new Error(`desk5 has no Write W2: it does not define ${miss.join(', ')} (docs/WRITE.md 12.7); build W2 first`);
+  if (S.WR_CLIP !== 0x7800) throw new Error(`WR_CLIP is ${hex(S.WR_CLIP)}, 12.5 says $7800`);
+}
+/** bootWrite for the W2 suites: the same machine, the W2 symbols required. */
+export function bootWrite2(opts = {}) { const env = bootWrite(opts); needWr2(env.S); return env; }
+export const CLIP = 0x7800, CLIP_END = 0x8000;
+/** What 12.7 names, read back: the anchor, the mark, the clipboard's length and its codes. */
+export function readState2(env) {
+  const { m, S } = env, cln = rd16(m, S.WR_CLN);
+  return { an: rd16(m, S.WR_AN), mk: m.ram[S.WR_MK], cln, clip: Array.from(m.ram.subarray(CLIP, CLIP + Math.min(cln, WM.CLIPMAX))) };
+}
+/** The differences between the machine's W2 state and a Doc: { sel: [anchor, mark], clip: [length, codes] }. */
+export function stateDiff2(env, doc) {
+  const st = readState2(env), out = { sel: [], clip: [] };
+  if (st.an !== doc.anchor) out.sel.push(`the anchor (WR_AN) ${st.an}, model ${doc.anchor} (caret ${doc.caret}, mark ${doc.mark})`);
+  if (st.mk !== doc.mark) out.sel.push(`the mark (WR_MK) ${st.mk}, model ${doc.mark}`);
+  if (st.cln !== doc.clip.length) out.clip.push(`the clipboard's length (WR_CLN) ${st.cln}, model ${doc.clip.length}`);
+  else { const i = firstDiff(st.clip, doc.clip); if (i >= 0) out.clip.push(`the clipboard differs at offset ${i} (length ${st.cln}): machine ${JSON.stringify(WM.textOf(st.clip.slice(Math.max(0, i - 4), i + 8)))}, model ${JSON.stringify(WM.textOf(doc.clip.slice(Math.max(0, i - 4), i + 8)))}`); }
+  return out;
+}
+/** The kernel's enable word of menu `index` (0 File, 1 Edit): MB_ENT + ME_SIZE x index + ME_EN (a word; bit n - 1 - k for item k of n). */
+export const menuBits = (env, index) => rd16(env.m, env.S.MB_ENT + env.S.ME_SIZE * index + env.S.ME_EN);
+/** The model's words for the two menus: File "New" (1 item, always enabled: bit 0), Edit (5 items). */
+export const wantBits = (doc) => [1, doc.editBits()];
+/** WR_MENU with K_EV = an E_MENU record (menu id, item id), by a direct call under mapping A (interrupts as `o`). */
+export function menuCall(env, menuId, item, o = {}) {
+  T.drainEvents(env); T.setEv(env, [E.MENU, menuId, item, 0]);
+  return T.runCall(env, env.S.WR_MENU, {}, { map: 'A', ...o });
+}
+/** The 2,048 bytes at $7800 (a copy). */
+export const clipRegion = (env) => env.m.ram.slice(CLIP, CLIP_END);
+
+/** Drv plus MARK, drags and the Edit menu's items.  secs may also hold `sel` (anchor, mark), `clip` (the clipboard and its region) and `menu` (the enabled bits); each falls back to secs.doc. */
+export class Drv2 extends Drv {
+  constructor(env, secs, doc, o = {}) { super(env, secs, doc, o); this.clipLast = null; this.menuChecks = o.menu !== false; this.stat.drags = 0; this.stat.menus = 0; this.stat.marks = 0; this.stat.pastesRefused = 0; }
+  check(r, before, o = {}) {
+    const n = super.check(r, before, o);
+    this.check2(r, o);
+    const s = this.secs;
+    return n + (s.sel ? s.sel.nf : 0) + (s.clip ? s.clip.nf : 0) + (s.menu ? s.menu.nf : 0);
+  }
+  total() { const s = this.secs; return super.total() + (s.sel ? s.sel.nf : 0) + (s.clip ? s.clip.nf : 0) + (s.menu ? s.menu.nf : 0); }
+  /** The W2 checks of WRITE 12.9 items 2 and 4: anchor, mark, clipboard (length, codes, and $7800-$7FFF written only by Cut / Copy), the menu's enable bits.  o.clipWrite: this step is Cut or Copy. */
+  check2(r, o = {}) {
+    const { env, doc } = this, { m } = env, s = this.secs, sel = s.sel || s.doc, clip = s.clip || s.doc, menu = s.menu || s.doc, ctx = this.ctx();
+    const sd = stateDiff2(env, doc);
+    sel.ok(sd.sel.length === 0, () => `${ctx}: ${sd.sel[0]}`);
+    clip.ok(sd.clip.length === 0, () => `${ctx}: ${sd.clip[0]}`);
+    const cur = clipRegion(env);
+    if (this.clipLast && r) {
+      const from = o.clipWrite ? doc.clip.length : 0;       // 12.5: Cut and Copy write the selection's codes at $7800; nothing else writes $7800-$7FFF (CONTRACT? the bytes above them are left alone)
+      let bad = -1; for (let i = from; i < WM.CLIPMAX; i++) if (cur[i] !== this.clipLast[i]) { bad = i; break; }
+      clip.ok(bad < 0, () => `${ctx}: $7800-$7FFF changed at offset ${bad} (${hex(CLIP + bad)}) by a step that ${o.clipWrite ? 'may write only the first ' + doc.clip.length + ' bytes' : 'must not write it'}`);
+    }
+    this.clipLast = cur;
+    if (this.menuChecks) {
+      const want = wantBits(doc), mask = [1, 0x1F];
+      for (let i = 0; i < 2; i++) { const got = menuBits(env, i) & mask[i]; menu.ok(got === want[i], () => `${ctx}: menu ${i} enable bits ${got.toString(2).padStart(i ? 5 : 1, '0')}, model ${want[i].toString(2).padStart(i ? 5 : 1, '0')} (S ${doc.S}, clipboard ${doc.clip.length})`); }
+    }
+  }
+  /** The state after a loadDoc / reset (no step): remembers $7800-$7FFF as it is. */
+  verify(label) { this.clipLast = null; const n = super.verify(label); return n; }
+  /** One key through K_DISPATCH (W2: a typed code over a selection is not "refused": its deletion draws). */
+  key(code) {
+    const { env, doc } = this, before = readDisp(env.m);
+    this.note(`key ${code}${code >= 32 && code < 127 ? ' ' + JSON.stringify(String.fromCharCode(code)) : code === 18 ? ' MARK' : ''}`);
+    this.stat.keys++; if (code === 18) this.stat.marks++;
+    const was = doc.clone();
+    let r;
+    try { r = dispatch(env, keyRec(code)); } catch (e) { this.secs.doc.ok(false, `${this.ctx()}: ${e.message}`); return null; }
+    const changed = Doc_key(doc, code);
+    if (!changed) this.stat.noops++;
+    const refused = ((code >= 32 && code <= 126) || code === 13) && !was.canInsert() && was.S === 0;
+    this.check(r, before, { noDraws: refused });
+    return r;
+  }
+  mark() { return this.key(18); }
+  /** A drag: E_DOWN at `down` = [px, py] (K_CAPTURE becomes the text view), an E_MOVE with the button held at each of `moves`, E_UP at the last point; the model follows each event and every event is checked. */
+  drag(down, moves) {
+    const { env, doc, secs } = this, { S } = env, tv = objs(env).tv;
+    this.note(`press (${down[0]}, ${down[1]})`); this.stat.drags++;
+    let before = readDisp(env.m), r;
+    try { r = dispatch(env, ptRec(E.DOWN, down[0], down[1], 1)); } catch (e) { secs.doc.ok(false, `${this.ctx()}: ${e.message}`); return null; }
+    doc.click(down[0], down[1]);
+    secs.doc.ok(rd16(env.m, S.K_CAPTURE) === tv, () => `${this.ctx()}: K_CAPTURE ${hex(rd16(env.m, S.K_CAPTURE))} after the press, the text view ${hex(tv)}`);
+    this.check(r, before);
+    for (const [px, py] of moves) {
+      this.note(`drag to (${px}, ${py})`);
+      before = readDisp(env.m);
+      try { r = dispatch(env, ptRec(E.MOVE, px, py, 1)); } catch (e) { secs.doc.ok(false, `${this.ctx()}: ${e.message}`); return null; }
+      doc.drag(px, py);
+      this.check(r, before);
+    }
+    const last = moves.length ? moves[moves.length - 1] : down;
+    this.note(`release (${last[0]}, ${last[1]})`);
+    before = readDisp(env.m);
+    try { r = dispatch(env, ptRec(E.UP, last[0], last[1], 0)); } catch (e) { secs.doc.ok(false, `${this.ctx()}: ${e.message}`); return null; }
+    secs.doc.ok(rd16(env.m, S.K_CAPTURE) === 0, () => `${this.ctx()}: K_CAPTURE ${hex(rd16(env.m, S.K_CAPTURE))} after the release`);
+    this.check(r, before);
+    return r;
+  }
+  /** An Edit menu item (1 Cut, 2 Copy, 3 Paste, 4 Select all) by WR_MENU; only for an item the model has enabled (the kernel sends no other: 12.4). */
+  menuItem(item) {
+    const { env, doc } = this, before = readDisp(env.m), name = ['', 'Cut', 'Copy', 'Paste', 'Select all'][item];
+    this.note(`menu ${name}`); this.stat.menus++;
+    const en = doc.editEnabled()[item === 4 ? 4 : item - 1];
+    if (!en) throw new Error(`Drv2.menuItem(${item}): the model has it disabled (${this.ctx()})`);
+    const wasPasteOk = item === 3 ? doc.pasteOk() : true;
+    let r;
+    try { r = menuCall(env, 2, item); } catch (e) { this.secs.doc.ok(false, `${this.ctx()}: ${e.message}`); return null; }
+    doc.menuItem(item);
+    if (item === 3 && !wasPasteOk) this.stat.pastesRefused++;
+    this.check(r, before, { clipWrite: item === 1 || item === 2 });
+    return r;
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+// Real frames: MARK, the Edit menu
+/** Hold the matrix keys `list` (indices 5 row + bit) `hold` frames, release, `rel` frames. */
+export function typeKeys(env, list, hold = 3, rel = 3) { L.setKeys(env.m, list); env.frames_(hold); L.setKeys(env.m, []); env.frames_(rel); }
+/** MARK by the keyboard: SYMBOL SHIFT + E.  CONTRACT? keymap.txt maps SS+E to MARK (12.1); when the key map in the tree does not yet, the keys are pressed all the same (key 36 + key 12). */
+export function typeMark(env, hold = 3, rel = 3) {
+  let keys; try { keys = L.keysFor(18); } catch { keys = [36, 12]; }
+  typeKeys(env, keys, hold, rel);
+}
+/** The menu keys: MENU (code 16), then the codes in `codes` (RIGHT 9, DOWN 10, ENTER 13 ...), each a real keystroke. */
+export function menuKeys(env, codes) { for (const c of codes) L.typeCode(env, c, 3, 3); }
+/** The Edit title box (43..79 at y 0-7: File is 8..42) and the items' rows: item index k (Cut 0, Copy 1, Paste 2, separator 3, Select all 4) at y 14 + 10 k, x inside the drop-down (WINDOWS 18.2, 18.3). */
+export const EDIT_TITLE = [60, 4], editItemPos = (k) => [60, 14 + 10 * k];
+export const ITEM_INDEX = { 1: 0, 2: 1, 3: 2, 4: 4 };
+/** The Edit menu by the pointer (the gesture of fileNew): press the title, move to the item, release over it (`release` false: leave the button down, the menu open). */
+export function editMenu(env, itemIndex, { release = true, wait = 12 } = {}) {
+  const { m } = env;
+  L.moveTo(env, EDIT_TITLE[0], EDIT_TITLE[1]); m.mouse.buttons = L.MOUSE_LEFT; env.frames_(3);
+  const [x, y] = editItemPos(itemIndex);
+  L.moveTo(env, x, y); env.frames_(2);
+  if (release) { m.mouse.buttons = L.MOUSE_UP; env.frames_(wait); }
+}
+export const releaseMenu = (env, wait = 12) => { env.m.mouse.buttons = L.MOUSE_UP; env.frames_(wait); };

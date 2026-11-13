@@ -291,6 +291,7 @@ async function selfTest() {
     'ZXCVASDFGQWERTYUIOPLKJHMNB'.split('').every((c) => P[1][K(c)] === c.charCodeAt(0)) && P[1][K('5')] === 8 && P[1][K('6')] === 10 && P[1][K('7')] === 11
     && P[1][K('8')] === 9 && P[1][K('0')] === 12 && P[1][K('1')] === 14 && P[1][K('2')] === 1 && P[1][K('3')] === 15 && P[1][K('4')] === 27
     && P[1][K('9')] === 16 && P[1][K('SPACE')] === 3);
+  C.check('SS+E is MARK (code 18; WRITE 12.1, was no code); SS+Q is CLOSE 17; SS+W and SS+I stay without a code', P[2][K('E')] === 18 && P[2][K('Q')] === 17 && P[2][K('W')] === 0 && P[2][K('I')] === 0);
   C.check('keys 0 and 36 are all "-"; every printable ASCII 32..126 is reachable', [0, 1, 2].every((p) => P[p][0] === 0 && P[p][36] === 0)
     && Array.from({ length: 95 }, (_, i) => 32 + i).every((c) => P.some((pl) => pl.includes(c))));
 

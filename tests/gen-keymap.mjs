@@ -29,7 +29,7 @@ eq(at(0, 1), 122, 'k=1 plain z'); eq(at(1, 1), 90, 'k=1 CS Z'); eq(at(2, 1), 58,
 eq(at(1, 16), 1, 'k=16 CS CAPS'); eq(at(1, 19), 8, 'k=19 CS LEFT');
 eq([at(0, 35), at(1, 35), at(2, 35)], [32, 3, 32], 'k=35 SPACE');
 eq(at(0, 30), 13, 'k=30 plain ENTER');
-eq(at(2, 17), 35, 'k=17 SS HASH'); eq(at(2, 33), 45, 'k=33 SS DASH');
+eq(at(2, 12), 18, 'k=12 SS+E = MARK (WRITE 12.1)'); eq(at(2, 17), 35, 'k=17 SS HASH'); eq(at(2, 33), 45, 'k=33 SS DASH');
 eq([0, 36].map(k => [at(0, k), at(1, k), at(2, k)]), [[0, 0, 0], [0, 0, 0]], 'CS and SS keys all 0');
 const seen = new Set(bytes);
 eq([...Array(95)].map((_, i) => 32 + i).filter(c => !seen.has(c)), [], 'all printable ASCII present');

@@ -11,6 +11,8 @@ released 3 frames, as in TSRun.  Sequence (as the reference): (1) the shell: K_P
 (4) SYMBOL SHIFT + Q (CLOSE): until K_PROG = 0, 30 frames, settled.
 (5) the Controls session (docs/TOOLKIT.md 10.8 item 6; steps and keys are read from the reference's keys.json, written by desk5-ref.mjs): TAB (CAPS SHIFT + 1) to the
 Controls icon, ENTER (K_PROG = 2): "ctl"; TAB x5, DOWN x10 (CS+6): "list"; TAB, LEFT x2 (CS+5), x, SS+P, SS+Z, DELETE (CS+0): "field"; ENTER: "status"; SS+Q: "back2".
+(7) the W2 session (WRITE 12.9 item 7; keys from keys.json "w2", skipped when the reference has none): MARK (SS+E) and the caret keys select across lines, MENU (CS+9) + RIGHT opens "Edit",
+DOWN + ENTER = Copy, move, MENU + RIGHT + ENTER = Paste, SS+Q, ENTER: rows per checkpoint as (6), plus the W2 variables and the clipboard's bytes.
 (6) the Write session (docs/WRITE.md 8 item 7; steps and keys from keys.json "wr"): TAB x2 (the Write icon), ENTER (K_PROG = 3): "wr-open"; a typed wrapping paragraph (SYMBOL SHIFT
 characters included) and short lines, about 20 lines so that the view scrolls: "wr-typed"; UP x4, LEFT, DELETE, x: "wr-edit"; SS+Q (discard dialog): "wr-dialog"; ENTER (Discard):
 "wr-back" (K_PROG 0, = "shell").  Extra rows: the document variables WR_NL, WR_TOP, WR_GS, WR_GE, WR_CHG = TSRun's after each of the first three.
@@ -321,6 +323,61 @@ def main():
         wait_frames(30)
         cur = wsettle("wr-back", "Discard quit to the shell, K_PROG 0", 300, up, nb)
         results.append(("\"wr-back\" screen = \"shell\" screen on ZEsarUX itself", cur == shell_cur, "equal" if cur == shell_cur else "differ"))
+
+        # 7. the W2 session (WRITE 12.9 item 7): selection by MARK and the caret keys, the Edit menu by MENU + RIGHT + DOWN + ENTER: Copy, then Paste; every screen identical to TSRun's
+        w2 = refk.get("w2")
+        if not w2:
+            print("  SKIP  the W2 session: the reference has no W2 data (the build has no Write W2 symbols)")
+        else:
+            w2names = ("w2-open", "w2-typed", "w2-sel", "w2-menu", "w2-copy", "w2-paste", "w2-dialog", "w2-back")
+            w2ref = {n: (refdir / f"{n}.bin").read_bytes() for n in w2names}
+            w2refj = {n: json.loads((refdir / f"{n}.json").read_text()) for n in w2names}
+
+            def w2vars():
+                v = wvars()
+                v["WR_AN"] = int.from_bytes(rd(c, Z(S["WR_AN"]), 2), "little")
+                v["WR_MK"] = rd(c, Z(S["WR_MK"]), 1)[0]
+                cln = int.from_bytes(rd(c, Z(S["WR_CLN"]), 2), "little")
+                v["WR_CLN"] = cln
+                v["EDIT_EN"] = int.from_bytes(rd(c, Z(S["MB_ENT"] + S["ME_SIZE"] + S["ME_EN"]), 2), "little")
+                v["CLIP"] = rd(c, Z(0x7800), min(cln, 2048)).hex() if cln else ""
+                return v
+
+            def w2settle(tag, label, extra, vkey=None, up=True, nb=0):
+                ok, cur, used = settle(extra)
+                res = compare(f"settled \"{tag}\" screen = TSRun's {tag} ({label})", cur, w2ref[tag], tag)
+                results.append((res[0], res[1] and ok and up, res[2] + f"; settled {ok} after {used} more frames" + (f"; K_PROG reached after {nb} frame stops" if nb else "")))
+                results.append((f"K_PROG after \"{tag}\" = TSRun's", kprog() == w2refj[tag]["K_PROG"], f"{kprog()}, TSRun {w2refj[tag]['K_PROG']}"))
+                if vkey:
+                    v = w2vars()
+                    results.append((f"W2 variables (document, WR_AN, WR_MK, WR_CLN, the Edit enable bits, the clipboard's bytes) after \"{tag}\" = TSRun's", v == w2["vars"][vkey], f"{v}, TSRun {w2['vars'][vkey]}"))
+                return cur
+
+            k2 = w2["keys"]
+            run_keys("W2: TAB x2 to the Write icon", k2["open"][:2])
+            run_keys("W2: ENTER opens Write", k2["open"][2:])
+            up, nb = until_prog(3)
+            wait_frames(30)
+            w2settle("w2-open", "Write as opened, K_PROG 3", 300, "open", up, nb)
+            run_keys("W2: three lines typed", k2["typed"])
+            w2settle("w2-typed", "text typed", 120, "typed")
+            run_keys("W2: MARK (SYMBOL SHIFT + E), UP, UP, LEFT, LEFT", k2["sel"])
+            w2settle("w2-sel", "a selection across lines", 120, "sel")
+            run_keys("W2: MENU, RIGHT (the Edit menu opens)", k2["menu"])
+            w2settle("w2-menu", "the Edit menu open", 120, "menu")
+            run_keys("W2: DOWN (Copy), ENTER", k2["copy"])
+            w2settle("w2-copy", "Copy done, the selection kept", 120, "copy")
+            run_keys("W2: RIGHT, ENTER (move, new line)", k2["move"])
+            run_keys("W2: MENU, RIGHT, ENTER (Paste)", k2["paste"])
+            w2settle("w2-paste", "Paste done", 120, "paste")
+            run_keys("W2: SS+Q (discard dialog)", [("SS+Q", k2["close"])])
+            wait_frames(30)
+            w2settle("w2-dialog", "the discard dialog, K_PROG 3", 300)
+            run_keys("W2: ENTER (Discard)", [("ENTER", k2["enter"])])
+            up, nb = until_prog(0)
+            wait_frames(30)
+            cur = w2settle("w2-back", "Discard quit to the shell, K_PROG 0", 300, None, up, nb)
+            results.append(("\"w2-back\" screen = \"shell\" screen on ZEsarUX itself", cur == shell_cur, "equal" if cur == shell_cur else "differ"))
 
         c.command("set-memory-zone 19")
         dock_bad = {}
