@@ -631,7 +631,7 @@ UP / DOWN run), rounded up to 100 T, as the scroll's were (11.10). `tests/wr-per
   Z80 side; TS-Pico uses ports `$0E` / `$0F` and the commands `tpi:chopen`, `chrd`, `chwr`, `chclose`, `dir`).
 - Autoscroll: the owner asked what else might be more worthwhile first; it stays in 12.10 until chosen.
 
-## 13. W3 interface: Open and Save (drafted 2026-11-12, **awaiting the owner's approval**)
+## 13. W3 interface: Open and Save (designed 2026-11-12, owner approved; binding for the W3 code and tests)
 
 Order agreed by the owner (2026-11-12): **W3 (files, on `docs/FILES.md`), then double-click and Find in Write, then Paint**
 (mode 6). The tests are written from sections 1-12, this section and `docs/FILES.md`, never from the code.
@@ -703,7 +703,7 @@ A `Dialog` (128, 64, 256, 64), a `Label` at (144, 76, 224, 9) with the message, 
 5. Cross-emulator: ZEsarUX and Fuse have no bridge, so `FS_` returns status 0 there: the runner checks that "Save..." shows the
    alert and nothing else changes.
 
-### 13.8 Decisions for the owner (recommendations)
+### 13.8 Decisions (owner, 2026-11-12: "I approve"; every recommendation taken)
 
 1. **The title "Write: name"**. *Alternative:* the name alone, as a Macintosh does.
 2. **".txt" added** to a name without a ".". *Alternative:* names as typed.

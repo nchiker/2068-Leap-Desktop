@@ -1,4 +1,4 @@
-# Files: contract (draft 1, 2026-11-12, awaiting the owner's approval)
+# Files: contract (draft 1, 2026-11-12, owner approved)
 
 Roadmap step 5 (`docs/FEASIBILITY.md`): how programs open and save files. Decided by the owner (2026-11-12, `docs/WRITE.md`
 12.14): **one desktop file interface, shaped like TS-Pico's channel calls; for now the test page answers it through the
@@ -142,7 +142,7 @@ Two odd ports, so that TSRun's keyboard decoding (every even port) and TS-Pico (
 4. **The page** (`tests/web-smoke.mjs` extended): a Write save produces a download of the right bytes; the picker fallback bar
    appears when `showPicker` throws.
 
-## 9. Decisions for the owner (recommendations)
+## 9. Decisions (owner, 2026-11-12: "I approve"; every recommendation taken)
 
 1. **Ports `$6D` / `$6F`** for the bridge (odd, unused by the TS2068, TSRun or TS-Pico).
 2. **`FS_PICK` waits** (the program stops until the user chooses), with BREAK / ESC to cancel. *Alternative:* returns at once
