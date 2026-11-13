@@ -295,9 +295,9 @@ if (w2ok) {
     t.caret = t.L; t.top = null;
     const prep = (dd) => {
       W.emulateBar(env, 0); W.sendRec(env, o.tv, [E.SCROLL, 0, 2, 0], { ints: false }); dd.scrollTo(0);
-      dispPt(E.DOWN, 30, 31); dd.click(30, 31); dispPt(E.UP, 30, 31, 0);
+      dispPt(E.DOWN, 27, 31); dd.click(27, 31); dispPt(E.UP, 27, 31, 0);      // px 27: r = 0, position 0 (a click at 30 would land after a glyph of 7 or more)
     };
-    const ts = worst(t, 'w2all', 'Select all of 5,120 codes', prep, (dd) => { if (dd.caret !== 0 || dd.L !== WM.CAP) throw new Error('set-up: caret / length'); return mk(dd, 4); });
+    const ts = worst(t, 'w2all', 'Select all of 5,120 codes', prep, (dd) => { if (dd.caret !== 0 || dd.L !== WM.CAP) throw new Error(`set-up: caret ${dd.caret}, length ${dd.L}`); return mk(dd, 4); });
     row('Select all of a 5,120-code document, the caret at 0, WR_MENU E_MENU 2, 4 (12.8)', Math.max(...ts), null, `report; worst of ${ts.join(', ')}`);
   }
   // ---- W_DRAWVIEW of 16 lines, all selected

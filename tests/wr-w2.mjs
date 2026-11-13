@@ -106,7 +106,7 @@ function pickAction2(doc, mode) {
       case 'menu': a = { k: 'menu', item: pickMenu(doc) }; break;
       case 'scroll': if (doc.run !== null) continue; a = { k: 'scroll', v: rng.int(0, doc.bar().max) }; break;
       case 'bar': if (doc.run !== null) continue; a = { k: 'bar', part: rng.pick(['up', 'down', 'pgup', 'pgdn', 'thumb']), py2: rng.int(38, 170) }; break;
-      default: if (doc.run !== null) continue; a = { k: 'key', code: rng.pick([14, 15, 27, 3, 0, 5, 17, 127, 128, 200, 255, 31, 16, 19]) };
+      default: if (doc.run !== null) continue; a = { k: 'key', code: rng.pick([14, 15, 27, 3, 0, 5, 17, 127, 128, 200, 255, 31, 19])   /* not 16 (MENU): it starts the kernel's keyboard menu tracking, a HALT loop; group 7 drives it through real frames */ };
     }
     // the contract does not settle these: not generated (see the CONTRACT? list in the header)
     if (a.k === 'menu' && a.item === 3 && doc.run !== null && !doc.pasteOk()) continue;                                // C4: a refused Paste on a live run (does it end the run?)
@@ -235,6 +235,7 @@ if (cartOk && has('3c')) {
     const x0 = rng.int(TV.x - 10, TV.x + TV.w - 1), y0 = rng.int(TV.y - 6, TV.y + TV.h - 1);
     const clip = rng.chance(0.2) ? [TV.x, TV.y, TV.w, TV.h] : [x0, y0, rng.int(1, 160), rng.int(1, 70)];
     X.drawUnderClip(env, sec, `${W.describe(doc)}, selection ${doc.S}, focus ${foc}, clip ${clip}`, { addr: o.tv }, (g) => WM.tvLook(g, doc, foc), clip);
+    W.focusTv(env);                                         // the steps that follow run with the focus on the text view (an unfocused draw left K_FOCUS = 0)
     n++;
   }
   W.focusTv(env);
