@@ -3,6 +3,7 @@
 // Written from the contract only (never from src/apps/write.asm).  T-states are TSRun's (no memory contention); direct calls under mapping K with a sentinel return; interrupts ON for the
 // K_DISPATCH rows (WRITE 7: "interrupts on for dispatch rows"), off for W_DRAWVIEW and the stack rows.  Each figure is the worst of three, the text view focused, the window in front.
 //   node tests/wr-perf.mjs [--seed N]
+// W2's rows (WRITE 12.8) follow W1's: tests/wr-perf.mjs measures both; without W2 symbols the W2 rows fail with a message.
 // Rows: measured, bound, pass / MISSED / reported.  Exit code 1 on a missed bound.  A missed bound is reported with its numbers and nothing is changed (WRITE preamble).
 import * as W from './wr-lib.mjs';
 import * as H from './shell-lib.mjs';
@@ -190,6 +191,154 @@ function runsAt(d, keyName, line, what, act) {
   row('frame interrupts lost over the launch machine\'s normal frames (V_FRAMES must rise by 1 a frame)', e.vf.bad, 0, `${e.vf.checked} frames checked${e.vf.bad ? '; first ' + e.vf.first : ''}; memory watch: ${e.w.summary()}`);
   if (e.w.n) { missed++; console.log('FAIL | the memory watch (BANKING 10.7) reported violations in the launch run'); }
 }
+// ===== W2 (docs/WRITE.md 12.8) ===========================================================================================================================================================
+// W1's rows above are unchanged (12.8: "W1's rows (11.9) again, after W2": the same rows, the same bounds, now run against the W2 build).  Written from 12.8 only.
+// CONTRACT? 12.8's key rows use K_DISPATCH of E_KEY, the pointer rows K_DISPATCH of the E_MOVE with K_CAPTURE = the text view (set by a K_DISPATCH of the E_DOWN that starts the drag), the menu rows WR_MENU
+// called under mapping A (it is code in DOCK 2-3) with K_EV = the E_MENU record; interrupts on, the worst of three.
+let w2ok = true;
+try { W.needWr2(S); } catch (e) { w2ok = false; missed++; console.log(`FAIL | W2 rows not measured: ${e.message}`); }
+if (w2ok) {
+  const BASE_W1 = 3406;                                                     // WRITE 11.9: Write's bytes after W1
+  { const total = S.WR_END - S.WR_START;
+    row('Write\'s bytes in DOCK 2-3 for W2: WR_END - WR_START less W1\'s 3,406 (12.8 EST +1,200-1,800; all of Write <= 7,000)', total - BASE_W1, null, `total ${total}; the all-of-Write bound of 7,000 is ${total <= 7000 ? 'not exceeded' : 'EXCEEDED'}; K_LDIR ${hex(S.K_LDIR)}`);
+    row('RAM image after W2: WR_IMG_LEN', S.WR_IMG_LEN, 1024, 'unchanged bound'); }
+  const { snapshot, restore } = await import('./review-lib.mjs');
+  const dispPt = (t, px, py, held = 1) => { const r = W.dispatch(env, W.ptRec(t, px, py, held), { ints: true }); diTotal += r.di; return r; };
+  const menu = (item) => { const r = W.menuCall(env, 2, item, { ints: true }); diTotal += r.di; if (r.badSp !== undefined || r.preserved.length) { missed++; console.log(`FAIL | WR_MENU item ${item}: SP / registers not kept`); } return r; };
+  const chk2 = (d, what) => {
+    chkState(d, what);
+    const s2 = W.stateDiff2(env, d), a = [...s2.sel, ...s2.clip];
+    if (a.length) { missed++; console.log(`FAIL | ${what}: W2 state differs from the model: ${a[0]}`); }
+    const g = W.liveDiff(env, d, {}); if (g !== null) { missed++; console.log(`FAIL | ${what}: the screen differs from the model: ${g}`); }
+  };
+  const pcache = {};
+  /** The typed document `d` (snapshot `key`), then `prep(dd)` (unmeasured, the model follows): the result is itself kept as a snapshot, so that the repeats are instant. */
+  function prepared(d, key, prep) {
+    if (pcache[key]) { restore(env.m, pcache[key].snap); env.strp = T.STR0; return pcache[key].model.clone(); }
+    const dd = setup(d.clone(), key); prep(dd);
+    pcache[key] = { snap: snapshot(env.m), model: dd.clone() }; return dd.clone();
+  }
+  const keys = (dd, codes) => { for (const c of codes) { key(c); dd.key(c); } };
+  const mk = (dd, item) => { const r = menu(item); dd.menuItem(item); return r; };
+  /** The worst of three: `act(dd)` returns the run; each from the prepared state. */
+  function worst(d, kname, what, prep, act) {
+    const ts = []; let last = null;
+    for (let i = 0; i < 3; i++) { const dd = prepared(d, kname, prep); const r = act(dd); ts.push(r.t); last = dd; }
+    chk2(last, what); return ts;
+  }
+  const into5 = (dd) => keys(dd, [10, 10, 10, 10, 10]);                       // the caret into line 5 of the 16 full lines (top stays 0)
+  // ---- extend by one code / one line (mark 1, a 10-code selection inside line 5)
+  const p16 = paragraph(16); p16.caret = 0; p16.top = 0;
+  const ext = (dd) => { into5(dd); keys(dd, [18, ...new Array(10).fill(9)]); };
+  {
+    const ts = worst(p16, 'w2p16', 'extend by one code', ext, (dd) => { const r = key(9); dd.key(9); return r; });
+    row('extend by one code: mark 1, a 10-code selection inside line 5 of 16 full lines, RIGHT (12.8)', Math.max(...ts), KB, `worst of ${ts.join(', ')}`);
+    const ts2 = worst(p16, 'w2p16', 'extend by one line', ext, (dd) => { const r = key(10); dd.key(10); return r; });
+    row('extend by one line: the same, DOWN (12.8)', Math.max(...ts2), KB, `worst of ${ts2.join(', ')}`);
+  }
+  // ---- a drag step: the capture held (E_DOWN through K_DISPATCH), a selection ending in line 5, E_MOVE to the same x in line 6
+  {
+    const ts = [];
+    for (let i = 0; i < 3; i++) {
+      const dd = prepared(p16, 'w2p16-drag', (d0) => { dispPt(E.DOWN, 100, 30 + 9 * 5 + 4); d0.click(100, 30 + 9 * 5 + 4); dispPt(E.MOVE, 260, 30 + 9 * 5 + 4); d0.drag(260, 30 + 9 * 5 + 4); });
+      const r = dispPt(E.MOVE, 260, 30 + 9 * 6 + 4); dd.drag(260, 30 + 9 * 6 + 4); ts.push(r.t);
+      if (i === 2) chk2(dd, 'a drag step');
+    }
+    row('a drag step: the capture held, a selection ending in line 5, E_MOVE to the same x in line 6, K_DISPATCH (12.8)', Math.max(...ts), KB, `worst of ${ts.join(', ')}`);
+  }
+  // ---- a drag over the view: anchor at line 0's start, E_MOVE to the end of line 15
+  {
+    const ts = [];
+    for (let i = 0; i < 3; i++) {
+      const dd = prepared(p16, 'w2p16-dragall', (d0) => { dispPt(E.DOWN, 27, 31); d0.click(27, 31); });
+      const r = dispPt(E.MOVE, 471, 30 + 9 * 15 + 4); dd.drag(471, 30 + 9 * 15 + 4); ts.push(r.t);
+      if (i === 2) chk2(dd, 'a drag over the view');
+    }
+    row('a drag over the view: anchor at line 0\'s start, E_MOVE to the end of line 15, K_DISPATCH (12.8)', Math.max(...ts), null, `report; worst of ${ts.join(', ')}`);
+  }
+  // ---- a typed code over a selection: line 0 a whole paragraph of 70 codes, codes 20-29 selected
+  {
+    // CONTRACT? "a whole paragraph of 70 codes": taken as 70 text codes and the 13; a second short paragraph follows
+    const c = new Array(70).fill(105), room = 444 - WM.adv(X_);
+    for (let k = 0; k < 4000 && WM.tw(c, 0, 70) < 400; k++) { const i = rng.int(0, 69), n = rng.pick(WM.codesOf('abcdefghijklmnopqrstuvwxyz')), t = WM.tw(c, 0, 70) - WM.adv(c[i]) + WM.adv(n); if (t <= room) c[i] = n; }
+    const d = new WM.Doc([...c, 13, ...WM.codesOf('second paragraph')], 20); d.top = 0;
+    if (d.lens[0] !== 71) throw new Error(`the 70-code paragraph wraps: ${d.lens}`);
+    const ts = worst(d, 'w2over', 'a typed code over a selection', (dd) => keys(dd, [18, ...new Array(10).fill(9)]), (dd) => { const r = key(X_); dd.key(X_); return r; });
+    row('a typed code over a selection: line 0 a whole paragraph of 70 codes, codes 20-29 selected, E_KEY "x" (12.8)', Math.max(...ts), 117_000, `worst of ${ts.join(', ')}`);
+  }
+  // ---- DELETE of a selection of 3 whole lines (lines 4-6 of a 40-line document, top 0)
+  {
+    const d = paragraph(40); d.caret = 0; d.top = 0;
+    const ts = worst(d, 'w2p40', 'DELETE of 3 lines', (dd) => keys(dd, [10, 10, 10, 10, 18, 10, 10, 10]), (dd) => { const r = key(12); dd.key(12); return r; });
+    row('DELETE of a selection of 3 whole lines (lines 4-6 of a 40-line document, top 0), E_KEY DELETE (12.8)', Math.max(...ts), null, `report; worst of ${ts.join(', ')}`);
+  }
+  // ---- Copy of 2,048 codes
+  {
+    const t = new WM.Doc(WM.genText(rng, 2100, { para: 0.01 })); t.top = null;
+    const prep = (dd) => { mk(dd, 4); key(18); dd.key(18); while (dd.S > 2048) { const c = dd.clone(); c.key(11); const code = c.S >= 2048 && c.caret !== dd.caret ? 11 : 8; key(code); dd.key(code); } };
+    const ts = worst(t, 'w2copy', 'Copy of 2,048 codes', prep, (dd) => mk(dd, 2));
+    row('Copy of 2,048 codes: WR_MENU with E_MENU 2, 2 (12.8: EST 46 k)', Math.max(...ts), null, `report; worst of ${ts.join(', ')}`);
+  }
+  // ---- Cut of lines 0-15 (about 1,280 codes) of a 40-line document, top 0; Paste of that clip at the start of line 5
+  {
+    const d = paragraph(40); d.caret = 0; d.top = 0;
+    const sel16 = (dd) => { keys(dd, new Array(16).fill(10)); keys(dd, [18, ...new Array(16).fill(11)]); };   // anchor at line 16's start, the caret back at 0, top 0
+    const ts = worst(d, 'w2cut', 'Cut of lines 0-15', sel16, (dd) => { if (dd.S > 2048 || dd.top !== 0) throw new Error(`set-up: S ${dd.S}, top ${dd.top}`); return mk(dd, 1); });
+    row('Cut of lines 0-15 (about 1,280 codes) of a 40-line document, top 0, WR_MENU E_MENU 2, 1 (12.8: EST about 1.1 M)', Math.max(...ts), null, `report; worst of ${ts.join(', ')}; ${d.nl} lines`);
+    let clipLen = 0;
+    const ts2 = worst(d, 'w2paste', 'Paste of 1,280 codes', (dd) => { sel16(dd); mk(dd, 2); keys(dd, [8, 10, 10, 10, 10, 10]); clipLen = dd.clip.length; }, (dd) => mk(dd, 3));
+    row('Paste of the clipboard (about 1,280 codes) at the start of line 5 of a 40-line document, WR_MENU E_MENU 2, 3 (12.8)', Math.max(...ts2), null, `report; worst of ${ts2.join(', ')}; ${clipLen} codes`);
+  }
+  // ---- Select all of a 5,120-code document, the caret at 0
+  {
+    let t = null; for (let tries = 0; tries < 20 && !t; tries++) { const c = new WM.Doc(WM.genText(rng, WM.CAP, { para: 0.02 })); if (c.nl <= 1024) { t = c; } }
+    t.caret = t.L; t.top = null;
+    const prep = (dd) => {
+      W.emulateBar(env, 0); W.sendRec(env, o.tv, [E.SCROLL, 0, 2, 0], { ints: false }); dd.scrollTo(0);
+      dispPt(E.DOWN, 30, 31); dd.click(30, 31); dispPt(E.UP, 30, 31, 0);
+    };
+    const ts = worst(t, 'w2all', 'Select all of 5,120 codes', prep, (dd) => { if (dd.caret !== 0 || dd.L !== WM.CAP) throw new Error('set-up: caret / length'); return mk(dd, 4); });
+    row('Select all of a 5,120-code document, the caret at 0, WR_MENU E_MENU 2, 4 (12.8)', Math.max(...ts), null, `report; worst of ${ts.join(', ')}`);
+  }
+  // ---- W_DRAWVIEW of 16 lines, all selected
+  {
+    const d = paragraph(16); d.top = 0; d.caret = 0;
+    const dd = prepared(d, 'w2draw', (x) => { mk(x, 4); });
+    const ts = [];
+    for (let i = 0; i < 3; i++) { const r = T.runCall(env, S.W_DRAWVIEW, { ix: o.tv }, { ints: false }); ts.push(r.t); diTotal += r.di; }
+    const g = W.liveDiff(env, dd, {});
+    row('W_DRAWVIEW of 16 lines of about 80 codes, all selected, focused (12.8: W1\'s 950 k plus 16 fills)', Math.max(...ts), null, `report; worst of ${ts.join(', ')}; ${dd.L} codes; screen ${g === null ? 'equals the model' : 'DIFFERS: ' + g}`);
+    if (g !== null) missed++;
+  }
+  // ---- stack
+  {
+    let worstE = { v: 0, what: '' }, worstD = { v: 0, what: '' }, worstM = { v: 0, what: '' };
+    for (const [name, d] of [['a 16-line paragraph', (() => { const p = paragraph(16); p.caret = 0; p.top = 0; return p; })()], ['40 lines', (() => { const p = paragraph(40); p.caret = p.starts[15] + 10; p.top = 0; return p; })()]]) {
+      const dd = setup(d.clone());
+      for (const code of [18, 9, 9, 10, 10, 11, 8, 18, 10, 10, 18, 10, 10, 10, 10, 12, 18, 9, 120, 18, 11, 11, 10]) {
+        if (dd.run !== null && !WM.Doc.consumes(code)) continue;
+        const r = W.sendRec(env, o.tv, W.keyRec(code), { ints: false }); diTotal += r.di; dd.key(code);
+        if (r.stack - 2 > worstE.v) worstE = { v: r.stack - 2, what: `${name}, key ${code}` };
+      }
+      T.poke16(env, S.K_CAPTURE, o.tv);
+      for (const [px, py] of [[100, 40], [300, 100], [471, 169], [10, 10]]) {
+        const r = W.sendRec(env, o.tv, W.ptRec(E.MOVE, px, py, 1), { ints: false }); diTotal += r.di; dd.drag(px, py);
+        if (r.stack - 2 > worstE.v) worstE = { v: r.stack - 2, what: `${name}, E_MOVE (${px}, ${py})` };
+      }
+      T.poke16(env, S.K_CAPTURE, 0);
+      W.focusTv(env);
+      const r = W.sendDraw(env, o.tv); diTotal += r.di; if (r.stack - 2 > worstD.v) worstD = { v: r.stack - 2, what: `${name}, selection ${dd.S}` };
+      for (const item of [4, 2, 3, 1, 3]) {
+        if (!dd.editEnabled()[item === 4 ? 4 : item - 1] || (item === 3 && dd.run !== null && !dd.pasteOk())) continue;
+        const r2 = mk(dd, item); if (r2.stack > worstM.v) worstM = { v: r2.stack, what: `${name}, item ${item}` };
+      }
+    }
+    row('stack of the text view\'s M_EVENT with the selection (MARK, caret keys, a drag), crossings included, bytes below T_SEND\'s own return', worstE.v, 128, worstE.what);
+    row('stack of the text view\'s M_DRAW with a selection, crossings included', worstD.v, 128, worstD.what);
+    row('stack of WR_MENU (Cut, Copy, Paste, Select all), crossings included, bytes below its return', worstM.v, 128, worstM.what);
+  }
+}
+
 row('DI executed over every stepped call above', diTotal, 0, 'a DI is seen when interrupts are on and IFF1 drops during a step');
 row('frame interrupts lost over the measuring machine\'s normal frames', env.vf.bad, 0, `${env.vf.checked} frames checked; memory watch: ${env.w.summary()}`);
 if (env.w.n) missed++;

@@ -53,7 +53,8 @@ export function runCall(env, addr, regs = {}, o = {}) {
   for (const [k, v] of Object.entries(regs)) { if (PAIRS[k]) { want[PAIRS[k][0]] = (v >> 8) & 0xFF; want[PAIRS[k][1]] = v & 0xFF; } else want[k] = v & 0xFF; }
   const regsIn = {};
   for (const r of R8) { regsIn[r] = want[r] !== undefined ? want[r] : (rng ? rng.int(0, 255) : 0); cpu[r] = regsIn[r]; }
-  m.ram[S.V_SHADOW_F4] = F4K; m.portF4 = F4K;
+  const f4 = o.map === 'A' ? 0x3F : F4K;                          // o.map 'A': the callee is code in DOCK 2-3 (a program's own routine), as calc-lib's directKey / directCall
+  m.ram[S.V_SHADOW_F4] = f4; m.portF4 = f4;
   cpu.halted = false; cpu.nmiPending = false; cpu.eiDelay = false; cpu.iff1 = cpu.iff2 = ints;
   const sp0 = 0xFF00 - 2;
   cpu.sp = sp0; m.ram[sp0] = S.T_RET & 0xFF; m.ram[sp0 + 1] = S.T_RET >> 8;
@@ -80,6 +81,7 @@ export function runCall(env, addr, regs = {}, o = {}) {
     if (steps > guard) throw new Error(`runCall ${hex(addr)}: no return after ${steps} instructions (PC ${hex(cpu.pc)})`);
   }
   info.t = m.tstates - t0; info.steps = steps;
+  if (o.map === 'A') { m.ram[S.V_SHADOW_F4] = F4K; m.portF4 = F4K; }
   const out = {};
   for (const r of R8) out[r] = cpu[r];
   for (const [k, [hi, lo]] of Object.entries(PAIRS)) out[k] = (out[hi] << 8) | out[lo];

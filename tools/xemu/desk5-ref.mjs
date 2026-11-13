@@ -15,6 +15,10 @@
 //      (with SYMBOL SHIFT characters) and short lines to about 20 lines, so that the view scrolls: "wr-typed"; UP x4, LEFT, DELETE, x: "wr-edit";
 //      SYMBOL SHIFT + Q (the document has changed: the discard dialog): "wr-dialog" (K_PROG 3); ENTER (Discard): "wr-back" (K_PROG 0, equal to "shell" byte for byte).
 //      The characters are keyed through the matrix from build/desk5/keymap.inc (plain, else SYMBOL SHIFT, else CAPS SHIFT).
+//   7. (docs/WRITE.md 12.9 item 7; only when the build has the W2 symbols WR_AN, WR_MK, WR_CLN, WR_MENU, MB_ENT) the W2 session, from the shell again: TAB x2, ENTER (K_PROG 3): "w2-open"; three short lines
+//      typed: "w2-typed"; MARK (SYMBOL SHIFT + E), UP, UP, LEFT, LEFT select across lines: "w2-sel"; MENU (CAPS SHIFT + 9), RIGHT (CS + 8): the "Edit" menu open, Cut highlighted: "w2-menu"; DOWN (Copy), ENTER:
+//      "w2-copy" (the clipboard filled, the selection kept); RIGHT (the caret to the selection's end), ENTER, MENU, RIGHT (Paste is the first enabled item), ENTER: "w2-paste"; SYMBOL SHIFT + Q: "w2-dialog";
+//      ENTER (Discard): "w2-back" (= "shell").  Extra data per checkpoint: WR_AN, WR_MK, WR_CLN, the Edit entry's enable word (MB_ENT + ME_SIZE + ME_EN) and the clipboard's bytes.
 // Per checkpoint NAME: NAME.bin (display RAM: $4000-$57FF then $6000-$77FF, 12,288 bytes), NAME.pbm (rendered 512x192, P4, 1 = ink),
 // NAME.json (display string, K_PROG, V_FRAMES, K_PX, K_PY, frame counts).  Also keys.json (the typed keys, display string after each key,
 // K_PROG after each step) for the other runners.
@@ -65,6 +69,7 @@ const WR_SHORT = 'abcdefghijklmnop';       // 16 short lines "a".."p": ENTER end
 const WR_TYPED = [...typeText(WR_PARA + '\n'), ...[...WR_SHORT].flatMap((ch, i) => typeText(i < WR_SHORT.length - 1 ? ch + '\n' : ch + ' ' + ch))];
 const WR_EDIT = [...Array(4).fill(['UP', UP]), ['LEFT', LEFT], ['DELETE', DELETE], ['x', [KX]]];
 const WR_OPEN = [['TAB', TAB], ['TAB', TAB], ['ENTER', [ENTER]]];
+const KE = [2, 2];
 const rd16 = (m, a) => m.ram[a] | (m.ram[a + 1] << 8);
 const prog = (m) => m.ram[S.K_PROG];
 const dstr = (m) => { const n = m.ram[S.C_DSTR]; return String.fromCharCode(...m.ram.subarray(S.C_DSTR + 1, S.C_DSTR + 1 + Math.min(n, 40))); };
@@ -77,6 +82,7 @@ const displayRam = (m) => {
 const rowOff = (y) => ((y & 0xC0) << 5) | ((y & 7) << 8) | ((y & 0x38) << 2);
 const ramPixel = (d, x, y) => { const c = x >> 3; return (d[(c & 1) * 6144 + rowOff(y) + (c >> 1)] >> (7 - (x & 7))) & 1; };
 const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+const rd_ = (n) => readFileSync(join(outDir, `${n}.bin`));
 
 const m = boot(readFileSync(join(ROOT, 'build/desk5.dck')));
 m.ram[S.K_PROG] = 0xFF;      // RAM is random at power-on: poison K_PROG so that 0 means the launcher has started the shell
@@ -209,12 +215,44 @@ const wrOk = wrUp && wrOpenSettled && wrOpen.K_PROG === 3 && wrTypedSettled && w
   wrDlgSettled && wrDlg.K_PROG === 3 && wrBackUp && wrBackSettled && wrBack.K_PROG === 0 && wrBackEqShell && wrDistinct &&
   wrTypedV.WR_NL >= 18 && wrTypedV.WR_TOP > 0 && wrTypedV.WR_CHG === 1;
 console.log(`write session: lines/top/changed after typing ${JSON.stringify(wrTypedV)}, after edit ${JSON.stringify(wrEditV)}; wr-back equals shell ${wrBackEqShell}; ${WR_TYPED.length} typing presses`);
+// 7. the W2 session (WRITE 12.9 item 7)
+let w2 = null;
+if (['WR_AN', 'WR_MK', 'WR_CLN', 'WR_MENU', 'MB_ENT', 'ME_SIZE', 'ME_EN'].every((n) => S[n] !== undefined)) {
+  const MARKK = keymap.get(18) ?? [SS, KE], MENUK = keymap.get(16) ?? [CS, [4, 1]], RIGHTK = keymap.get(9) ?? [CS, [4, 2]];
+  const W2_TYPED = typeText('alpha beta gamma delta\nsecond line here\nthird');
+  const W2_SEL = [['MARK', MARKK], ['UP', UP], ['UP', UP], ['LEFT', LEFT], ['LEFT', LEFT]];
+  const W2_MENU = [['MENU', MENUK], ['RIGHT', RIGHTK]];
+  const W2_COPY = [['DOWN', DOWN], ['ENTER', [ENTER]]];
+  const W2_MOVE = [['RIGHT', RIGHTK], ['ENTER', [ENTER]]];
+  const W2_PASTE = [['MENU', MENUK], ['RIGHT', RIGHTK], ['ENTER', [ENTER]]];
+  const vars2 = () => ({ ...wrvars(), WR_AN: rd16(m, S.WR_AN), WR_MK: m.ram[S.WR_MK], WR_CLN: rd16(m, S.WR_CLN), EDIT_EN: rd16(m, S.MB_ENT + S.ME_SIZE + S.ME_EN),
+    CLIP: Buffer.from(m.ram.subarray(0x7800, 0x7800 + Math.min(rd16(m, S.WR_CLN), 2048))).toString('hex') });
+  pressSeq(WR_OPEN.slice(0, 2));
+  press(WR_OPEN[2][1]);
+  const up = untilProg(3);
+  run(30);
+  const open = dump('w2-open', settle(300)); const vOpen = vars2();
+  pressSeq(W2_TYPED); const typed = dump('w2-typed', settle(120)); const vTyped = vars2();
+  pressSeq(W2_SEL); const sel = dump('w2-sel', settle(120)); const vSel = vars2();
+  pressSeq(W2_MENU); const menu = dump('w2-menu', settle(120)); const vMenu = vars2();
+  pressSeq(W2_COPY); const copy = dump('w2-copy', settle(120)); const vCopy = vars2();
+  pressSeq(W2_MOVE); pressSeq(W2_PASTE); const paste = dump('w2-paste', settle(120)); const vPaste = vars2();
+  press(CLOSEKEYS); const dlgSettled = (run(30), settle(300)); const dlg = dump('w2-dialog', dlgSettled);
+  press([ENTER]); const backUp = untilProg(0); run(30); const backSettled = settle(300); const back = dump('w2-back', backSettled);
+  const backEq = same(readFileSync(join(outDir, 'w2-back.bin')), readFileSync(join(outDir, 'shell.bin')));
+  const names = ['w2-open', 'w2-typed', 'w2-sel', 'w2-menu', 'w2-copy', 'w2-paste', 'w2-dialog'];
+  const distinct = names.every((n, i) => i === 0 || !same(rd_(n), rd_(names[i - 1])));
+  const okW2 = up && open.K_PROG === 3 && typed.K_PROG === 3 && sel.K_PROG === 3 && menu.K_PROG === 3 && copy.K_PROG === 3 && paste.K_PROG === 3 && dlg.K_PROG === 3 && backUp && backSettled && back.K_PROG === 0 && backEq && distinct &&
+    vOpen.WR_CLN === 0 && vOpen.EDIT_EN === 1 && vSel.WR_MK === 1 && vSel.WR_AN !== vSel.WR_GS && vCopy.WR_CLN > 0 && vCopy.WR_MK === 0 && vPaste.WR_CLN === vCopy.WR_CLN && vPaste.WR_AN === vPaste.WR_GS && vPaste.WR_CHG === 1;
+  console.log(`w2 session: open ${JSON.stringify(vOpen)}, typed ${JSON.stringify(vTyped)}, sel ${JSON.stringify(vSel)}, menu ${JSON.stringify(vMenu)}, copy ${JSON.stringify(vCopy)}, paste ${JSON.stringify(vPaste)}; w2-back equals shell ${backEq}`);
+  w2 = { ok: okW2, keys: { open: WR_OPEN, typed: W2_TYPED, sel: W2_SEL, menu: W2_MENU, copy: W2_COPY, move: W2_MOVE, paste: W2_PASTE, close: CLOSEKEYS, enter: [ENTER] },
+    vars: { open: vOpen, typed: vTyped, sel: vSel, menu: vMenu, copy: vCopy, paste: vPaste }, kprog: { open: open.K_PROG, typed: typed.K_PROG, sel: sel.K_PROG, menu: menu.K_PROG, copy: copy.K_PROG, paste: paste.K_PROG, dialog: dlg.K_PROG, back: back.K_PROG }, backEqShell: backEq };
+} else console.log('w2 session: skipped (the build has no Write W2 symbols)');
 const ctlKeys = { tabIcon: CTL[0][1], enter: CTL[1][1], list: LISTSEQ, field: FIELDSEQ, status: STATUSSEQ, close: CLOSEKEYS };
 
 writeFileSync(join(outDir, 'keys.json'), JSON.stringify({ seq: SEQ.map((s) => s[0]), afterKey, expect: EXPECT, kprog, ctl: ctlKeys, ctlKprog: { ctl: ctl.K_PROG, list: list.K_PROG, field: field.K_PROG, status: status.K_PROG, back2: back2.K_PROG }, back2EqShell,
-  wr: { open: WR_OPEN, typed: WR_TYPED, edit: WR_EDIT, close: CLOSEKEYS, enter: [ENTER], text: WR_PARA, vars: { open: wrOpenV, typed: wrTypedV, edit: wrEditV }, kprog: { open: wrOpen.K_PROG, typed: wrTyped.K_PROG, edit: wrEdit.K_PROG, dialog: wrDlg.K_PROG, back: wrBack.K_PROG }, backEqShell: wrBackEqShell } }) + '\n');
+  wr: { open: WR_OPEN, typed: WR_TYPED, edit: WR_EDIT, close: CLOSEKEYS, enter: [ENTER], text: WR_PARA, vars: { open: wrOpenV, typed: wrTypedV, edit: wrEditV }, kprog: { open: wrOpen.K_PROG, typed: wrTyped.K_PROG, edit: wrEdit.K_PROG, dialog: wrDlg.K_PROG, back: wrBack.K_PROG }, backEqShell: wrBackEqShell }, w2 }) + '\n');
 console.log('display after each key: ' + afterKey.map(([k, s]) => `${k}:"${s}"`).join(' '));
-const rd_ = (n) => readFileSync(join(outDir, `${n}.bin`));
 const backEqShell = same(rd_('back'), rd_('shell'));
 console.log(`back screen equals shell screen byte for byte: ${backEqShell}`);
 const ok = shellUp && shellSettled && shell.K_PROG === 0 && calcUp && calcSettled && calc.K_PROG === 1 && calc.display === '0' &&
@@ -222,7 +260,7 @@ const ok = shellUp && shellSettled && shell.K_PROG === 0 && calcUp && calcSettle
   !same(rd_('shell'), rd_('calc')) && !same(rd_('calc'), rd_('typed')) &&
   ctlUp && ctlSettled && ctl.K_PROG === 2 && listSettled && list.K_PROG === 2 && fieldSettled && field.K_PROG === 2 && statusSettled && status.K_PROG === 2 &&
   back2Up && back2Settled && back2.K_PROG === 0 &&
-  ['ctl', 'list', 'field', 'status'].every((n, i, a) => i === 0 || !same(rd_(n), rd_(a[i - 1]))) && wrOk;
+  ['ctl', 'list', 'field', 'status'].every((n, i, a) => i === 0 || !same(rd_(n), rd_(a[i - 1]))) && wrOk && (w2 === null || w2.ok);
 console.log(`controls session: ctl/list/field/status K_PROG ${ctl.K_PROG}/${list.K_PROG}/${field.K_PROG}/${status.K_PROG}, back2 K_PROG ${back2.K_PROG}, back2 equals shell ${back2EqShell}`);
 console.log(`${ok ? 'PASS' : 'FAIL'}: desk5 reference: shell up after ${framesToShell} frames (settled ${shellSettled}), calc "${calc.display}" K_PROG ${calc.K_PROG}, typed "${typed.display}" (expected "${EXPECT}") K_PROG ${typed.K_PROG}, ` +
   `back K_PROG ${back.K_PROG} = shell ${backEqShell}, rendered-vs-RAM mismatches ${mismatch}; written to ${outDir}`);
