@@ -154,7 +154,7 @@ Two odd ports, so that TSRun's keyboard decoding (every even port) and TS-Pico (
 
 ## 10. As built (2026-11-13)
 
-- **TSRun:** `m.host = { command(n, bytes, answer) }` (submodule commit `b4dc564`, local, not pushed). The host answers at
+- **TSRun:** `m.host = { command(n, bytes, answer) }` (submodule commit `b4dc564`, pushed to the fork). The host answers at
   once (`{status, data}`) or later through `answer()` (the pick); a new command drops a pending answer.
 - **The host:** `web/fshost.js`, shared by the page and the headless tests. Reading a file longer than 65,535 bytes (after
   text conversion) gives status 3. A picked file's name is made usable (other codes become `_`; a name over 30 keeps an

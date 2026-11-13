@@ -110,7 +110,7 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
     Paint in mode 6 (mono, MacPaint-style; colour waits for the mode 2 graphics). Fonts and styles in Write: not planned.
 - **W3 is done on TSRun (2026-11-13):** the bridge, `web/fshost.js`, the page, `src/apps/files.asm`, Write's Open and Save
   (`docs/WRITE.md` 13.9, `docs/FILES.md` 10). Still to do: ZEsarUX's row (13.7 item 5: no bridge, Save shows the alert), the
-  owner's try in the browser. The TSRun commits `d9302b8` and `b4dc564` are local (not pushed).
+  owner's try in the browser. The TSRun commits `d9302b8` and `b4dc564` are pushed to the fork (2026-11-13).
 - **Look slice (owner, 2026-11-13), after W3:** a Mac OS 1.0 style, no more than: a white menu bar (black text, a line under,
   the selected title inverted), striped active title bars with the title centred, the close box on the left, a grey (dithered)
   desktop, 1-pixel drop shadows on windows and menus, and a Mac-style arrow pointer. Our own bitmaps, not Apple's. Start with a
