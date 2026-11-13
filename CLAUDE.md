@@ -43,7 +43,7 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
   read when `K_MSET` turns it on; TSRun emulates it as `m.mouse`, and the test page has a Mouse switch.
 - Step 5 placement (owner, 2026-11-12): toolkit always mapped; shell, Calculator, Write in DOCK 2-3; DOCK 6 for resources and
   later Paint's drawing core. Step 5's pool growth <= 3,400 bytes (3,029 used after T2 / T3).
-- Step 5 cartridge `desk5` (DOCK 0-5): boots into the shell (`docs/SHELL.md`). Programs: 0 shell, 1 Calculator, 2 Controls (window (176, 32, 320, 144), with a `List` and a `Field`); one
+- Step 5 cartridge `desk5` (DOCK 0-5): boots into the shell (`docs/SHELL.md`). Programs: 0 shell, 1 Calculator, 2 Controls (window (176, 32, 320, 144), with a `List` and a `Field`), 3 Write (`src/apps/write.asm`, `docs/WRITE.md`; its symbols take the prefix `WR_`); one
   at a time through `K_LAUNCH` / `K_QUIT`; each copies its RAM image to `$C000` (<= 1 KB); app arena `$C400-$DFFF`. Windows
   that programs close are `CWindow`s (close box; SYMBOL SHIFT + Q = key code `CLOSE` 17). Programs dispatch with `TK_DISPATCH`.
 - Tests that use `desk5` boot through the shell (`tests/calc-lib.mjs` `bootDesk5`, `tests/shell-lib.mjs`).
@@ -90,5 +90,8 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
   Controls demo and accepted it (`docs/TOOLKIT.md` 10.10).
 - **The owner approved the desktop's look,** icons included (2026-11-12: "desktop looks great").
 - **The `VScroll` 12 x 80 draw bound is 47,700 T** (owner, 2026-11-12).
+- **Write W1 is done on emulators** (ZEsarUX 62 of 62; Fuse boot rows). It awaits the owner's try and the scroll bound
+  (`docs/WRITE.md` 11.9).
 - **Next:**
-  - Write (start with its contract).
+  - The owner's try of Write and the scroll bound.
+  - Then W2 (selection and clipboard), then tape services before W3.

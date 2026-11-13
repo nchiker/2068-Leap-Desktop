@@ -249,3 +249,70 @@ start and end, offsets in the buffer; the caret is `WR_GS`), `WR_LT` (word: the 
 - **Scroll by one line:** 40 lines, top 0, the caret on line 15, `E_KEY` DOWN.
 - **Full draw:** 16 lines of about 80 codes, `W_DRAWVIEW` of the text view, focused.
 - Each the worst of three, with the text view focused and the window in front.
+
+### 11.9 As built (2026-11-12)
+
+**W1 is done on emulators.** The owner has not yet tried it.
+
+**Bytes:**
+- Write is 3,406 in DOCK 2-3 (`WR_END - WR_START`; EST 3,000-4,000). Its image is 185 (<= 1,024). Pool growth 0.
+- DOCK 2-3 has about 8,000 bytes left.
+
+**Bounds** (TSRun T-states; `tests/wr-perf.mjs`):
+
+| Measure | Measured | Bound |
+|---|---|---|
+| Typed code at the end of a line | 53,346 | <= 58,000 |
+| Typed code at the start of an 80-code line | 104,175 | <= 117,000 |
+| Rewrap of a 10-line paragraph | 98,686 | report |
+| Caret RIGHT / LEFT / DOWN / UP | 16,202 / 23,084 / 20,768 / 20,383 | <= 58,000 |
+| Scroll by one line: by DOWN / by a bar arrow | 341,357 / 411,888 | report (EST 190 k) |
+| `W_DRAWVIEW` of 16 lines of about 80 codes | 950,427 | report (EST 870 k) |
+| Stack: deepest `M_EVENT` / `M_DRAW` | 70 / 36 bytes | <= 128 |
+| Launch | 14 frames | <= 30 |
+| `DI` / interrupts lost | none / 0 | none / 0 |
+
+- **The scroll bound waits for the owner,** as `List`'s did (`docs/TOOLKIT.md` 10.10).
+
+**Where the scroll's time goes** (profiled):
+- `G_SCROLLV` of the text area about 163 k.
+- The bar's redraw (`TK_SETBAR`) about 67 k.
+- `W_DRAWVIEW`'s cell-row scans about 40 k.
+- The new line about 24 k.
+
+**How partial draws stay cheap (as built):**
+- For the caret, one-line and lines modes, Write narrows the text view's `View_y` / `View_h` to the rows it draws for the
+  `W_DRAWVIEW` call, then puts them back.
+- The text view draws from the fixed rectangle of 11.3, so the pixels are the same. `W_DRAWVIEW` scans and clips only those
+  rows (a caret move went from 51 k to 21 k T).
+- Text widths are summed in at most two runs, either side of the gap.
+
+**Tests (Sonnet, from the contract; the main model re-ran them on seeds 1 and 2):**
+- `tests/wr-w1.mjs` 12 of 12 groups; `tests/wr-demo.mjs` 7 of 7 over real frames; `tests/wr-perf.mjs` 14 pass, 0 missed, 5 reported.
+- Model `tests/wr-model.mjs` (`--self-test`, 49 hand cases); harness `tests/wr-lib.mjs`.
+- **Regression:** the shell suites cover three icons (`shell-s1` 13 of 13, `shell-perf` 24 pass); the Calculator and toolkit
+  suites pass.
+
+**Cross-emulator:**
+- ZEsarUX 13.0: 62 of 62 rows. 22 are new: Write opened by keys; a 169-code paragraph and 16 short lines typed with 11 SYMBOL
+  SHIFT characters, so the view wraps and scrolls; an edit; the discard dialog; Discard back to the shell. Every screen is
+  identical to TSRun's, the document variables are equal, and DOCK is unchanged.
+- Fuse: boot rows only.
+
+**Found and fixed by the tests:**
+- A scroll of exactly 15 lines: 9 x 15 = 135 overflowed a signed byte in `G_SCROLLV`'s argument.
+- The "to the bottom" redraw after a change of the line count used line 1,016 as its end, so past that line nothing below was
+  redrawn (a caret was left on screen).
+- At 1,024 lines a DELETE that joins paragraphs lost a line (the rewrap opened a slot for an old line it was about to replace).
+
+**Clarifications the tests adopted (binding from now on):**
+- A click below the last line puts the caret in the last line by x (11.5; section 4's "the document's end" is superseded).
+- A refused insert changes nothing, the run and the changed flag included.
+- DELETE at 0 does not set changed.
+- UP on the first line and DOWN on the last stay in the target-x run.
+- The dialog opens with "Discard" focused; after it closes the focus is the text view.
+- A 13 directly after a run of overflow spaces starts its own one-code line.
+
+**For the owner:**
+1. The scroll figures: set the bound as for `List` (`docs/TOOLKIT.md` 10.10), or ask for a faster scroll.
+2. Try Write in the browser (`web/?cart=desk5`, the Write icon or the "Leap" menu's "Write").
