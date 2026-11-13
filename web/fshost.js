@@ -90,6 +90,8 @@ export function createFileHost(hooks = {}) {
     },
   };
 
+  let pickId = 0;
+
   function abort() {
     if (host.picking) { host.picking = false; hooks.cancelPick?.(); }
     host.open = null;
@@ -99,10 +101,9 @@ export function createFileHost(hooks = {}) {
   function pick(answer) {
     if (!hooks.pick) return { status: ST_CANCEL };
     host.picking = true;
-    let done = false;
+    const id = ++pickId;                       // an answer to an earlier, abandoned pick must not complete this one
     hooks.pick((name, data) => {
-      if (done || !host.picking) return;
-      done = true;
+      if (id !== pickId || !host.picking) return;
       host.picking = false;
       if (name === null || name === undefined) { answer(ST_CANCEL); return; }
       const nm = usableName(name);

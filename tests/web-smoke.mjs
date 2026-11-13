@@ -7,7 +7,7 @@
 import { spawn, execSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join, extname, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -117,6 +117,95 @@ await sleep(300);
 check('run resumes', (await evaluate('leapG.frames')) > f1);
 await evaluate(`document.getElementById('reset').click()`);
 check('reset restarts the counter and reaches mode 6 again', !!(await waitFor(`leapG.frames > 100 && (leapG.m.portFF & 7) === 6`)));
+
+// ── Files (docs/FILES.md 4.2, 8.4): the host on the bridge ports. Driven from the page through m.bus.ioWrite / ioRead as
+// the Z80 would; the Write-driven rows wait for W3.
+await evaluate(`(window.__fs = (() => {
+  const m = leapG.m, W = (p, v) => m.bus.ioWrite(p, v), R = (p) => m.bus.ioRead(p);
+  return {
+    send(n, bytes = []) { W(0x6F, n); for (const b of bytes) W(0x6D, b); },
+    status() { return R(0x6F); },
+    take(n) { const r = []; for (let i = 0; i < n; i++) r.push(R(0x6D)); return r; },
+  };
+})(), true)`);
+check('files: the page attached a host (leapG.host is m.host)', await evaluate('leapG.host !== null && leapG.host === leapG.m.host'));
+check('files: ports read idle (status 0) at the start', (await evaluate('__fs.status()')) === 0);
+
+// (a) a save: open write text "t.txt", write "ab\rc", close: the browser downloads "ab\nc" as t.txt.
+const dlDir = mkdtempSync(join(tmpdir(), 'leapg-dl-'));
+const dl = await send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: dlDir });
+check('files: download behaviour set (CDP)', !dl.error, JSON.stringify(dl.error ?? ''));
+const st = await evaluate(`(() => {
+  __fs.send(2, [1, 5, ...Array.from('t.txt', (c) => c.charCodeAt(0))]); const open = __fs.status(); __fs.take(2);
+  __fs.send(4, [4, 0, 97, 98, 13, 99]); const wr = __fs.status();
+  __fs.send(5); const cl = __fs.status();
+  return [open, wr, cl];
+})()`);
+check('files: save: open, write, close all answer 1', JSON.stringify(st) === '[1,1,1]', JSON.stringify(st));
+let got = null;
+for (const end = Date.now() + 10000; Date.now() < end; await sleep(100)) {
+  const f = readdirSync(dlDir).filter((n) => !n.endsWith('.crdownload') && !n.endsWith('.tmp'));
+  if (f.includes('t.txt')) { got = readFileSync(join(dlDir, 't.txt')); break; }
+}
+check('files: save: the browser downloaded t.txt', got !== null, readdirSync(dlDir).join(','));
+check('files: save: the bytes are "ab\\nc" (CR became LF)', got !== null && got.equals(Buffer.from('ab\nc')), got ? JSON.stringify(got.toString('latin1')) : '');
+// A binary save keeps every byte.
+await evaluate(`(() => { __fs.send(2, [3, 5, ...Array.from('b.bin', (c) => c.charCodeAt(0))]); __fs.take(2); __fs.send(4, [4, 0, 13, 10, 0, 255]); __fs.send(5); return true; })()`);
+let bin = null;
+for (const end = Date.now() + 10000; Date.now() < end; await sleep(100)) {
+  if (readdirSync(dlDir).includes('b.bin')) { bin = readFileSync(join(dlDir, 'b.bin')); break; }
+}
+check('files: binary save: bytes 0D 0A 00 FF kept', bin !== null && bin.equals(Buffer.from([13, 10, 0, 255])), bin ? bin.toString('hex') : '');
+
+// (b) a pick when showPicker throws: the bar appears; Cancel answers 12 and hides it.
+await evaluate(`(() => { HTMLInputElement.prototype.showPicker = function () { throw new DOMException('no activation', 'NotAllowedError'); }; return true; })()`);
+const barVisible = `(() => { const b = document.getElementById('fsbar'); return !b.hidden && getComputedStyle(b).display !== 'none' && b.getBoundingClientRect().height > 0; })()`;
+check('files: the bar is hidden before a pick', !(await evaluate(barVisible)));
+await evaluate(`__fs.send(1)`);
+check('files: pick: busy bit set', ((await evaluate('__fs.status()')) & 0x80) !== 0);
+check('files: pick with showPicker refused: #fsbar visible', await evaluate(barVisible));
+check('files: the bar names Write and has Choose and Cancel', await evaluate(`(() => { const b = document.getElementById('fsbar'); return /Write wants a file/.test(b.textContent) && !!b.querySelector('#fschoose') && !!b.querySelector('#fscancel'); })()`));
+await evaluate(`document.getElementById('fschoose').click()`);
+check('files: Choose (picker still refused): the bar stays, still busy', (await evaluate(barVisible)) && ((await evaluate('__fs.status()')) & 0x80) !== 0);
+await evaluate(`document.getElementById('fscancel').click()`);
+check('files: Cancel: status 12, not busy', (await evaluate('__fs.status()')) === 12);
+check('files: Cancel: the bar is hidden', !(await evaluate(barVisible)));
+check('files: Cancel: the screen has the keyboard focus back', await evaluate(`document.activeElement === document.getElementById('screen')`));
+
+// A pick answered through the native input (CDP sets the files, so "change" fires): the file is read and named.
+const pickFile = join(dlDir, 'pick me.txt');
+writeFileSync(pickFile, Buffer.from('one\r\ntwo\tx', 'latin1'));
+await evaluate(`(() => { HTMLInputElement.prototype.showPicker = function () { window.__pickerOpened = true; }; return true; })()`);
+await evaluate(`__fs.send(1)`);
+check('files: pick with the picker accepted: busy, bar stays hidden', ((await evaluate('__fs.status()')) & 0x80) !== 0 && !(await evaluate(barVisible)) && (await evaluate('window.__pickerOpened')) === true);
+const doc = await send('DOM.getDocument', {});
+const node = await send('DOM.querySelector', { nodeId: doc.result.root.nodeId, selector: '#fspick' });
+await send('DOM.setFileInputFiles', { files: [pickFile], nodeId: node.result.nodeId });
+check('files: pick: the chosen file answers 1', !!(await waitFor('(__fs.status() & 0x80) === 0 && __fs.status() === 1', 5000)), `status ${await evaluate('__fs.status()')}`);
+const nm = await evaluate(`(() => { const [n] = __fs.take(1); return [n, String.fromCharCode(...__fs.take(n))]; })()`);
+check('files: pick: the name "pick me.txt" comes back (length byte, then codes)', nm[0] === 11 && nm[1] === 'pick me.txt', JSON.stringify(nm));
+const rd = await evaluate(`(() => {
+  __fs.send(2, [0, 11, ...Array.from('pick me.txt', (c) => c.charCodeAt(0))]); const s = __fs.status(); const len = __fs.take(2);
+  __fs.send(3, [100, 0]); const s2 = __fs.status(); const cnt = __fs.take(2); const data = __fs.take(cnt[0] | (cnt[1] << 8));
+  __fs.send(5); return [s, len, s2, data];
+})()`);
+check('files: pick: the picked file opens, text-converted (CR LF -> CR, TAB -> space)', rd[0] === 1 && rd[1][0] === 9 && rd[2] === 1 && String.fromCharCode(...rd[3]) === 'one\rtwo x', JSON.stringify(rd));
+// The input's own "cancel" event answers 12; a change after an abort is ignored.
+await evaluate(`__fs.send(1)`);
+await evaluate(`document.getElementById('fspick').dispatchEvent(new Event('cancel'))`);
+check('files: the picker\'s cancel event answers 12', (await evaluate('__fs.status()')) === 12);
+await evaluate(`__fs.send(1)`);
+await evaluate(`__fs.send(0)`);
+check('files: abort during a pick: status 12 and the bar hidden', (await evaluate('__fs.status()')) === 12 && !(await evaluate(barVisible)));
+await send('DOM.setFileInputFiles', { files: [pickFile], nodeId: node.result.nodeId });
+await sleep(300);
+check('files: a change after an abort is ignored (status stays 12)', (await evaluate('__fs.status()')) === 12);
+// Abort while the bar is showing hides it (cancelPick).
+await evaluate(`(() => { HTMLInputElement.prototype.showPicker = function () { throw new DOMException('x', 'NotAllowedError'); }; return true; })()`);
+await evaluate(`__fs.send(1)`);
+const shown = await evaluate(barVisible);
+await evaluate(`__fs.send(0)`);
+check('files: an abort hides the bar', shown && !(await evaluate(barVisible)));
 
 const shot = await send('Page.captureScreenshot', { format: 'png' });
 writeFileSync(join(outDir, 'web-smoke.png'), Buffer.from(shot.result.data, 'base64'));

@@ -24,6 +24,7 @@ import {
 } from '../tsrun/sound.js';
 import { initKeyboard, handleKeyDown, handleKeyUp, handleBlur } from '../tsrun/keyboard.js';
 import { initJoysticks, pollJoysticks, padLabel } from '../tsrun/joystick.js';
+import { createFileHost } from './fshost.js';
 
 const TSRUN = new URL('../tsrun/', import.meta.url);
 const FPS = cpuHz / tStatesPerFrame, FRAME_MS = 1000 / FPS;
@@ -36,7 +37,7 @@ initJoysticks(joystick);
 const padIds = ['', ''];
 const m = createMachine(keyMatrix, joystick);
 const kbd = initKeyboard($('screen'), keyMatrix);   // no .keyboard-face inside: no onscreen board, just the key map
-const app = { m, gfx: null, sfx: null, frames: 0, paused: false, cart: 'none', lastNow: 0, carryMs: 0, error: '' };
+const app = { m, host: null, gfx: null, sfx: null, frames: 0, paused: false, cart: 'none', lastNow: 0, carryMs: 0, error: '' };
 window.leapG = app;                                   // for tests and the console
 
 async function fetchBytes(url, size) {
@@ -145,6 +146,50 @@ $('file').onchange = async (e) => {
   e.target.value = '';
   screen.focus();
 };
+
+// ── Files (docs/FILES.md 4): the host that answers the desktop's FS_ calls on the bridge ports $6F / $6D ──
+// Pick: the browser's file picker (input.showPicker); when the browser refuses it (no user activation), a bar asks for a click.
+// Save: a download of the closed file (as Leap-IDE's download()).
+const fspick = $('fspick'), fsbar = $('fsbar');
+let pickAnswer = null;                                // answer(name, bytes) of the pick in progress, or null
+
+function finishPick(name, bytes) {
+  const answer = pickAnswer;
+  pickAnswer = null;
+  fsbar.hidden = true;
+  if (answer) answer(name, bytes);
+}
+function showPicker() {
+  try { fspick.showPicker(); return true; } catch { return false; }
+}
+function download(name, bytes, binary) {
+  const url = URL.createObjectURL(new Blob([bytes], { type: binary ? 'application/octet-stream' : 'text/plain' }));
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+app.host = m.host = createFileHost({
+  pick(answer) {
+    pickAnswer = answer;
+    fspick.value = '';
+    if (!showPicker()) fsbar.hidden = false;
+  },
+  cancelPick() { pickAnswer = null; fsbar.hidden = true; },   // the native picker cannot be closed: a later change is ignored
+  saved: download,
+});
+fspick.addEventListener('change', async () => {
+  const mine = pickAnswer, f = fspick.files[0];
+  if (!mine || !f) return;
+  const bytes = new Uint8Array(await f.arrayBuffer());
+  fspick.value = '';                                  // the same file can be chosen again
+  if (pickAnswer === mine) finishPick(f.name, bytes);
+});
+fspick.addEventListener('cancel', () => { if (pickAnswer) finishPick(null); screen.focus(); });
+$('fschoose').onclick = () => { showPicker(); screen.focus(); };
+$('fscancel').onclick = () => { finishPick(null); screen.focus(); };
 
 // ── Start ──
 async function start() {
