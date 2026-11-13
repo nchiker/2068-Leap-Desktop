@@ -63,7 +63,7 @@ if (ONLY.includes(1)) {
   const d0 = H.shellDiff(env);
   sec.ok(d0 === null, () => `the shell's screen with three icons (the icon bitmap WRITE is read from icons.txt): ${d0}`);
   const ics = H.treeOf(env).filter((v) => v.cls === S.CL_Icon);
-  sec.ok(ics.length === 3 && ics[2].x === 176 && ics[2].y === 40 && m.ram[ics[2].a + S.Icon_prog] === 3 && H.readStrText(m, rd16(m, ics[2].a + S.Icon_name)) === 'Write', () => `icons ${JSON.stringify(ics.map((v) => [v.x, v.y]))}`);
+  sec.ok(ics.length === 3 && ics[2].x === 176 && ics[2].y === 40 && m.ram[ics[2].a + S.Icon_prog] === 3 && H.readStrText(m, rd16(m, ics[2].a + S.Icon_name)) === 'Notepad', () => `icons ${JSON.stringify(ics.map((v) => [v.x, v.y]))}`);
   env.frames_(30);
   const n = launchFrames(3);
   sec.ok(n <= 30, () => `Write's window was drawn after ${n} frames (bound 30)`);

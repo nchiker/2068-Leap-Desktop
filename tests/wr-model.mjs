@@ -39,7 +39,7 @@ import { vsLook } from './tk-model.mjs';
 
 export { Gfx6Model, OP_SET, OP_CLR, OP_XOR, toDisp };
 export const CAP = 5120, MAXLINES = 1024, NSHOWN = 16, W = 444, MAXLINE = 255, PITCH = 9;
-export const WINR = { x: 16, y: 16, w: 480, h: 168, title: 'Write: Untitled' };   // W3 (13.1): "Write: " and the name
+export const WINR = { x: 16, y: 16, w: 480, h: 168, title: 'Notepad: Untitled' };   // W3 (13.1, 13.10): "Notepad: " and the name
 export const TVR = { x: 24, y: 30, w: 448, h: 144 };
 export const BARR = { x: 478, y: 28, w: 12, h: 148 };
 export const TEXTX = 27;

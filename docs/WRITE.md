@@ -752,3 +752,12 @@ Find). Its image 535 (<= 1,024). `files.asm` 181 (FILES **EST** 250-350). Pool g
 14 of 14.
 
 **For the owner:** try it in the browser (`web/?cart=desk5`, Write, File: Save... then Open...).
+
+### 13.10 Owner review and the name (2026-11-13)
+
+- **The owner tried W3 in the browser:** "File save, open and then save again worked correctly." W3 is accepted.
+- **The program is renamed "Notepad"** (owner: with no fonts or styles it is closer to a Note Pad). Its icon label, the "Leap"
+  menu item (id 5) and the title ("Notepad: " and the name, at most 39 codes) say Notepad; so do the alerts. "The file has
+  too many lines for Notepad (1,024)." breaks before "for" (the first line would be 229 pixels; the label is 224). The source
+  file, this document and the `WR_` symbols keep the name Write. All suites re-run: shell-s1 13/13, shell-perf 24 pass,
+  wr-demo 7/7, wr-w3 7/7, fs-f1 8/8, wr-w1 12/12, wr-w2 14/14, wr-perf 33 pass 0 missed.

@@ -195,7 +195,7 @@ function shellGroup() {
     const ics = views.filter((v) => v.cls === S.CL_Icon);
     sec.ok(ics.length === 3 && ics[0].x === 48 && ics[0].y === 40 && ics[1].x === 112 && ics[1].y === 40 && ics[2].x === 176 && ics[2].y === 40 && ics.every((v) => v.w === 64 && v.h === 26 && (v.flags & 1) === 1), () => `icons ${JSON.stringify(ics.map((v) => [v.x, v.y, v.w, v.h, v.flags]))}, want (48, 40), (112, 40) and (176, 40) (WRITE 11.2), 64 x 26 (SHELL 10.5), focusable`);
     sec.ok(ics.length === 3 && m.ram[ics[0].a + S.Icon_prog] === 1 && m.ram[ics[1].a + S.Icon_prog] === 2 && m.ram[ics[2].a + S.Icon_prog] === 3, () => `Icon prog fields ${ics.map((v) => m.ram[v.a + S.Icon_prog])}, want 1, 2 and 3 (SHELL 10.4: prog 1 byte)`);
-    sec.ok(ics.length === 3 && H.readStrText(m, rd16(m, ics[0].a + S.Icon_name)) === 'Calculator' && H.readStrText(m, rd16(m, ics[1].a + S.Icon_name)) === 'Controls' && H.readStrText(m, rd16(m, ics[2].a + S.Icon_name)) === 'Write', () => `Icon names ${ics.map((v) => H.readStrText(m, rd16(m, v.a + S.Icon_name)))}`);
+    sec.ok(ics.length === 3 && H.readStrText(m, rd16(m, ics[0].a + S.Icon_name)) === 'Calculator' && H.readStrText(m, rd16(m, ics[1].a + S.Icon_name)) === 'Controls' && H.readStrText(m, rd16(m, ics[2].a + S.Icon_name)) === 'Notepad', () => `Icon names ${ics.map((v) => H.readStrText(m, rd16(m, v.a + S.Icon_name)))}`);
     const d0 = H.shellDiff(env);
     sec.ok(d0 === null, () => `boot screen: ${d0}`);
     sec.ok(rd16(m, S.K_FOCUS) === icons[0], () => `K_FOCUS after boot ${hex(rd16(m, S.K_FOCUS))}, the first icon is ${hex(icons[0])}`);

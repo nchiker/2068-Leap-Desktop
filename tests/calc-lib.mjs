@@ -124,7 +124,7 @@ export function openWindows(m, S) {
 /** Where each program's first window is, after its launch (SHELL 4, 5, 10.4; CALCULATOR 4). */
 export const PROG_WIN = { 0: { x: 32, y: 24, w: 256, h: 80, title: 'Leap Desktop', plain: true }, 1: { x: 160, y: 24, w: 176, h: 144, title: 'Calculator' },
   2: { x: 176, y: 32, w: 320, h: 144, title: 'Controls' },   // TOOLKIT 10.5: grown from 144 x 112
-  3: { x: 16, y: 16, w: 480, h: 168, title: 'Write: Untitled' } };    // WRITE 11.3
+  3: { x: 16, y: 16, w: 480, h: 168, title: 'Notepad: Untitled' } };    // WRITE 11.3
 /** Program p is running: K_PROG = p and its window (class, rectangle, title) is on the desk, as the only one. */
 export function progUp(env, p) {
   const { m, S } = env;

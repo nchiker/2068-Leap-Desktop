@@ -40,8 +40,8 @@ export function nameOk(codes) {
 export const MSG = {
   saveFail: 'The file could not be saved.',
   openFail: 'The file could not be opened.',
-  tooLong: 'The file is too long for Write\r(5,120 characters).',            // \r = code 13: a line break
-  tooMany: 'The file has too many lines for Write\r(1,024).',
+  tooLong: 'The file is too long for Notepad\r(5,120 characters).',            // \r = code 13: a line break
+  tooMany: 'The file has too many lines\rfor Notepad (1,024).',
 };
 export const ALERT = { dlg: { x: 128, y: 64, w: 256, h: 64 }, label: { x: 144, y: 76, w: 224, h: 18 }, ok: { x: 304, y: 100, w: 64, h: 16, text: 'OK' } };
 export const SAVE = {
@@ -91,7 +91,7 @@ export function saveName(typed) {
  */
 export class W3 {
   constructor() { this.doc = new Doc(); this.name = codesOf(UNTITLED); }
-  get title() { return 'Write: ' + textOf(this.name); }
+  get title() { return 'Notepad: ' + textOf(this.name); }
   clone() { const w = new W3(); w.doc = this.doc.clone(); w.name = this.name.slice(); return w; }
   /** "New" (13.1, clarification 6): an empty document, the name "Untitled" (the clipboard is kept: 12.1). */
   newDoc() { this.doc.reset(); this.name = codesOf(UNTITLED); }

@@ -301,7 +301,7 @@ S_ABOUTT:   DB 20, "Leap Desktop, step 5"
 S_OK:       DB 2, "OK"
 S_NCALC:    DB 10, "Calculator"
 S_NCTRL:    DB 8, "Controls"
-S_NWRITE:   DB 5, "Write"
+S_NWRITE:   DB 7, "Notepad"
 S_NAMES:    DW S_NCALC, S_NCTRL, S_NWRITE
 S_SETS:     DW ICON_CALC, ICON_CTRL, ICON_WRITE
 S_MENUS:
@@ -313,7 +313,7 @@ S_M1:
     DB 2, 2, 0                  ; a separator
     DB 3, 0, 10, "Calculator"
     DB 4, 0, 8, "Controls"
-    DB 5, 0, 5, "Write"
+    DB 5, 0, 7, "Notepad"
 S_WIN:      DW 0
 S_ABOUT:    DW 0
 S_LAST:     DW 0                ; the icon last pressed

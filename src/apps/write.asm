@@ -351,7 +351,7 @@ wr_mkdlg:
     ldir
     ret
 
-; wr_setname: HL -> a name (a length byte, 1-30 codes): the document's name; the title "Write: " and the name; the title row
+; wr_setname: HL -> a name (a length byte, 1-30 codes): the document's name; the title "Notepad: " and the name; the title row
 ; made dirty (W_INVAL: the window manager redraws it).  wr_nm: the name and the title only.
 wr_setname:
     call wr_nm
@@ -371,12 +371,12 @@ wr_nm:
     ldir
     ld hl,WR_STW
     ld de,WR_TITLE
-    ld c,8
+    ld c,10
     ldir
     ld hl,WR_NAME
     ld a,(hl)
     ld c,a
-    add a,7
+    add a,9
     ld (WR_TITLE),a
     inc hl
     ldir                        ; (B = 0; C >= 1)
@@ -654,7 +654,7 @@ WR_TALR:
     DW WR_SOK
     DW 0
 WR_STXT:    DB ".txt"
-WR_STW:     DB 7, "Write: "
+WR_STW:     DB 9, "Notepad: "
 
 ; ===========================================================================================================================
 ; The document.
@@ -3386,8 +3386,8 @@ WR_SSAVE:   DB 4, "Save"
 WR_SOK:     DB 2, "OK"
 WR_SNSAV:   DB 28, "The file could not be saved."
 WR_SNOPN:   DB 29, "The file could not be opened."
-WR_SLONG:   DB 50, "The file is too long for Write", 13, "(5,120 characters)."
-WR_SLINES:  DB 46, "The file has too many lines for Write", 13, "(1,024)."
+WR_SLONG:   DB 52, "The file is too long for Notepad", 13, "(5,120 characters)."
+WR_SLINES:  DB 48, "The file has too many lines", 13, "for Notepad (1,024)."
 WR_SASK:    DB 21, "Discard the document?"
 WR_SDISC:   DB 7, "Discard"
 WR_SCANC:   DB 6, "Cancel"
@@ -3508,8 +3508,8 @@ WR_RSV:     DW 0
     ENT
 WR_IMG_LEN  EQU $ - WR_IMG
 ; RAM after the image (below the arena, not copied: each is written before it is read).
-WR_TITLE    EQU PROG_IMG + WR_IMG_LEN   ; "Write: " and the name: a length byte and up to 37 codes (13.1)
-WR_NAME     EQU WR_TITLE + 38           ; the document's name: a length byte and up to 30 codes
+WR_TITLE    EQU PROG_IMG + WR_IMG_LEN   ; "Notepad: " and the name: a length byte and up to 39 codes (13.1, 13.10)
+WR_NAME     EQU WR_TITLE + 40           ; the document's name: a length byte and up to 30 codes
 WR_FBUF     EQU WR_NAME + 31            ; the Save dialog's Field
 WR_PNAME    EQU WR_FBUF + 31            ; the picked name (FS_PICK)
     ASSERT WR_PNAME + 32 <= AARENA_BASE

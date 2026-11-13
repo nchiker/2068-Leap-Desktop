@@ -56,8 +56,8 @@ export const ICONART = parseIcons();
 export const SHELL_WIN = { x: 32, y: 24, w: 256, h: 80, title: 'Leap Desktop' };
 // WRITE 11.2: a third icon "Write" at (176, 40) (its bitmap is `icon WRITE` in icons.txt) and the menu item "Write" (id 5) after "Controls"
 export const ICONS = [{ name: 'Calculator', art: 'CALC', prog: 1, x: 48, y: 40, w: 64, h: 26 }, { name: 'Controls', art: 'CTRL', prog: 2, x: 112, y: 40, w: 64, h: 26 },
-  { name: 'Write', art: 'WRITE', prog: 3, x: 176, y: 40, w: 64, h: 26 }];
-export const LEAP_MENU = menuSpec(1, 'Leap', [[1, 0, 'About Leap Desktop...'], [2, 2, ''], [3, 0, 'Calculator'], [4, 0, 'Controls'], [5, 0, 'Write']]);
+  { name: 'Notepad', art: 'WRITE', prog: 3, x: 176, y: 40, w: 64, h: 26 }];
+export const LEAP_MENU = menuSpec(1, 'Leap', [[1, 0, 'About Leap Desktop...'], [2, 2, ''], [3, 0, 'Calculator'], [4, 0, 'Controls'], [5, 0, 'Notepad']]);
 export const ABOUT = { dialog: { x: 128, y: 64, w: 256, h: 64 }, label: { x: 144, y: 76, w: 200, h: 9, text: 'Leap Desktop, step 5' }, ok: { x: 304, y: 100, w: 64, h: 16, text: 'OK' } };
 export const DBL_FRAMES = 20;
 

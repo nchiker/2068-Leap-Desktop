@@ -135,11 +135,11 @@ const { m } = env;
   }
   const worst = (a) => Math.max(...a);
   for (const p of [1, 2, 3]) {
-    const name = p === 1 ? 'Calculator' : p === 2 ? 'Controls' : 'Write';
+    const name = p === 1 ? 'Calculator' : p === 2 ? 'Controls' : 'Notepad';
     row(`launch ${name}: frames from the second click's press (frame 1) to its window drawn (the screen equals the model's), worst of ${NREP} (EST about 8)`, worst(frames.launch[p]), 30, `all ${frames.launch[p].join(', ')}`);
   }
   for (const p of [1, 2, 3]) {
-    const name = p === 1 ? 'Calculator' : p === 2 ? 'Controls' : 'Write';
+    const name = p === 1 ? 'Calculator' : p === 2 ? 'Controls' : 'Notepad';
     row(`quit ${name} by the close box: frames from the release (frame 1; E_UP closes) to the shell's window drawn, worst of ${NREP}`, worst(frames.quitBox[p]), 30, `all ${frames.quitBox[p].join(', ')}`);
     row(`quit ${name} by SYMBOL SHIFT + Q: frames from the key's first frame to the shell's window drawn, worst of ${NREP}`, worst(frames.quitKey[p]), 30, `all ${frames.quitKey[p].join(', ')}`);
   }
