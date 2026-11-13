@@ -11,6 +11,10 @@
 //   5. (T2/T3, docs/TOOLKIT.md 10.8 item 6) the Controls session: TAB (CAPS SHIFT + 1) focuses the Controls icon, ENTER opens it: "ctl" (K_PROG 2);
 //      TAB x5 (to the List), DOWN x10 (CS+6): "list"; TAB (the Field), LEFT x2 (CS+5), x, SS+P ('"'), SS+Z (':'), DELETE (CS+0): "field";
 //      ENTER (the status line reads Name: ...): "status"; SYMBOL SHIFT + Q: "back2" (K_PROG 0; whether it equals "shell" is reported, not required).
+//   6. (docs/WRITE.md 8 item 7) the Write session, from the shell: TAB x2 (CAPS SHIFT + 1; the third icon), ENTER (K_PROG 3): "wr-open"; a typed paragraph that wraps
+//      (with SYMBOL SHIFT characters) and short lines to about 20 lines, so that the view scrolls: "wr-typed"; UP x4, LEFT, DELETE, x: "wr-edit";
+//      SYMBOL SHIFT + Q (the document has changed: the discard dialog): "wr-dialog" (K_PROG 3); ENTER (Discard): "wr-back" (K_PROG 0, equal to "shell" byte for byte).
+//      The characters are keyed through the matrix from build/desk5/keymap.inc (plain, else SYMBOL SHIFT, else CAPS SHIFT).
 // Per checkpoint NAME: NAME.bin (display RAM: $4000-$57FF then $6000-$77FF, 12,288 bytes), NAME.pbm (rendered 512x192, P4, 1 = ink),
 // NAME.json (display string, K_PROG, V_FRAMES, K_PX, K_PY, frame counts).  Also keys.json (the typed keys, display string after each key,
 // K_PROG after each step) for the other runners.
@@ -43,6 +47,24 @@ const LISTSEQ = [...Array(5).fill(['TAB', TAB]), ...Array(10).fill(['DOWN', DOWN
 const FIELDSEQ = [['TAB', TAB], ['LEFT', LEFT], ['LEFT', LEFT], ['x', [KX]], ['SS+P', SSP], ['SS+Z', SSZ], ['DELETE', DELETE]];
 const STATUSSEQ = [['ENTER', [ENTER]]];
 
+// the Write session's keys
+const keymap = (() => {
+  const t = readFileSync(join(ROOT, 'build/desk5/keymap.inc'), 'utf8').split('\n').filter((l) => /^\s+DB\s+\d+\s+;/.test(l)).map((l) => +l.match(/DB\s+(\d+)/)[1]);
+  const byCode = new Map();
+  for (const plane of [0, 2, 1]) for (let k = 0; k < 40; k++) {
+    const code = t[40 * plane + k];
+    if (code && !byCode.has(code)) byCode.set(code, [...(plane === 2 ? [SS] : plane === 1 ? [CS] : []), [Math.floor(k / 5), k % 5]]);
+  }
+  return byCode;
+})();
+const typeText = (str) => [...str].map((ch) => [ch === '\n' ? 'ENTER' : ch, keymap.get(ch === '\n' ? 13 : ch.charCodeAt(0))]);
+const UP = [CS, [4, 3]];
+const WR_PARA = 'the quick brown fox jumps over the lazy dog; pack my box with five dozen liquor jugs: "how vexingly quick daft zebras jump?" sphinx of black quartz, judge my vow. ' +
+  'we all quietly watched 3 big green frogs! #1 (and 2 more) cost $5.00 each.';
+const WR_SHORT = 'abcdefghijklmnop';       // 16 short lines "a".."p": ENTER ends each but the last
+const WR_TYPED = [...typeText(WR_PARA + '\n'), ...[...WR_SHORT].flatMap((ch, i) => typeText(i < WR_SHORT.length - 1 ? ch + '\n' : ch + ' ' + ch))];
+const WR_EDIT = [...Array(4).fill(['UP', UP]), ['LEFT', LEFT], ['DELETE', DELETE], ['x', [KX]]];
+const WR_OPEN = [['TAB', TAB], ['TAB', TAB], ['ENTER', [ENTER]]];
 const rd16 = (m, a) => m.ram[a] | (m.ram[a + 1] << 8);
 const prog = (m) => m.ram[S.K_PROG];
 const dstr = (m) => { const n = m.ram[S.C_DSTR]; return String.fromCharCode(...m.ram.subarray(S.C_DSTR + 1, S.C_DSTR + 1 + Math.min(n, 40))); };
@@ -154,9 +176,43 @@ run(30);
 const back2Settled = settle(300);
 const back2 = dump('back2', back2Settled);
 const back2EqShell = same(readFileSync(join(outDir, 'back2.bin')), readFileSync(join(outDir, 'shell.bin')));
+// 6. the Write session (WRITE 8 item 7)
+const wrvars = () => ({ WR_NL: rd16(m, S.WR_NL), WR_TOP: rd16(m, S.WR_TOP), WR_GS: rd16(m, S.WR_GS), WR_GE: rd16(m, S.WR_GE), WR_CHG: m.ram[S.WR_CHG] });
+pressSeq(WR_OPEN.slice(0, 2));
+press(WR_OPEN[2][1]);
+const wrUp = untilProg(3);
+run(30);
+const wrOpenSettled = settle(300);
+const wrOpen = dump('wr-open', wrOpenSettled);
+const wrOpenV = wrvars();
+pressSeq(WR_TYPED);
+const wrTypedSettled = settle(120);
+const wrTyped = dump('wr-typed', wrTypedSettled);
+const wrTypedV = wrvars();
+pressSeq(WR_EDIT);
+const wrEditSettled = settle(120);
+const wrEdit = dump('wr-edit', wrEditSettled);
+const wrEditV = wrvars();
+press(CLOSEKEYS);
+const wrDlgSettled = (run(30), settle(300));
+const wrDlg = dump('wr-dialog', wrDlgSettled);
+press([ENTER]);
+const wrBackUp = untilProg(0);
+run(30);
+const wrBackSettled = settle(300);
+const wrBack = dump('wr-back', wrBackSettled);
+const wrBackEqShell = same(readFileSync(join(outDir, 'wr-back.bin')), readFileSync(join(outDir, 'shell.bin')));
+const wrNames = ['wr-open', 'wr-typed', 'wr-edit', 'wr-dialog'];
+const rdb = (n) => readFileSync(join(outDir, `${n}.bin`));
+const wrDistinct = wrNames.every((n, i) => i === 0 || !same(rdb(n), rdb(wrNames[i - 1])));
+const wrOk = wrUp && wrOpenSettled && wrOpen.K_PROG === 3 && wrTypedSettled && wrTyped.K_PROG === 3 && wrEditSettled && wrEdit.K_PROG === 3 &&
+  wrDlgSettled && wrDlg.K_PROG === 3 && wrBackUp && wrBackSettled && wrBack.K_PROG === 0 && wrBackEqShell && wrDistinct &&
+  wrTypedV.WR_NL >= 18 && wrTypedV.WR_TOP > 0 && wrTypedV.WR_CHG === 1;
+console.log(`write session: lines/top/changed after typing ${JSON.stringify(wrTypedV)}, after edit ${JSON.stringify(wrEditV)}; wr-back equals shell ${wrBackEqShell}; ${WR_TYPED.length} typing presses`);
 const ctlKeys = { tabIcon: CTL[0][1], enter: CTL[1][1], list: LISTSEQ, field: FIELDSEQ, status: STATUSSEQ, close: CLOSEKEYS };
 
-writeFileSync(join(outDir, 'keys.json'), JSON.stringify({ seq: SEQ.map((s) => s[0]), afterKey, expect: EXPECT, kprog, ctl: ctlKeys, ctlKprog: { ctl: ctl.K_PROG, list: list.K_PROG, field: field.K_PROG, status: status.K_PROG, back2: back2.K_PROG }, back2EqShell }) + '\n');
+writeFileSync(join(outDir, 'keys.json'), JSON.stringify({ seq: SEQ.map((s) => s[0]), afterKey, expect: EXPECT, kprog, ctl: ctlKeys, ctlKprog: { ctl: ctl.K_PROG, list: list.K_PROG, field: field.K_PROG, status: status.K_PROG, back2: back2.K_PROG }, back2EqShell,
+  wr: { open: WR_OPEN, typed: WR_TYPED, edit: WR_EDIT, close: CLOSEKEYS, enter: [ENTER], text: WR_PARA, vars: { open: wrOpenV, typed: wrTypedV, edit: wrEditV }, kprog: { open: wrOpen.K_PROG, typed: wrTyped.K_PROG, edit: wrEdit.K_PROG, dialog: wrDlg.K_PROG, back: wrBack.K_PROG }, backEqShell: wrBackEqShell } }) + '\n');
 console.log('display after each key: ' + afterKey.map(([k, s]) => `${k}:"${s}"`).join(' '));
 const rd_ = (n) => readFileSync(join(outDir, `${n}.bin`));
 const backEqShell = same(rd_('back'), rd_('shell'));
@@ -166,7 +222,7 @@ const ok = shellUp && shellSettled && shell.K_PROG === 0 && calcUp && calcSettle
   !same(rd_('shell'), rd_('calc')) && !same(rd_('calc'), rd_('typed')) &&
   ctlUp && ctlSettled && ctl.K_PROG === 2 && listSettled && list.K_PROG === 2 && fieldSettled && field.K_PROG === 2 && statusSettled && status.K_PROG === 2 &&
   back2Up && back2Settled && back2.K_PROG === 0 &&
-  ['ctl', 'list', 'field', 'status'].every((n, i, a) => i === 0 || !same(rd_(n), rd_(a[i - 1])));
+  ['ctl', 'list', 'field', 'status'].every((n, i, a) => i === 0 || !same(rd_(n), rd_(a[i - 1]))) && wrOk;
 console.log(`controls session: ctl/list/field/status K_PROG ${ctl.K_PROG}/${list.K_PROG}/${field.K_PROG}/${status.K_PROG}, back2 K_PROG ${back2.K_PROG}, back2 equals shell ${back2EqShell}`);
 console.log(`${ok ? 'PASS' : 'FAIL'}: desk5 reference: shell up after ${framesToShell} frames (settled ${shellSettled}), calc "${calc.display}" K_PROG ${calc.K_PROG}, typed "${typed.display}" (expected "${EXPECT}") K_PROG ${typed.K_PROG}, ` +
   `back K_PROG ${back.K_PROG} = shell ${backEqShell}, rendered-vs-RAM mismatches ${mismatch}; written to ${outDir}`);

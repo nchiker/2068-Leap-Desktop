@@ -11,6 +11,9 @@ released 3 frames, as in TSRun.  Sequence (as the reference): (1) the shell: K_P
 (4) SYMBOL SHIFT + Q (CLOSE): until K_PROG = 0, 30 frames, settled.
 (5) the Controls session (docs/TOOLKIT.md 10.8 item 6; steps and keys are read from the reference's keys.json, written by desk5-ref.mjs): TAB (CAPS SHIFT + 1) to the
 Controls icon, ENTER (K_PROG = 2): "ctl"; TAB x5, DOWN x10 (CS+6): "list"; TAB, LEFT x2 (CS+5), x, SS+P, SS+Z, DELETE (CS+0): "field"; ENTER: "status"; SS+Q: "back2".
+(6) the Write session (docs/WRITE.md 8 item 7; steps and keys from keys.json "wr"): TAB x2 (the Write icon), ENTER (K_PROG = 3): "wr-open"; a typed wrapping paragraph (SYMBOL SHIFT
+characters included) and short lines, about 20 lines so that the view scrolls: "wr-typed"; UP x4, LEFT, DELETE, x: "wr-edit"; SS+Q (discard dialog): "wr-dialog"; ENTER (Discard):
+"wr-back" (K_PROG 0, = "shell").  Extra rows: the document variables WR_NL, WR_TOP, WR_GS, WR_GE, WR_CHG = TSRun's after each of the first three.
 Rows: the settled screens "shell", "calc", "typed", "back" = TSRun's .bin byte for byte; "back" = "shell"; K_PROG after each step = TSRun's;
 the display string "0" after the launch and after each key = TSRun's, the typed one "740.7"; per key K_NOW shows the keys down; the pointer
 K_PX, K_PY = TSRun's; DOCK chunks 0-5 (memory zone 19) = the DCK after the run.
@@ -281,6 +284,43 @@ def main():
         results.append(("K_PROG after \"back2\" = TSRun's", kprog() == crefj["back2"]["K_PROG"], f"{kprog()}, TSRun {crefj['back2']['K_PROG']}"))
         results.append(("\"back2\" screen = \"shell\" screen on ZEsarUX itself (as TSRun: " + str(refk["back2EqShell"]) + ")", (cur == shell_cur) == refk["back2EqShell"],
                         "equal" if cur == shell_cur else "differ"))
+
+        # 6. the Write session (WRITE 8 item 7)
+        wk = refk["wr"]
+        wnames = ("wr-open", "wr-typed", "wr-edit", "wr-dialog", "wr-back")
+        wref = {n: (refdir / f"{n}.bin").read_bytes() for n in wnames}
+        wrefj = {n: json.loads((refdir / f"{n}.json").read_text()) for n in wnames}
+
+        def wvars():
+            return {n: int.from_bytes(rd(c, Z(S[n]), 1 if n == "WR_CHG" else 2), "little") for n in ("WR_NL", "WR_TOP", "WR_GS", "WR_GE", "WR_CHG")}
+
+        def wsettle(tag, label, extra, up=True, nb=0, vkey=None):
+            ok, cur, used = settle(extra)
+            res = compare(f"settled \"{tag}\" screen = TSRun's {tag} ({label})", cur, wref[tag], tag)
+            results.append((res[0], res[1] and ok and up, res[2] + f"; settled {ok} after {used} more frames" + (f"; K_PROG reached after {nb} frame stops" if nb else "")))
+            results.append((f"K_PROG after \"{tag}\" = TSRun's", kprog() == wrefj[tag]["K_PROG"], f"{kprog()}, TSRun {wrefj[tag]['K_PROG']}"))
+            if vkey:
+                v = wvars()
+                results.append((f"document variables after \"{tag}\" = TSRun's", v == wk["vars"][vkey], f"{v}, TSRun {wk['vars'][vkey]}"))
+            return cur
+
+        run_keys("Write: TAB x2 to the Write icon", wk["open"][:2])
+        run_keys("Write: ENTER opens Write", wk["open"][2:])
+        up, nb = until_prog(3)
+        wait_frames(30)
+        wsettle("wr-open", "Write as opened, K_PROG 3", 300, up, nb, "open")
+        run_keys(f"Write: typed paragraph and short lines", wk["typed"])
+        wsettle("wr-typed", "wrapped and scrolled", 120, vkey="typed")
+        run_keys("Write: UP x4, LEFT, DELETE, x", wk["edit"])
+        wsettle("wr-edit", "caret moved, edited", 120, vkey="edit")
+        run_keys("Write: SS+Q (discard dialog)", [("SS+Q", wk["close"])])
+        wait_frames(30)
+        wsettle("wr-dialog", "the discard dialog, K_PROG 3", 300)
+        run_keys("Write: ENTER (Discard)", [("ENTER", wk["enter"])])
+        up, nb = until_prog(0)
+        wait_frames(30)
+        cur = wsettle("wr-back", "Discard quit to the shell, K_PROG 0", 300, up, nb)
+        results.append(("\"wr-back\" screen = \"shell\" screen on ZEsarUX itself", cur == shell_cur, "equal" if cur == shell_cur else "differ"))
 
         c.command("set-memory-zone 19")
         dock_bad = {}
