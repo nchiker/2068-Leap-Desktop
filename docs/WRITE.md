@@ -630,3 +630,83 @@ UP / DOWN run), rounded up to 100 T, as the scroll's were (11.10). `tests/wr-per
   TS-Pico driver can answer it later with Write unchanged (surveys: Leap-IDE's Open and Save are page buttons only, with no
   Z80 side; TS-Pico uses ports `$0E` / `$0F` and the commands `tpi:chopen`, `chrd`, `chwr`, `chclose`, `dir`).
 - Autoscroll: the owner asked what else might be more worthwhile first; it stays in 12.10 until chosen.
+
+## 13. W3 interface: Open and Save (drafted 2026-11-12, **awaiting the owner's approval**)
+
+Order agreed by the owner (2026-11-12): **W3 (files, on `docs/FILES.md`), then double-click and Find in Write, then Paint**
+(mode 6). The tests are written from sections 1-12, this section and `docs/FILES.md`, never from the code.
+
+### 13.1 The menu and the name
+
+- **"File"** (id 1): "New" (1), "Open..." (2), "Save..." (3).
+- **The document's name** (`WR_NAME`, a length byte and up to 30 codes, in the image): "Untitled" at the start and after
+  "New"; set by a successful Open or Save.
+- **The window's title** is "Write: " and the name (at most 37 codes; the kernel draws it as now). It is redrawn when the name
+  changes.
+
+### 13.2 Save...
+
+- **The dialog:** a `Dialog` (128, 56, 256, 80) with:
+  - a `Label` "Save as:" at (144, 68, 200, 9);
+  - a `Field` at (144, 84, 224, 12), cap 30, holding the current name, focused (caret at its end);
+  - a `Button` "Save" at (224, 108, 64, 16), id 1, the default, and a `Button` "Cancel" at (304, 108, 64, 16), id 2, the
+    cancel.
+- **ENTER in the `Field`** (its `E_CMD`) is "Save".
+- **"Save":**
+  1. The dialog closes. An empty name changes nothing (the dialog closes, nothing saved).
+  2. A name without a "." gets ".txt" (when it fits in 30 codes).
+  3. `FS_OPEN` (write, text); `FS_WRITE` the document's codes (13 for each paragraph end); `FS_CLOSE`.
+  4. OK: the name becomes the document's (the title redrawn) and "changed" is cleared. The text, caret, selection and view
+     are unchanged.
+  5. A status other than OK: the **alert** (13.4) "The file could not be saved."; nothing else changes.
+- **"Cancel":** the dialog closes; nothing changes.
+
+### 13.3 Open...
+
+1. When the document has changed: the discard dialog first (11.6); "Cancel" stops here.
+2. `FS_PICK`. Cancelled (12): nothing changes.
+3. `FS_OPEN` (read, text). Length > 5,120: the alert "The file is too long for Write (5,120 characters)." and nothing changes.
+   Another status: the alert "The file could not be opened." and nothing changes.
+4. The document is emptied (as "New"), then the file is read into it (`FS_READ`), the caret at 0, top 0.
+5. When it would have more than 1,024 lines: the document is emptied, and the alert "The file has too many lines for Write
+   (1,024)." is shown.
+6. Otherwise: the name becomes the picked one, "changed" is cleared, the view drawn, the bar set.
+
+### 13.4 The alert
+
+A `Dialog` (128, 64, 256, 64), a `Label` at (144, 76, 224, 9) with the message, and a `Button` "OK" at (304, 100, 64, 16), id
+1, the default and the cancel. "OK" (or ENTER, BREAK, ESC) closes it.
+
+### 13.5 Symbols for the tests
+
+`WR_NAME`, `WR_SDLG` (the Save dialog, 0 until first opened), `WR_ADLG` (the alert, 0 until first opened), and FILES 2's
+`FS_PICK`, `FS_OPEN`, `FS_READ`, `FS_WRITE`, `FS_CLOSE`.
+
+### 13.6 Bounds (TSRun, T-states)
+
+| Measure | Bound |
+|---|---|
+| Write's bytes for W3 | **report** (**EST** +600-800; all of Write <= 7,000, with room for double-click and Find) |
+| Save of 5,120 codes: from "Save"'s `E_CMD` to the return | **report** |
+| Open of 5,120 codes (80 lines): from `FS_PICK`'s return to the view drawn | **report** |
+| W1's and W2's bounds | unchanged |
+| Stack / `DI` | <= 128 bytes / none |
+
+### 13.7 Tests (Sonnet)
+
+1. Save and Open round trips against TSRun's fake host: empty, one line, 5,120 codes, paragraph ends, names with and without
+   ".", the 30-code limit.
+2. Open of files that are too long, have too many lines, contain CR LF, TAB, control codes or codes above 126 (FILES 2's text
+   mode); a cancelled pick; a refused name; the discard dialog first when changed.
+3. The dialogs' and the alert's looks against the model; the title.
+4. Real frames: "Save..." typed and saved, then "Open..." of the saved file; a download caught by the page test.
+5. Cross-emulator: ZEsarUX and Fuse have no bridge, so `FS_` returns status 0 there: the runner checks that "Save..." shows the
+   alert and nothing else changes.
+
+### 13.8 Decisions for the owner (recommendations)
+
+1. **The title "Write: name"**. *Alternative:* the name alone, as a Macintosh does.
+2. **".txt" added** to a name without a ".". *Alternative:* names as typed.
+3. **One "Save..." that always asks the name** (prefilled). *Alternative:* "Save" (no question once named) and "Save As...".
+4. **Open reads into the document only after the checks**, so a refused file leaves the document as it was (except too many
+   lines, found only while reading: the document is then empty).
