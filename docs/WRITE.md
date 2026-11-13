@@ -508,3 +508,89 @@ map).
     lines shown, and "Shown" scrolls one line. It scrolls only while the pointer moves outside the view. **EST** +30 bytes.
   - **(b)** a hold loop like `VScroll`'s (`V_FRAMES`): a line every few frames while the button is held outside the view,
     whether or not the pointer moves. **EST** +200 bytes.
+
+### 12.11 As built (2026-11-12)
+
+**W2 is done on emulators** (the cross-emulator rows: below). The owner has not yet tried it.
+
+**Bytes:**
+- Write is 5,564 in DOCK 2-3 (W1 3,406: W2 +2,158, over the **EST** +1,200-1,800, mostly the speed work below). All of Write
+  <= 7,000 holds; DOCK 2-3 has about 5,800 bytes left.
+- Its image is 328 (<= 1,024). **Pool growth 0** (`K_LDIR` is a label on `k_zero`'s `ldir` / `ret`). The key map changed in one
+  entry (SS+E = `MARK`), with no new bytes.
+
+**Bounds** (TSRun T-states; `tests/wr-perf.mjs`, 24 pass, 0 missed, 11 reported):
+
+| Measure | Measured | Bound |
+|---|---|---|
+| Extend by one code / by one line | 22,143 / 47,284 | <= 58,000 |
+| A drag step | 54,054 | <= 58,000 |
+| A drag over the view (16 lines) | 366,599 | report |
+| A typed code over a selection | 79,374 | <= 117,000 |
+| DELETE of a selection of 3 lines | 850,823 | report |
+| Copy of 2,048 codes | 45,293 | report (EST 46 k) |
+| Cut of 16 lines (about 1,280 codes) | 1,100,866 | report (EST 1.1 M) |
+| Paste of about 1,280 codes | 1,825,583 | report |
+| Select all of 5,120 codes | 1,473,804 | report |
+| `W_DRAWVIEW` of 16 lines, all selected | 1,179,321 | report |
+| Stack: `M_EVENT` / `M_DRAW` / `WR_MENU` | 74 / 34 / 62 bytes | <= 128 |
+| W1's rows after W2 | typing 51,268 and 104,800; caret moves 16-23 k; scroll by DOWN 338,974, by a bar arrow 410,445; launch 14 frames | W1's bounds: all pass |
+| `DI` / interrupts lost | none / 0 | none / 0 |
+
+- **W1's scroll rows got faster, not slower:** W2 adds checks to shared paths, so `wr_lstart`'s forward walk was rewritten
+  (a pointer and a counter, about 60 T a line instead of 190): scroll by DOWN 341,357 -> 338,974.
+
+**How the selection is drawn (as built):**
+- Every line drawn in full (full, lines and scroll modes) gets its selected part's XOR fill after its text.
+- A change of the selection (keys with the mark on, a drag, MARK off, a collapse, Select all) is the "selection" mode
+  (`WM_SEL`):
+  - Write finds the lines shown that meet the codes between the old and new starts or the old and new ends.
+  - For each of those lines it XOR fills only the two strips where the old part and the new part differ.
+  - `W_DRAWVIEW` is narrowed to those lines' rows (and the carets'), as W1's partial modes are.
+- **Speed work** to meet the one-frame bounds (first measured: extend by one line 75.7 k, a drag step 66.2 k):
+  - narrow difference strips instead of wide old-and-new fills;
+  - lines before the change passed quickly (about 130 T each);
+  - a 4-entry cache of text widths, keyed by offset and line start and cleared by every edit. `wr_pos` seeds it with the
+    caret's width, which it knows already;
+  - `wr_pos` steps codes with the gap split in advance (about 140 T a code, was 290);
+  - `wr_twr` sums widths at 64 T a code (was 84).
+
+**How edits with a selection work (as built):**
+- Typing over a selection, DELETE of one, Cut and Paste are one routine, `wr_replace`:
+  - the gap goes to the selection's start;
+  - its S codes are dropped after the gap and the n new codes copied in before it (`KFAR K_LDIR`);
+  - one rewrap with a word delta n - S. Old lines that started inside the deleted range are passed.
+- **The top after one of these follows "Shown".** When it does not change, the changed lines are drawn as after a W1 edit;
+  when it changes, one full draw.
+- **Paste's 1,024-line check** wraps the result from the edited paragraph's line to the end (11.4) before anything is final.
+  When the clipboard is longer than the gap, the selection codes the paste writes over are first kept in cold RAM at
+  **`$5800-$5FFF`**, so that a refused paste puts the document back exactly. `$5800` is otherwise unused in `desk5`.
+
+**Tests (Sonnet, from the contract):**
+- `tests/wr-w2.mjs` 14 of 14 groups on seeds 1 and 2: selection state, clipboard, screen (covered windows, clips, a tour of
+  every drawing mode), the menu's enabled bits (also by real frames), the limits, consumed, real frames from the shell, stack
+  and registers, the memory watch.
+- Model `tests/wr-model.mjs` (129 hand cases); `tests/wr-perf.mjs` extended.
+- The main model's own probes (incremental screen equal to a full redraw and the line table equal to a fresh wrap, over 1,300
+  random steps; Paste's refusal with the `$5800` restore) found three bugs before the suites ran:
+  - the capacity check lost S (a routine clobbered DE), so a paste could overfill the buffer;
+  - after a replace that leaves the line count unchanged, the caret on another line was clipped out of the narrowed draw;
+  - the harness, not Write: `WR_MENU` must be called under mapping A.
+
+**Clarifications the tests adopted (binding from now on):**
+- MARK is consumed and ends the UP / DOWN run; a press (and so a drag) ends it too.
+- A refused insert, and DELETE at 0, with no selection change nothing: the mark stays on.
+- Every Edit action that takes effect ends the run. A refused Paste changes nothing (the selection, the mark and the run kept).
+- `WR_MENU` is code in DOCK 2-3: a caller under K reaches it by `KFAR`.
+- Cut and Copy write only the clipboard's first C bytes at `$7800`.
+- "A whole paragraph of 70 codes" (12.8) is 70 text codes and its 13.
+
+**The test page:** Ctrl is SYMBOL SHIFT, so MARK is Ctrl+E. The page calls `preventDefault` on every key it maps, so Ctrl+E
+does not reach the browser.
+
+### 12.12 Owner review (2026-11-12)
+
+- **The owner tried W2 with the mouse:** "The select, select all, copy, cut and paste work well with a mouse."
+- **The report rows are fast enough** (owner: "it does feel fast enough - I selected all and pasted several times and
+  scrolled up and down"). Their bounds become the figures measured on the final W2 build, rounded up to 100 T, as the
+  scroll's were (11.10): see 12.13.
