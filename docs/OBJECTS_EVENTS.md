@@ -202,7 +202,7 @@ between select and access. Code that writes AY register 7 (the mixer) keeps bit 
   - CS: upper-case letters; CS+5/6/7/8 = left 8, down 10, up 11, right 9; CS+0 = DELETE 12; CS+1 = TAB 14; CS+2 toggles caps lock (no event);
     CS+3 = back-TAB 15; CS+4 = ESC 27 (CS+1 and CS+4 swapped by the owner, 2026-11-12, `docs/WINDOWS.md` 13: PC Tab gives CS+1); CS+9 = MENU 16; CS+SPACE = BREAK 3;
   - SS: the TS2068 symbol where the key's legend shows an ASCII character; the rest of printable ASCII 33-126 spread over the
-    remaining SS keys. Every printable character is reachable with at most one modifier. The main model drafts `keymap.txt`; the
+    remaining SS keys. Two SS keys give commands: SS+Q = CLOSE 17 (`docs/SHELL.md` 9.4) and SS+E = MARK 18 (`docs/WRITE.md` 12.1). Every printable character is reachable with at most one modifier. The main model drafts `keymap.txt`; the
     owner reviews it.
   - Caps lock makes plain letters upper case.
 - **Auto-repeat:** the most recently pressed non-modifier key repeats after 30 frames held, then every 4 frames (bit 7 of data 2).
