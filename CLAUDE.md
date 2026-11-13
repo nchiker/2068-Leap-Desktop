@@ -105,4 +105,6 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
     write, read / write in chunks, close). For now the test page answers it, as Leap-IDE does: Save = a desktop name
     dialog, then a browser download; Open = the browser's file picker. Later a TS-Pico driver (ports `$0E` / `$0F`,
     `tpi:chopen` / `chrd` / `chwr` / `chclose`; `~/Projects/TS-Pico-Study`) answers the same calls. This replaces "tape
-    services before W3". Then Write W3 ("Open..." and "Save...") on it.
+    services before W3". Contract `docs/FILES.md` (draft, awaiting the owner).
+  - **Order (owner, 2026-11-12):** W3 (Open / Save, `docs/WRITE.md` 13, draft), then double-click and Find in Write, then
+    Paint in mode 6 (mono, MacPaint-style; colour waits for the mode 2 graphics). Fonts and styles in Write: not planned.
