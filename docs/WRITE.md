@@ -316,3 +316,13 @@ start and end, offsets in the buffer; the caret is `WR_GS`), `WR_LT` (word: the 
 **For the owner:**
 1. The scroll figures: set the bound as for `List` (`docs/TOOLKIT.md` 10.10), or ask for a faster scroll.
 2. Try Write in the browser (`web/?cart=desk5`, the Write icon or the "Leap" menu's "Write").
+
+### 11.10 Owner review (2026-11-12)
+
+- **The owner tried Write:** "The scrolling was smooth and everything looked really good." W1 is accepted.
+- **Scroll bounds at the measured figures** (rounded up to 100 T, as `List`'s, TOOLKIT 10.10): a scroll by one line
+  **<= 341,400 T** by DOWN and **<= 411,900 T** by a bar arrow.
+- **Found while trying it: the test page's "Joystick" switch,** on by default, sent Space and the arrow keys to joystick 1,
+  so Space did not type. The owner's decision: the TS2068 joystick is not mapped to keys. `web/` now sends every key to the
+  keyboard and reads joysticks 1 and 2 from connected gamepads (`tsrun/joystick.js`); the header shows the pad on joystick 1.
+  `tests/web-smoke.mjs` checks that Space and the arrows reach the key matrix and leave the joystick idle.

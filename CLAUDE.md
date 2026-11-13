@@ -39,7 +39,8 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
   `$0068`. `List` and `Field` are in `src/kernel/tk2.asm`, assembled in chunk 1 after `kernel1.asm`. The pool had 4,483 bytes
   free before step 5 (`docs/BANKING.md` 1); step 5 has used 3,029 of its 3,400.
   `kern3` / `kern4` / `bank5` keep their own layouts and stay as they were (one `KEYMAP` byte changed: SS+Q).
-- Input: CAPS SHIFT + 1 = TAB, CS + 4 = ESC; BREAK counts as ESC in the window manager. A Kempston mouse (ports `$xxDF`) is
+- Input: CAPS SHIFT + 1 = TAB, CS + 4 = ESC; BREAK counts as ESC in the window manager. The test page sends every key to the
+  keyboard; the TS2068 joystick comes only from a gamepad (owner, 2026-11-12: never mapped to keys). A Kempston mouse (ports `$xxDF`) is
   read when `K_MSET` turns it on; TSRun emulates it as `m.mouse`, and the test page has a Mouse switch.
 - Step 5 placement (owner, 2026-11-12): toolkit always mapped; shell, Calculator, Write in DOCK 2-3; DOCK 6 for resources and
   later Paint's drawing core. Step 5's pool growth <= 3,400 bytes (3,029 used after T2 / T3).
@@ -90,8 +91,7 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
   Controls demo and accepted it (`docs/TOOLKIT.md` 10.10).
 - **The owner approved the desktop's look,** icons included (2026-11-12: "desktop looks great").
 - **The `VScroll` 12 x 80 draw bound is 47,700 T** (owner, 2026-11-12).
-- **Write W1 is done on emulators** (ZEsarUX 62 of 62; Fuse boot rows). It awaits the owner's try and the scroll bound
-  (`docs/WRITE.md` 11.9).
+- **Write W1 is done** (ZEsarUX 62 of 62; Fuse boot rows); the owner tried it and accepted it, scroll bounds at the measured
+  figures (`docs/WRITE.md` 11.10).
 - **Next:**
-  - The owner's try of Write and the scroll bound.
-  - Then W2 (selection and clipboard), then tape services before W3.
+  - Write W2 (selection and clipboard), starting with its interface section in `docs/WRITE.md`; then tape services before W3.

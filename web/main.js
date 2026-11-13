@@ -8,8 +8,9 @@
  *   python3 -m http.server 8080
  *   http://localhost:8080/web/               # ?cart=<name> picks build/<name>.dck (default hello)
  * "Load .dck" opens any cartridge file instead. Click the screen to give it the
- * keyboard: TS2068 keys through tsrun/keyboard.js; with Joystick on, the arrow
- * keys and Space drive joystick 1 instead. Sound is on (starts on first click/key).
+ * keyboard: TS2068 keys through tsrun/keyboard.js, always (owner, 2026-11-12: the TS2068 joystick is not mapped to keys).
+ * Joysticks 1 and 2 come from connected gamepads (tsrun/joystick.js, polled every animation frame). Sound is on (starts on
+ * first click/key).
  *
  * Planned next feature: tapes (loading .tap files into TSRun).
  */
@@ -22,17 +23,17 @@ import {
   initSound, resumeSound, soundWantsFrame, soundIsRunning, setSoundNeedCallback, setSoundStateCallback, pushSound,
 } from '../tsrun/sound.js';
 import { initKeyboard, handleKeyDown, handleKeyUp, handleBlur } from '../tsrun/keyboard.js';
+import { initJoysticks, pollJoysticks, padLabel } from '../tsrun/joystick.js';
 
 const TSRUN = new URL('../tsrun/', import.meta.url);
 const FPS = cpuHz / tStatesPerFrame, FRAME_MS = 1000 / FPS;
 const $ = (id) => document.getElementById(id);
 const hex = (v) => '$' + v.toString(16).toUpperCase().padStart(2, '0');
 
-// Joystick 1 is active low: bit 0 up, 1 down, 2 left, 3 right, 7 fire.
-const JOY_BITS = { ArrowUp: 0x01, ArrowDown: 0x02, ArrowLeft: 0x04, ArrowRight: 0x08, Space: 0x80 };
-
 const keyMatrix = new Uint8Array(8).fill(0x1F);
 const joystick = new Uint8Array(2).fill(0xFF);
+initJoysticks(joystick);
+const padIds = ['', ''];
 const m = createMachine(keyMatrix, joystick);
 const kbd = initKeyboard($('screen'), keyMatrix);   // no .keyboard-face inside: no onscreen board, just the key map
 const app = { m, gfx: null, sfx: null, frames: 0, paused: false, cart: 'none', lastNow: 0, carryMs: 0, error: '' };
@@ -57,7 +58,6 @@ function insertCart(bytes, name) {
 
 function reset() {
   joystick.fill(0xFF);
-  held.clear();
   resetMachine(m);
   app.frames = 0;
 }
@@ -78,6 +78,8 @@ function onFrame(now) {
   app.carryMs += Math.min(now - app.lastNow, 80);   // a backgrounded tab does not fast-forward on return
   app.lastNow = now;
   for (let ran = 0; app.carryMs >= FRAME_MS && ran < 4; ran++) { step(); app.carryMs -= FRAME_MS; }
+  pollJoysticks(joystick, padIds);                   // gamepads only: keys never drive the joystick
+  $('joy').textContent = padIds[0] ? `joystick: ${padLabel(padIds[0])}` : 'joystick: no gamepad';
   if (app.gfx) drawScreen(app.gfx, m.pixels);
   $('status').textContent = app.error ||
     `frames ${app.frames}  $F4=${hex(m.portF4)}  $FF=${hex(m.portFF)}${app.paused ? '  paused' : ''}`;
@@ -93,24 +95,11 @@ function fillSoundQueue() {
 }
 
 // ── Input ──
-const held = new Set();                               // joystick keys held (event.code)
-const joyOn = () => $('joy').checked;
-function setJoy(e, down) {
-  const bit = JOY_BITS[e.code];
-  if (bit === undefined) return false;
-  e.preventDefault();
-  if (down) held.add(e.code); else held.delete(e.code);
-  let v = 0xFF;
-  for (const c of held) v &= ~JOY_BITS[c];
-  joystick[0] = v;
-  return true;
-}
 const screen = $('screen');
-screen.addEventListener('keydown', (e) => { if (app.sfx) resumeSound(app.sfx); if (!(joyOn() && setJoy(e, true))) handleKeyDown(kbd, e); });
-screen.addEventListener('keyup', (e) => { if (!(joyOn() && setJoy(e, false))) handleKeyUp(kbd, e); });
-screen.addEventListener('blur', () => { handleBlur(kbd); held.clear(); joystick[0] = 0xFF; });
+screen.addEventListener('keydown', (e) => { if (app.sfx) resumeSound(app.sfx); handleKeyDown(kbd, e); });
+screen.addEventListener('keyup', (e) => handleKeyUp(kbd, e));
+screen.addEventListener('blur', () => handleBlur(kbd));
 screen.addEventListener('pointerdown', () => { screen.focus(); if (app.sfx) resumeSound(app.sfx); });
-$('joy').addEventListener('change', () => { held.clear(); joystick[0] = 0xFF; handleBlur(kbd); screen.focus(); });
 
 // Kempston mouse (docs/WINDOWS.md 15.1): with Mouse on, a click on the screen captures the host mouse (pointer lock; Esc
 // releases it). Host motion becomes counter steps of one TS2068 pixel (x: 640 frame columns across the canvas, of which 512

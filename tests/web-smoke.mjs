@@ -1,6 +1,6 @@
 "use strict";
 // web-smoke.mjs -- loads web/ in headless Chrome (served from this repo by a throwaway static server), waits ~200
-// frames and checks the status line ($FF = $06 for the hello cartridge), the keyboard and the joystick toggle.
+// frames and checks the status line ($FF = $06 for the hello cartridge), the keyboard, and that keys never drive the joystick.
 //   node tests/web-smoke.mjs [outdir]       Chrome: $CHROME, else Playwright's headless shell in ~/.cache/ms-playwright,
 //                                           else google-chrome / chromium on the PATH. Needs Node 22+ (global WebSocket).
 // Same server / Chrome / CDP pattern as Leap-IDE's tests/browser-lib.mjs, which serves its own root, so it is not imported.
@@ -87,15 +87,14 @@ check('cartridge name shown', (await evaluate(`document.getElementById('cart').t
 const lit = await evaluate(`(() => { const p = leapG.m.pixels; let n = 0; for (let i = 0; i < p.length; i++) if (p[i] !== p[0]) n++; return n; })()`);
 check('frame buffer has text on it', lit > 100, `${lit} pixels differ from the background`);
 
-// Joystick toggle on (default): arrow keys + Space go to joystick 1, not the key matrix.
+// Keys never drive the joystick (owner, 2026-11-12): Space and the arrows reach the key matrix; joystick 1 stays idle with
+// no gamepad (it comes from the Gamepad API only).
 await evaluate(`document.getElementById('screen').focus()`);
-await keyEv('rawKeyDown', 'ArrowRight', 'ArrowRight', 39);
 await keyEv('rawKeyDown', ' ', 'Space', 32);
-check('joystick: right + fire active low', (await evaluate('leapG.m.joystick[0]')) === (0xFF & ~0x08 & ~0x80));
-check('joystick: key matrix untouched', (await evaluate('Array.from(leapG.m.keyMatrix).every(v => v === 0x1F)')) === true);
-await keyEv('keyUp', 'ArrowRight', 'ArrowRight', 39);
+await sleep(50);
+check('Space: SPACE pressed in matrix (row 7 bit 0), joystick idle', ((await evaluate('leapG.m.keyMatrix[7]')) & 1) === 0 && (await evaluate('leapG.m.joystick[0]')) === 0xFF);
 await keyEv('keyUp', ' ', 'Space', 32);
-check('joystick: released', (await evaluate('leapG.m.joystick[0]')) === 0xFF);
+check('joystick shows no gamepad', /no gamepad/.test(await evaluate(`document.getElementById('joy').textContent`)));
 
 // A letter key reaches the keyboard matrix (A = row 1, bit 0).
 await keyEv('rawKeyDown', 'a', 'KeyA', 65);
@@ -103,11 +102,10 @@ await sleep(50);
 check('keyboard: A pressed in matrix', ((await evaluate('leapG.m.keyMatrix[1]')) & 1) === 0);
 await keyEv('keyUp', 'a', 'KeyA', 65);
 
-// Toggle off: the arrow goes to the keyboard (CAPS SHIFT + 8 = row 0 bit 0, row 4 bit 2).
-await evaluate(`(() => { const j = document.getElementById('joy'); j.checked = false; j.dispatchEvent(new Event('change')); document.getElementById('screen').focus(); })()`);
+// An arrow goes to the keyboard (CAPS SHIFT + 8 = row 0 bit 0, row 4 bit 2), never the joystick.
 await keyEv('rawKeyDown', 'ArrowRight', 'ArrowRight', 39);
 await sleep(50);
-check('joystick off: arrow goes to the keyboard', (await evaluate('leapG.m.joystick[0]')) === 0xFF && ((await evaluate('leapG.m.keyMatrix[4]')) & 4) === 0);
+check('arrow goes to the keyboard', (await evaluate('leapG.m.joystick[0]')) === 0xFF && ((await evaluate('leapG.m.keyMatrix[4]')) & 4) === 0);
 await keyEv('keyUp', 'ArrowRight', 'ArrowRight', 39);
 
 // Pause stops the frame counter, Run resumes, Reset restarts it.

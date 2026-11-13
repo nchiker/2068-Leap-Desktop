@@ -124,7 +124,7 @@ function runsAt(d, keyName, line, what, act) {
   const d = paragraph(40); d.caret = 0; d.top = 0;
   const { ts, doc } = runsAt(d, 'p40', 15, 'scroll by one line', (dd) => { const r = key(10); dd.key(10); return r; });
   if (doc.top !== 1) { missed++; console.log(`FAIL | the model's top after DOWN off the bottom is ${doc.top}, want 1`); }
-  row('scroll by one line: 40 lines, top 0, the caret on line 15, K_DISPATCH of E_KEY DOWN (11.8; the bound is set from the measurement, as List\'s: TOOLKIT 10.10)', Math.max(...ts), null, `report (EST 190 k); worst of ${ts.join(', ')} (${d.nl} lines)`);
+  row('scroll by one line: 40 lines, top 0, the caret on line 15, K_DISPATCH of E_KEY DOWN (11.8; the owner\'s bound, WRITE 11.10)', Math.max(...ts), 341400, `EST was 190 k; worst of ${ts.join(', ')} (${d.nl} lines)`);
 }
 // a bar arrow scrolls by one line too: the real tracking loop, E_DOWN to the down arrow answered with an E_UP at the first HALT
 {
@@ -138,7 +138,7 @@ function runsAt(d, keyName, line, what, act) {
     dd.scrollTo(m.ram[o.bar + S.VScroll_value]);
     if (i === 2) { chkState(dd, 'bar arrow'); const g = W.liveDiff(env, dd, {}); if (g) { missed++; console.log(`FAIL | the screen after the bar arrow: ${g}`); } }
   }
-  row('scroll by one line by a bar arrow: K_DISPATCH of the E_DOWN on the down arrow, the loop ended by an E_UP at its first HALT (the bar redrawn and the text view told)', Math.max(...ts), null, `report; worst of ${ts.join(', ')}`);
+  row('scroll by one line by a bar arrow: K_DISPATCH of the E_DOWN on the down arrow, the loop ended by an E_UP at its first HALT (the bar redrawn and the text view told; the owner\'s bound, WRITE 11.10)', Math.max(...ts), 411900, `worst of ${ts.join(', ')}`);
 }
 
 // ---- the full draw -------------------------------------------------------------------------------------------------------------------------------------------------
