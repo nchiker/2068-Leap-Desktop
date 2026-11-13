@@ -272,6 +272,8 @@ k_zero:
     ld d,h
     ld e,l
     inc de
+; K_LDIR: HL -> DE, BC bytes (BC >= 1), under K: a program reaches cold RAM ($5800, $7800) with KFAR K_LDIR (WRITE 12.1).
+K_LDIR:
     ldir
     ret
 

@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 export const KEY_ORDER = ['CS', 'Z', 'X', 'C', 'V', 'A', 'S', 'D', 'F', 'G', 'Q', 'W', 'E', 'R', 'T', '1', '2', '3', '4', '5',
   '0', '9', '8', '7', '6', 'P', 'O', 'I', 'U', 'Y', 'ENTER', 'L', 'K', 'J', 'H', 'SPACE', 'SS', 'M', 'N', 'B'];
-export const NAMES = { ENTER: 13, LEFT: 8, RIGHT: 9, DOWN: 10, UP: 11, DELETE: 12, TAB: 14, BACKTAB: 15, MENU: 16, CLOSE: 17, ESC: 27,
+export const NAMES = { ENTER: 13, LEFT: 8, RIGHT: 9, DOWN: 10, UP: 11, DELETE: 12, TAB: 14, BACKTAB: 15, MENU: 16, CLOSE: 17, MARK: 18, ESC: 27,
   BREAK: 3, CAPS: 1, SPACE: 32, HASH: 35, DASH: 45 };
 const PLANES = ['plain', 'CS', 'SS'];
 
