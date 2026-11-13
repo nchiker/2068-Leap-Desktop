@@ -326,3 +326,176 @@ start and end, offsets in the buffer; the caret is `WR_GS`), `WR_LT` (word: the 
   so Space did not type. The owner's decision: the TS2068 joystick is not mapped to keys. `web/` now sends every key to the
   keyboard and reads joysticks 1 and 2 from connected gamepads (`tsrun/joystick.js`); the header shows the pad on joystick 1.
   `tests/web-smoke.mjs` checks that Space and the arrows reach the key matrix and leave the joystick idle.
+
+## 12. W2 interface (drafted 2026-11-12, **awaiting the owner's approval**; binding for the W2 code and tests once approved)
+
+The tests are written from sections 1-11 and this section, never from the code. The decisions in 12.10 are recommendations
+until the owner takes them.
+
+### 12.1 Amendments
+
+- **Selecting with the keys is a mark, not SHIFT** (section 9 said "SHIFT with the caret keys"). On the TS2068 that cannot work:
+  CAPS SHIFT already makes the caret keys (CS + 5-8), SYMBOL SHIFT + 5-8 type `%`, `&`, `'` and `(`, and CS + SS together
+  toggles keyboard-pointer mode (OBJECTS_EVENTS 14.3). So a new key, **MARK** (code 18, on **SS+E**, "E for extend"), turns on
+  extending: the caret keys then move one end of the selection (12.4). This is the platform's own tradition (Tasword's block
+  marks). On the test page SS is Ctrl, so MARK is Ctrl+E.
+  - `keymap.txt`: SS+E becomes `MARK` (was `-`), and `tools/gen-keymap.mjs` gains the name `MARK: 18`. Same bytes; every
+    cartridge's map changes in that one entry (as SS+Q did). SS+W and SS+I stay without a code (Ctrl+W closes a browser tab).
+- **The clipboard is in cold RAM**, not the arena (section 9): **`$7800-$7FFF`, 2,048 codes**, as FEASIBILITY 3 planned
+  (cold kernel data, free in modes 0, 2 and 6). The arena has 960 bytes free after Write starts, and the dialog needs some of
+  them, so an arena clipboard would hold about 700 codes.
+  - `$7800` is RAM under K and R, not under A (BANKING 1), so Write copies to and from it by `KFAR K_LDIR`.
+  - **`K_LDIR`** is a new label on the `ldir` / `ret` that ends `k_zero` (`src/kernel/kernel.asm`, chunk 5): HL, DE and BC
+    reach it unchanged through `KFAR`, and BC is never 0. **Pool growth stays 0 bytes.**
+  - The clipboard is **Write's own:** its length is a variable in Write's image, 0 at each start; "New" keeps it; quitting
+    loses it. (Making it the desktop's, shared by `Field` and later programs, moves one word to kernel RAM: a later decision.)
+- **Section 4's key table** gains MARK, and the caret keys, DELETE and typing change when there is a selection (12.4).
+- **Section 5's drawing modes** gain **"selection":** the pixels that a change of the selection alters. It still gives exactly
+  the pixels of a full draw.
+
+### 12.2 The selection
+
+- **State:** the caret (`WR_GS`, as W1), an **anchor** (a document offset 0..L), and the **mark** (a byte: 0 off, 1 on).
+- **The selection** is [min(anchor, caret), max(anchor, caret)); S = its length. It is **empty** when anchor = caret.
+- After every edit (a typed code, ENTER, DELETE, Cut, Paste), "New", and the start: anchor = caret, mark 0.
+- `E_SCROLL` from the bar changes neither the selection nor the mark.
+
+### 12.3 Looks (exact pixels)
+
+Shown line j (0 <= j < 16) is document line t = top + j; it holds codes [s, s + n). tw(i, k) is as 11.3 (PROP6 advances of
+codes i..k - 1).
+- **The caret** (11.3) is drawn only when the selection is empty.
+- **The selected part of line t:** a' = max(a, s), b' = min(b, s + n), where [a, b) is the selection. When a' < b':
+  - x0 = min(26 + tw(s, a'), 471): the blank column before code a' (the caret's column for a');
+  - x1 = 472 when b' = s + n and t is not the last line (the line's last code, a 13 or the end of a wrapped line, is selected:
+    the inversion runs to the text view's right edge); otherwise x1 = min(27 + tw(s, b'), 472) (through the blank column of
+    code b' - 1);
+  - **`XOR` fill (x0, 30 + 9 j, x1 - x0, 9)**, drawn after the line's text, whether or not the text view has the focus.
+- So a selection inside one line inverts its codes with one blank column either side; a selection over several lines inverts
+  each whole line between to the right edge, as on a Macintosh.
+- **The "Edit" menu** is the kernel's drop-down (WINDOWS 8); a disabled item is drawn as the kernel draws it.
+
+### 12.4 Behaviour (exact)
+
+**Keys** (the text view has the focus):
+
+| Key | Mark 0, selection empty | Mark 0, a selection | Mark 1 |
+|---|---|---|---|
+| MARK (18) | mark 1 (anchor = caret, already) | mark 1 (the anchor kept: the selection is extended from here) | mark 0, anchor = caret (the selection is cleared) |
+| LEFT / RIGHT | as W1 (11.5) | caret = the selection's start / end; nothing else moves | the caret moves as W1; the anchor stays |
+| UP / DOWN | as W1 | caret = the start / end, then UP / DOWN as W1 from there | the caret moves as W1; the anchor stays |
+| 32-126, ENTER | as W1 | the selection deleted, then the code inserted by W1's rule (11.1) | as the columns before (by whether the selection is empty) |
+| DELETE | as W1 | the selection deleted (caret = its start) | as the columns before |
+
+- In the first two columns anchor = caret after the key; in the last column (caret keys) the anchor stays.
+- **The UP / DOWN run** (11.5) is unchanged: MARK is "any other key" and ends it; caret keys with the mark on keep it.
+- **The caret stays shown** (11.5, "Shown") after each of these, scrolling as W1.
+- **Typing over a selection when the insert is refused** (W1's rule: 1,024 lines): the deletion stands and nothing is inserted.
+
+**Pointer** (`E_DOWN` and `E_MOVE` with the capture; the position by 11.5's click rule):
+- **`E_DOWN`** at (px, py): the caret goes to the position. Mark 0: anchor = caret. **Mark 1: the anchor stays** (a click
+  extends the selection, as SHIFT + click elsewhere). The mark is unchanged.
+- **`E_MOVE` with the capture** (a drag): the caret goes to the position of (px, py), the line **clamped to the lines shown**:
+  the line top + floor((py - 30) / 9) when py >= 30, else top; at most top + 15 and at most the last line. The anchor stays.
+  **No autoscroll** (12.10, decision 4).
+- **`E_UP`:** consumed; nothing changes.
+- A click on the text view (`E_DOWN` then `E_UP` at one point) with the mark off leaves an empty selection: W1's click.
+
+**The "Edit" menu** (id 2, after "File"):
+
+| Item | Id | Enabled | Action (`E_MENU` 2, id) |
+|---|---|---|---|
+| Cut | 1 | 1 <= S <= 2,048 | the clipboard = the selection's codes; the selection deleted |
+| Copy | 2 | 1 <= S <= 2,048 | the clipboard = the selection's codes; the selection is kept, mark 0 |
+| Paste | 3 | clipboard length C >= 1 | when the result holds at most 5,120 codes and at most 1,024 lines: the selection deleted, then the C codes inserted at the caret, the caret after them. Otherwise nothing changes (the selection kept) |
+| (separator) | 0 | never | |
+| Select all | 4 | always | anchor = 0, caret = L, mark 0 (the view follows the caret: "Shown") |
+
+- **The enabled bits** are set with `MB_ENABLE` whenever they change (Write keeps the last bits it set); at the start Cut,
+  Copy and Paste are disabled (their flags in the menu table).
+- A disabled item never sends `E_MENU` (the kernel's), so Cut and Copy never see S = 0 or S > 2,048, nor Paste C = 0.
+- **Paste's 1,024-line check is exact:** the lines of the text after the paste, wrapped by 11.4, counted before anything
+  changes.
+- **Changed** (11.5) is set by Cut, Paste, a typed code, ENTER and DELETE that change the text; not by Copy, Select all, MARK or
+  a selection.
+- The dialog (11.6) is unchanged. While it is open no menu opens (the kernel's modal rule: WINDOWS 8 and 17), so "Edit"
+  cannot act behind it.
+
+### 12.5 The clipboard
+
+- **`WR_CLIP` = `$7800`**, codes only, no length byte; **`WR_CLN`** (word, in the image) its length C, 0..2,048.
+- Cut and Copy write [selection start, end) of the document's text (32-126 and 13) to `$7800`; Paste reads `$7800`.
+- Copies go by `KFAR K_LDIR`, at most two runs a copy (the selection or the insert either side of the gap).
+- `$7800-$7FFF` is written only by Cut and Copy. Nothing else in `desk5` uses it (the tests' memory watch allows it).
+
+### 12.6 Where things live (section 6 for W2)
+
+| Where | What |
+|---|---|
+| DOCK 2-3 | the selection, MARK, the "Edit" menu's handler, the clipboard copies, Paste's line count, the selection drawing |
+| The image | the "Edit" menu in the menu table; `WR_AN` (word, the anchor), `WR_MK` (byte, the mark), `WR_CLN` (word), the enabled bits |
+| Cold RAM `$7800-$7FFF` | the clipboard |
+| Arena | unchanged (960 bytes free after the start, as W1) |
+| Pool | **0 bytes** (the label `K_LDIR` only); `keymap.txt`: SS+E = `MARK` |
+
+### 12.7 Symbols for the tests (11.7, plus)
+
+`WR_AN` (word), `WR_MK` (byte), `WR_CLN` (word), `WR_CLIP` (EQU `$7800`), `WR_MENU` (Write's `E_MENU` handler: called with
+`K_EV` holding an `E_MENU` record, it returns when done; it is what Write's loop calls), `K_LDIR`, `MARK` (18, from the key
+map).
+
+### 12.8 Bounds and how they are measured (section 7 for W2)
+
+| Measure | Bound |
+|---|---|
+| Write's bytes in DOCK 2-3 for W2 | **report** (**EST** +1,200-1,800; all of Write <= 7,000 still) |
+| Pool bytes / RAM image | **0** / <= 1,024 |
+| **Extend by one code:** mark 1, a 10-code selection inside line 5 of 16 full lines, RIGHT | <= 58,000 |
+| **Extend by one line:** the same, DOWN | <= 58,000 |
+| **A drag step:** the capture held, a selection ending in line 5, `E_MOVE` to the same x in line 6 | <= 58,000 |
+| A drag over the view: anchor at line 0's start, `E_MOVE` to the end of line 15 | **report** |
+| **A typed code over a selection:** a document whose line 0 is a whole paragraph of 70 codes, codes 20-29 selected, 'x' | <= 117,000 (as W1's line start) |
+| DELETE of a selection of 3 whole lines (lines 4-6 of a 40-line document, top 0) | **report** |
+| Copy of 2,048 codes (`WR_MENU` with `E_MENU` 2, 2) | **report** (**EST** 46 k: `LDIR` is 21 T a code) |
+| Cut of lines 0-15 (about 1,280 codes) of a 40-line document, top 0 | **report** (rewrap and a full draw, **EST** about 1.1 M) |
+| Paste of 1,280 codes at the start of line 5 of a 40-line document | **report** |
+| Select all of a 5,120-code document, the caret at 0 | **report** |
+| `W_DRAWVIEW` of 16 lines of about 80 codes, all selected | **report** (W1's 950 k plus 16 fills) |
+| W1's rows (11.9) again, after W2 | W1's bounds (11.9-11.10) |
+| Stack: the text view's `M_DRAW` / `M_EVENT`, and `WR_MENU`, crossings included | <= 128 bytes |
+| `DI` / frame interrupts lost | none / 0 |
+
+- Key rows: `K_DISPATCH` of `E_KEY` to the return; pointer rows: `K_DISPATCH` of the `E_MOVE` with `K_CAPTURE` = the text view;
+  menu rows: `WR_MENU` with a sentinel return. The documents are built as 11.8's ("The quick brown fox ..." repeated), the
+  text view focused, the window in front, interrupts on, the worst of three.
+- The **report** rows become bounds once the owner has tried them, as the scroll did (11.10).
+
+### 12.9 Tests (Sonnet, from this contract; TSRun headless, `tests/wr-w2.mjs` and the W1 harness)
+
+1. **The model** (`tests/wr-model.mjs` grows): anchor, mark, clipboard, the Edit menu's enabled bits; hand cases for every cell
+   of 12.4's table, Paste's refusals at 5,120 codes and 1,024 lines, a selection of 2,048 and 2,049 codes.
+2. **Random editing** with MARK, the caret keys, drags, clicks with and without the mark, Cut, Copy, Paste, Select all and
+   "New", against the model: the text, caret, anchor, mark, clipboard (read from `$7800`), changed, top, the bar.
+3. **Looks:** the screen after each step against the model's rendering of 12.3 (covered windows included); every drawing mode,
+   "selection" included, equal to a full draw.
+4. **The menu:** the enabled bits read from the kernel's menu entry after each step; a disabled item clicked sends nothing.
+5. **Regression:** `wr-w1`, `wr-demo`, the shell, Calculator and toolkit suites, and the kernel's key-map tests with SS+E =
+   `MARK`.
+6. **Bounds:** 12.8 as a table (`tests/wr-perf.mjs` extended).
+7. **Cross-emulator:** on ZEsarUX, a key-driven session: text typed, MARK and the caret keys select across lines, the "Edit"
+   menu by MENU (CS+9) and the arrows: Copy, then Paste further on; every screen identical to TSRun's.
+
+### 12.10 For the owner: decisions (recommendations; nothing is built until approved)
+
+1. **MARK on SS+E** (Ctrl+E on the test page) for selecting with the keys (12.1). *Alternatives:* SS+I (no mnemonic); a
+   different key moved off its SS character.
+2. **The clipboard in cold RAM `$7800`, 2,048 codes, Write's own** (12.1). *Alternative:* in the arena as section 9 drafted,
+   about 700 codes, and no `K_LDIR`.
+3. **"Select all"** in the "Edit" menu beside Cut, Copy and Paste. *Alternative:* leave it out (it is about 40 bytes).
+4. **No autoscroll while dragging;** a selection longer than the view is made with MARK and the caret keys (which scroll), or
+   MARK, the bar, then a click (a click extends while the mark is on). *Alternative:* autoscroll, a tracking loop inside the
+   text view like `VScroll`'s, a line per scroll (about 6 frames each, 11.10), **EST** +250 bytes.
+5. **No sign that the mark is on** until the selection grows. *Alternative:* "Write" in the title becomes "Write: mark"
+   (a title redraw on each MARK).
+6. **No key shortcuts for Cut, Copy and Paste** (only SS+I and SS+W are free, and Ctrl+W closes the browser tab); the "Edit"
+   menu is reached by MENU (CS+9) and RIGHT.
