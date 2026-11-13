@@ -320,6 +320,7 @@ wr_empty:
     ld (WR_CHG),a
     ld (WR_RUN),a
     ld (WR_MK),a
+    call wr_twclr
     ld hl,$FFFF
     ld (WR_BNL),hl              ; the bar is set next time
 ; wr_gab: WR_GA, WR_GB, WR_EA from the buffer, WR_GS, WR_GE.  Clobbers DE, HL.
@@ -959,6 +960,7 @@ wr_edit:
 ; wr_ego: the edit made (text, gap, WR_P, WR_OM, WR_DW, K, KS): the lines rewrapped, the caret's line, top's start; the
 ; selection empty, mark 0 (12.2).  Carry clear.
 wr_ego:
+    call wr_twclr
     ld a,1
     ld (WR_CHG),a
     ld hl,(WR_NL)
@@ -1664,9 +1666,6 @@ wr_seldelta:
     rr l
     push hl
     jr nc,.next
-    ld hl,$FFFF
-    ld (WR_TWP),hl              ; the widths cache, for this line
-    ld (WR_TWP2),hl
     ld hl,(WR_SA)               ; the old part: OX0, OX1 (OX0 = OX1: none)
     ld de,(WR_SB)
     ld (WR_XA),hl
@@ -1741,9 +1740,6 @@ wr_fillx:
 ; wr_selfill: line WR_RT (start WR_RS, band at y WR_RY): its part of [WR_XA, WR_XB) as an XOR fill (12.3); nothing when it has
 ; none.  Clobbers AF, BC, DE, HL.
 wr_selfill:
-    ld hl,$FFFF
-    ld (WR_TWP),hl
-    ld (WR_TWP2),hl
     call wr_selx
     ret c
     ld a,2
@@ -1804,38 +1800,58 @@ wr_selx:
     pop hl
     or a
     ret
-.tw:                            ; HL = an offset in the line -> DE = tw(s, HL), two kept (the line's other parts reuse them)
-    ld de,(WR_TWP)
+.tw:                            ; HL = an offset in the line -> DE = tw(s, HL): a width kept, else summed and kept
+    ld de,(WR_RS)
     or a
     sbc hl,de
     add hl,de
-    jr nz,.t2
-    ld de,(WR_TWV)
+    ld de,0
+    ret z                       ; the line's start: 0
+    ld (WR_TWQ),hl
+    ld hl,WR_TWC
+    ld b,4
+.c:
+    ld a,(WR_TWQ)
+    cp (hl)
+    jr nz,.c1
+    inc hl
+    ld a,(WR_TWQ + 1)
+    cp (hl)
+    jr nz,.c2
+    inc hl
+    ld a,(WR_RS)
+    cp (hl)
+    jr nz,.c3
+    inc hl
+    ld a,(WR_RS + 1)
+    cp (hl)
+    jr nz,.c4
+    inc hl
+    ld e,(hl)
+    inc hl
+    ld d,(hl)
     ret
-.t2:
-    ld de,(WR_TWP2)
-    or a
-    sbc hl,de
-    add hl,de
-    jr nz,.t3
-    ld de,(WR_TWV2)
-    ret
-.t3:
-    push hl
+.c1:
+    inc hl
+.c2:
+    inc hl
+.c3:
+    inc hl
+.c4:
+    inc hl
+    inc hl
+    inc hl
+    djnz .c
+    ld hl,(WR_TWQ)
     ld de,(WR_RS)
     or a
     sbc hl,de
     ld b,l
     ex de,hl
     call wr_tw
-    ld hl,(WR_TWP)              ; the older one goes
-    ld (WR_TWP2),hl
-    ld hl,(WR_TWV)
-    ld (WR_TWV2),hl
-    pop hl
-    ld (WR_TWP),hl
-    ld (WR_TWV),de
-    ret
+    ld hl,(WR_TWQ)
+    ld bc,(WR_RS)
+    jp wr_twput
 
 ; wr_replace: the selection [lo, hi) replaced by BC codes from HL (BC = 0: deleted; HL is read under K) as one edit (12.4): the
 ; caret after them, the view drawn, the "Edit" menu set.  A = 1: a paste, refused (carry, nothing changed) when the result would
@@ -2722,59 +2738,138 @@ wr_pos:
     dec hl                      ; else up to its last code
 .lastl:
     ld (WR_PE),hl
-    ld de,(WR_PS)               ; BC = the positions to step over, HL = the first code's address
+    ld de,(WR_PS)
     or a
     sbc hl,de
-    ld b,h
-    ld c,l
+    ld a,l                      ; n: the positions to step over (0..255)
+    ld (WR_PN),a
     ex de,hl
-    call wr_ptr
+    call wr_ptr                 ; HL = PS's address
     pop de                      ; r
-.w:
-    ld a,b
-    or c
-    jr z,.end                   ; at the last position
-    bit 7,d
-    jr nz,.end                  ; r < 0
-    push hl
-    ld l,(hl)
-    ld h,PROP6_W >> 8
-    ld a,(hl)                   ; the advance
+    ld (WR_PR0),de
+    ld c,0                      ; C = the steps left
+    ld a,(WR_PN)
+    or a
+    jr z,.pos
+    push ix
+    ex af,af'
+    push af
+    ld a,(WR_PN)
+    ex af,af'                   ; A' = the steps left
+    push hl                     ; IXL = the codes before the gap's start (0: none ahead within 255)
+    ld bc,(WR_GA)
+    or a
+    sbc hl,bc
+    ld a,0
+    jr nc,.g0
+    ld a,h
+    inc a
+    ld a,0
+    jr nz,.g0
+    sub l
+.g0:
+    ld ixl,a
     pop hl
-    push bc
-    ld b,a
+    ld b,PROP6_W >> 8
+.l:
+    bit 7,d
+    jr nz,.stop                 ; r < 0
+    ld c,(hl)
+    ld a,(bc)
     srl a
     inc d
     dec d
     jr nz,.ge
     cp e
     jr z,.ge
-    jr nc,.here                 ; r < floor(a / 2): here
+    jr nc,.stop                 ; r < floor(a / 2): here
 .ge:
-    ld a,e
-    sub b
+    ld a,(bc)                   ; r - a
+    neg
+    add a,e
     ld e,a
-    jr nc,.nc
+    jr c,.nb
     dec d
-.nc:
-    pop bc
-    dec bc
+.nb:
     inc hl
-    push de                     ; past the gap's start: after it
-    ld de,(WR_GA)
+    dec ixl
+    jr nz,.g1
+    ld hl,(WR_GB)
+.g1:
+    ex af,af'
+    dec a
+    jr z,.endx
+    ex af,af'
+    jr .l
+.stop:
+    ex af,af'
+    ld c,a
+    jr .x
+.endx:
+    ld c,a
+.x:
+    pop af
+    ex af,af'
+    pop ix
+.pos:
+    ld b,0
+    ld hl,(WR_PE)
+    or a
+    sbc hl,bc                   ; the position: PE less the steps left
+    push hl
+    ld hl,(WR_PR0)              ; its width from the line's start, r0 - r: kept for the selection (12.3)
     or a
     sbc hl,de
-    add hl,de
-    pop de
-    jr nz,.w
-    ld hl,(WR_GB)
-    jr .w
-.here:
+    ex de,hl
+    pop hl
+    push hl
+    ld bc,(WR_PS)
+    call wr_twput
+    pop hl
+    ret
+
+; wr_twput: HL = an offset, BC = its line's start, DE = their width: kept (4 kept, the oldest replaced).  Clobbers AF, HL.
+wr_twput:
+    push hl
+    ld a,(WR_TWI)
+    inc a
+    and 3
+    ld (WR_TWI),a
+    ld l,a
+    add a,a
+    add a,l
+    add a,a                     ; 6 i
+    ld l,a
+    ld h,0
+    push bc
+    ld bc,WR_TWC
+    add hl,bc
     pop bc
-.end:
-    ld hl,(WR_PE)               ; the position: PE less the steps left
-    or a
-    sbc hl,bc
+    ex (sp),hl                  ; HL = the offset, (SP) -> the entry
+    push de
+    ex de,hl                    ; DE = the offset
+    pop hl                      ; HL = the width
+    ex (sp),hl                  ; HL -> the entry, (SP) = the width
+    ld (hl),e
+    inc hl
+    ld (hl),d
+    inc hl
+    ld (hl),c
+    inc hl
+    ld (hl),b
+    inc hl
+    pop de
+    ld (hl),e
+    inc hl
+    ld (hl),d
+    ret
+; wr_twclr: no width kept (an edit changed the text).  Clobbers AF.
+wr_twclr:
+    ld a,$FF                    ; an offset's high byte is never $FF
+    ld (WR_TWC + 1),a
+    ld (WR_TWC + 7),a
+    ld (WR_TWC + 13),a
+    ld (WR_TWC + 19),a
     ret
 
 ; tv_focus / tv_blur: M_FOCUS / M_BLUR: the caret shown / hidden (a caret draw).
@@ -3018,10 +3113,11 @@ WR_RA:      DW 0
 WR_RB:      DW 0
 WR_OX0:     DW 0                ; a line's old part's x0, x1
 WR_OX1:     DW 0
-WR_TWP:     DW 0                ; two widths kept: offset, tw
-WR_TWV:     DW 0
-WR_TWP2:    DW 0
-WR_TWV2:    DW 0
+WR_TWC:     DS 24, $FF          ; 4 widths kept: offset, the line's start, tw (wr_twput)
+WR_TWI:     DB 0
+WR_TWQ:     DW 0
+WR_PN:      DB 0                ; wr_pos: the positions to step over, r
+WR_PR0:     DW 0
 WR_XE:      DW 0
 WR_XS:      DW 0
 WR_FT:      DW 0                ; the first line the change meets, its start
