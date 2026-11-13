@@ -615,9 +615,9 @@ UP / DOWN run), rounded up to 100 T, as the scroll's were (11.10). `tests/wr-per
 - **Haiku, on the build before the run fix:** `wr-w1` 12 of 12, `wr-demo` 7 of 7, `wr-w2` 14 of 14 on seeds 1 and 2. Shell,
   Calculator, toolkit, key map (`gen-keymap` 26 of 26), kernel (`kern-k1`-`k3`, `kern-hit`, `kern-mouse`, `kern-model2`),
   `bank-b0` and `web-smoke` all pass.
-- **ZEsarUX 13.0:** 95 of 95 rows. 33 are new: MARK and the caret keys select across lines, then the "Edit" menu by MENU and
+- **ZEsarUX 13.0, on the final build:** 95 of 95 rows. 33 are new: MARK and the caret keys select across lines, then the "Edit" menu by MENU and
   RIGHT: Copy, a move, Paste. Every screen, the document variables, the anchor, the mark, the clipboard and the enabled bits
   equal TSRun's.
-- **Fuse 1.9.1:** 6 of 6 boot rows.
+- **Fuse 1.9.1, on the final build:** 6 of 6 boot rows.
 
 **W2 is closed.** Next (step 5): the tape services contract, then W3 ("Open..." and "Save...").
