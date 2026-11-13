@@ -106,5 +106,14 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
     dialog, then a browser download; Open = the browser's file picker. Later a TS-Pico driver (ports `$0E` / `$0F`,
     `tpi:chopen` / `chrd` / `chwr` / `chclose`; `~/Projects/TS-Pico-Study`) answers the same calls. This replaces "tape
     services before W3". Contract `docs/FILES.md` (owner approved, 2026-11-12).
-  - **Order (owner, 2026-11-12):** W3 (Open / Save, `docs/WRITE.md` 13, owner approved; next to build: the TSRun bridge, `src/apps/files.asm`, then W3), then double-click and Find in Write, then
+  - **Order (owner, 2026-11-12):** W3 (Open / Save), then double-click and Find in Write, then
     Paint in mode 6 (mono, MacPaint-style; colour waits for the mode 2 graphics). Fonts and styles in Write: not planned.
+- **W3 is done on TSRun (2026-11-13):** the bridge, `web/fshost.js`, the page, `src/apps/files.asm`, Write's Open and Save
+  (`docs/WRITE.md` 13.9, `docs/FILES.md` 10). Still to do: ZEsarUX's row (13.7 item 5: no bridge, Save shows the alert), the
+  owner's try in the browser. The TSRun commits `d9302b8` and `b4dc564` are local (not pushed).
+- **Look slice (owner, 2026-11-13), after W3:** a Mac OS 1.0 style, no more than: a white menu bar (black text, a line under,
+  the selected title inverted), striped active title bars with the title centred, the close box on the left, a grey (dithered)
+  desktop, 1-pixel drop shadows on windows and menus, and a Mac-style arrow pointer. Our own bitmaps, not Apple's. Start with a
+  contract and PNG mock-ups from the JS models (current beside proposed) for the owner. gfx6 has no pattern fill yet; the pool
+  has about 371 bytes of step 5's growth left (DOCK 6 under R is an option for drawing code).
+- **Owner remark (2026-11-13):** Write is now more like a Note Pad; renaming it is undecided (ask).

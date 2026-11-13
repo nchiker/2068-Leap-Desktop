@@ -151,3 +151,15 @@ Two odd ports, so that TSRun's keyboard decoding (every even port) and TS-Pico (
 4. **Text files are plain text with LF line ends**, so they open in any editor; text mode converts.
 5. **The module in DOCK 2-3** (A), outside Write's 7,000-byte budget. *Alternative:* inside Write (simpler build, but Paint
    could not share it).
+
+## 10. As built (2026-11-13)
+
+- **TSRun:** `m.host = { command(n, bytes, answer) }` (submodule commit `b4dc564`, local, not pushed). The host answers at
+  once (`{status, data}`) or later through `answer()` (the pick); a new command drops a pending answer.
+- **The host:** `web/fshost.js`, shared by the page and the headless tests. Reading a file longer than 65,535 bytes (after
+  text conversion) gives status 3. A picked file's name is made usable (other codes become `_`; a name over 30 keeps an
+  extension of up to 8).
+- **The page:** a hidden file input and `showPicker()`, the fallback bar (`#fsbar`), downloads by `<a download>`.
+- **`src/apps/files.asm`:** 181 bytes; `FS_READ` / `FS_WRITE` at 50 T a byte; stack 4 bytes. A name longer than 30 from the
+  host is refused (3).
+- **Tests:** `fs-bridge` 206, `fs-text` 120, `fs-f1` 8 of 8 groups, `web-smoke` 35.

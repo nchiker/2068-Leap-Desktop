@@ -7,6 +7,8 @@
 // Rows: measured, bound, pass / MISSED / reported.  Exit code 1 on a missed bound.  A missed bound is reported with its numbers and nothing is changed (WRITE preamble).
 import * as W from './wr-lib.mjs';
 import * as H from './shell-lib.mjs';
+import { makeHost } from './wr-w3lib.mjs';
+import * as W3 from './wr-w3model.mjs';
 
 const { L, T, X, WM, hex, rd16, E } = W;
 const { argNum } = L;
@@ -336,6 +338,90 @@ if (w2ok) {
     row('stack of the text view\'s M_EVENT with the selection (MARK, caret keys, a drag), crossings included, bytes below T_SEND\'s own return', worstE.v, 128, worstE.what);
     row('stack of the text view\'s M_DRAW with a selection, crossings included', worstD.v, 128, worstD.what);
     row('stack of WR_MENU (Cut, Copy, Paste, Select all), crossings included, bytes below its return', worstM.v, 128, worstM.what);
+  }
+}
+
+// ===== W3 (docs/WRITE.md 13.6) ===========================================================================================================================================================
+// Save of 5,120 codes and Open of 5,120 codes in 80 lines, measured as direct calls under mapping A with a sentinel return, interrupts on, against web/fshost.js's fake host (files in a Map):
+//   * Save: the Save dialog's command (the label wr_dkcmd, A = WR_DK = 1, K_EV = the E_CMD record of the "Save" button) from the call to the return: the dialog closed and the window under it repainted, FS_OPEN, one FS_WRITE
+//     (the caret at 0) or two (the caret in the middle: the codes before the gap, then after it), FS_CLOSE, the name and the title row made dirty.  The write of the bytes itself is FS_WRITE's own 5,120 x 50 T (tests/fs-f1.mjs).
+//   * Open: WR_MENU (E_MENU 1, 2) with the pick answered at its first HALT; measured from FS_OPEN's entry (14 T after FS_PICK returned: `ld hl, WR_PNAME` and `xor a`) to WR_MENU's return, which is after the view is drawn
+//     (the title row is redrawn later by the window manager's E_REDRAW, not included): FS_OPEN, FS_READ of 5,120 codes, the emptied document, the paste with its line count, the name, the bar, the full draw.
+let w3ok = true;
+try { for (const n of ['WR_MENU', 'FS_OPEN', 'FS_READ', 'FS_WRITE', 'FS_BEGIN', 'FS_END', 'wr_dkcmd', 'WR_DK', 'WR_NAME']) if (S[n] === undefined) throw new Error(`desk5 does not define ${n}`); }
+catch (e) { w3ok = false; missed++; console.log(`FAIL | W3 rows not measured: ${e.message}`); }
+if (w3ok) {
+  const { snapshot, restore } = await import('./review-lib.mjs');
+  const host = makeHost(); m.host = host;
+  const BASE_W2 = 5564;                                                       // WRITE 12.11: Write's bytes after W2
+  { const total = S.WR_END - S.WR_START;
+    row('Write\'s bytes in DOCK 2-3 for W3: WR_END - WR_START less W2\'s 5,564 (13.6 EST +600-800; all of Write <= 7,000)', total - BASE_W2, null, `total ${total}; the all-of-Write bound of 7,000 is ${total <= 7000 ? 'not exceeded' : 'EXCEEDED'}; files.asm (FS_END - FS_BEGIN) ${S.FS_END - S.FS_BEGIN} bytes after it`);
+    row('RAM image after W3: WR_IMG_LEN', S.WR_IMG_LEN, 1024, 'unchanged bound'); }
+  // a document of 5,120 codes in 80 display lines: 80 paragraphs of 63 codes and the paragraph end, each line within the text width
+  let codes80 = null;
+  for (let tries = 0; tries < 400 && !codes80; tries++) {
+    const cs = [];
+    for (let p = 0; p < 80 && cs.length <= 5120; p++) {
+      for (let k = 0; k < 63; k++) cs.push(k % 9 === 8 ? 32 : rng.pick(WM.codesOf('abcdefghijklmnopqrstuvwxyz')));
+      cs.push(13);
+    }
+    const d = new WM.Doc(cs);
+    if (d.L === 5120 && d.nl === 81) codes80 = cs;                           // 80 paragraph ends: the last line is the empty line after the final 13
+  }
+  if (!codes80) throw new Error('no 5,120-code document of 80 lines');
+  const file80 = codes80.map((c) => (c === 13 ? 10 : c));
+  const lines80 = new WM.Doc(codes80).nl;
+  const diAdd = (r) => { diTotal += r.di; };
+  host.files.set('perf80.txt', Uint8Array.from(file80));
+  const openOnce = () => {
+    W.resetDoc(env);
+    let tFsOpen = null; const t0 = m.tstates;
+    const r = W.menuCall(env, 1, 2, { ints: true, onHalt: () => { host.answer('perf80.txt', file80); }, hooks: { [S.FS_OPEN]: () => { if (tFsOpen === null) tFsOpen = m.tstates; } } });
+    diAdd(r);
+    if (r.badSp !== undefined || r.preserved.length) { missed++; console.log(`FAIL | WR_MENU Open...: SP / registers not kept (${r.badSp !== undefined ? 'SP ' + hex(r.badSp) : r.preserved.join(',')})`); }
+    return { total: r.t, fromOpen: t0 + r.t - tFsOpen, r };
+  };
+  const os = [openOnce(), openOnce(), openOnce()];
+  { const d = new WM.Doc(codes80), s = W.stateDiff(env, d), a = [...s.doc, ...s.lt, ...s.bar];
+    if (a.length) { missed++; console.log(`FAIL | Open of the 5,120-code file: the state differs from the model: ${a[0]}`); }
+    const nm = Array.from(m.ram.subarray(S.WR_NAME + 1, S.WR_NAME + 1 + m.ram[S.WR_NAME]));
+    if (WM.textOf(nm) !== 'perf80.txt') { missed++; console.log(`FAIL | Open: the name is ${JSON.stringify(WM.textOf(nm))}`); } }
+  row('Open of 5,120 codes in 80 lines: from FS_OPEN\'s entry (FS_PICK\'s return + 14 T) to WR_MENU\'s return, the view drawn (13.6)', Math.max(...os.map((x) => x.fromOpen)), null, `report; worst of ${os.map((x) => x.fromOpen).join(', ')}; the whole WR_MENU call (from E_MENU: the screen repainted before the pick) ${Math.max(...os.map((x) => x.total)).toLocaleString('en')}; ${lines80} lines`);
+  // Save: from the loaded document (caret 0: one write), and with the caret in the middle (two writes)
+  const saveRows = [];
+  for (const [label, caretWhere] of [['caret 0 (one write)', 0], ['caret in the middle (two writes)', 1]]) {
+    W.resetDoc(env);
+    W.menuCall(env, 1, 2, { ints: true, onHalt: () => { host.answer('perf80.txt', file80); } });
+    let d = new WM.Doc(codes80);
+    if (caretWhere) { const r = W.dispatch(env, W.ptRec(E.DOWN, 100, 30 + 9 * 8 + 4, 1), { ints: true }); diTotal += r.di; W.dispatch(env, W.ptRec(E.UP, 100, 30 + 9 * 8 + 4, 0), { ints: true }); d.click(100, 30 + 9 * 8 + 4); }
+    W.menuCall(env, 1, 3, { ints: true });                                   // the Save dialog (not measured here)
+    const snap = snapshot(m), ts = [];
+    for (let i = 0; i < 3; i++) {
+      restore(m, snap); host.saves.length = 0; host.log.length = 0;
+      T.setEv(env, [E.CMD, 1, 0, 0]);
+      const r = T.runCall(env, S.wr_dkcmd, { a: m.ram[S.WR_DK] }, { map: 'A', ints: true });
+      ts.push(r.t); diAdd(r);
+      if (r.badSp !== undefined) { missed++; console.log('FAIL | Save: SP not kept'); }
+    }
+    const writes = host.log.filter((c) => c.n === 4).map((c) => c.bytes.length - 2), sv = host.saves[host.saves.length - 1];
+    const want = d.caret > 0 ? [d.caret, d.L - d.caret] : [d.L];
+    const saved = sv && sv.bytes.length === 5120 && sv.bytes.every((b, i) => b === file80[i]);
+    if (!saved || JSON.stringify(writes) !== JSON.stringify(want)) { missed++; console.log(`FAIL | Save (${label}): the host got ${sv ? sv.bytes.length : 'no'} bytes in writes ${JSON.stringify(writes)}, want 5,120 in ${JSON.stringify(want)}; equal ${saved}`); }
+    saveRows.push({ label, ts, writes });
+  }
+  const worstSave = Math.max(...saveRows.flatMap((x) => x.ts));
+  row('Save of 5,120 codes: from "Save"\'s E_CMD (the dialog command wr_dkcmd, A = 1, K_EV = E_CMD id 1) to the return: the dialog closed and repainted, FS_OPEN, FS_WRITE of 5,120 codes, FS_CLOSE, the name (13.6)', worstSave, null, `report; ${saveRows.map((x) => `${x.label}: worst of ${x.ts.join(', ')} (writes ${JSON.stringify(x.writes)})`).join('; ')}; the 5,120 byte writes alone are about 256 k T (fs-f1)`);
+  // stack of the W3 paths (WRITE 13.6: <= 128), measured over the calls above with a fresh run of each
+  {
+    let worst = 0, what = '';
+    const nt = (r, w) => { if (r.stack > worst) { worst = r.stack; what = w; } };
+    W.resetDoc(env);
+    nt(W.menuCall(env, 1, 2, { ints: true, onHalt: () => { host.answer('perf80.txt', file80); } }), 'Open 5,120');
+    nt(W.menuCall(env, 1, 3, { ints: true }), 'Save...');
+    T.setEv(env, [E.CMD, 1, 0, 0]); nt(T.runCall(env, S.wr_dkcmd, { a: m.ram[S.WR_DK] }, { map: 'A', ints: true }), 'Save 5,120');
+    host.files.set('big.txt', Uint8Array.from(new Array(6000).fill(65)));
+    nt(W.menuCall(env, 1, 2, { ints: true, onHalt: () => { host.answer('big.txt', new Array(6000).fill(65)); } }), 'Open too long (alert)');
+    row('stack of the W3 paths (WR_MENU Open... / Save..., the dialog command, the alert), crossings included, bytes below the return', worst, 128, what);
   }
 }
 

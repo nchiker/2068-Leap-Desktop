@@ -710,3 +710,45 @@ A `Dialog` (128, 64, 256, 64), a `Label` at (144, 76, 224, 9) with the message, 
 3. **One "Save..." that always asks the name** (prefilled). *Alternative:* "Save" (no question once named) and "Save As...".
 4. **Open reads into the document only after the checks**, so a refused file leaves the document as it was (except too many
    lines, found only while reading: the document is then empty).
+
+### 13.9 As built (2026-11-13)
+
+**W3 is done on TSRun** (ZEsarUX's row, 13.7 item 5, is still to run). The owner has not yet tried it.
+
+**Bytes:** Write 6,418 in DOCK 2-3 (W2 5,564: W3 +854, over the **EST** +600-800; 582 left under 7,000 for double-click and
+Find). Its image 535 (<= 1,024). `files.asm` 181 (FILES **EST** 250-350). Pool growth 0.
+- The title, the name, the Save dialog's buffer and the picked name live in RAM after the image (`$C000 + WR_IMG_LEN`, below
+  the arena), not in it: written before they are read, so they cost no DOCK bytes.
+- The three dialogs (discard, Save, the alert) are built by one table-driven routine (`wr_mkdlg`).
+
+**Amendments (binding; the tests adopted them):**
+1. **The alert's Label is (144, 76, 224, 18): two lines.** "The file is too long for Write (5,120 characters)." is 280
+   pixels and "The file has too many lines for Write (1,024)." 260; neither fits 224. Each breaks with a 13 before "(";
+   `G_TEXTP` starts the second line 8 rows down (its glyph height).
+2. The Save dialog's `Field` has id 1 (ENTER in it is Save), cap 30.
+3. Open, too many lines: the document is as after "New" (name "Untitled"), then the alert.
+4. Open when the pick gives a status other than OK or 12 (0: no host), or `FS_OPEN` fails: "The file could not be opened.",
+   nothing else changes. A failed or short `FS_READ`: the document as after "New", then that alert.
+5. Save: a failed `FS_OPEN` or `FS_WRITE` skips `FS_CLOSE` (no partial file is finished), then the alert. A failed
+   `FS_CLOSE` also gives the alert.
+6. "New" sets the name "Untitled" and redraws the title (the window manager redraws the title row's cells).
+7. Before `FS_PICK` waits, the screen is repainted (`W_UPDATE`), so no closed menu or dialog stays on screen.
+8. Open inserts the file as a paste into the emptied document with Write's window hidden (no drawing), then draws it once
+   at top 0. A flag on the shared paste path had cost Cut and Paste 22 T each, over the owner's bounds; it was removed.
+
+**Bounds** (TSRun T-states; `tests/wr-perf.mjs` 33 pass, 0 missed, 7 reported; `tests/fs-f1.mjs`):
+
+| Measure | Measured | Bound |
+|---|---|---|
+| Save of 5,120 codes (Save's `E_CMD` to the return: the dialog closed, the file written, the name) | 327,207 | report |
+| Open of 5,120 codes in 80 paragraphs (81 lines), `FS_OPEN` to the view drawn | 3,082,889 | report |
+| `FS_WRITE` / `FS_READ` of 5,120 bytes | 256,132 / 256,262 (50 T a byte) | report (FILES 7) |
+| Stack: W3 paths / any `FS_` call | 78 / 4 bytes | <= 128 / <= 32 |
+| W1's and W2's rows | Cut 1,100,884, Paste 1,825,586, all others as before | pass |
+| `DI` / interrupts lost (a 250-frame pick included) | none / 0 | none / 0 |
+
+**Tests (Sonnet from the contract; the main model re-ran every one on the final build):** `wr-w3` 7 of 7 groups, `fs-f1` 8 of
+8, `fs-bridge` 206, `fs-text` 120, `web-smoke` 35 checks, `wr-perf` as above, `wr-w1` 12 of 12, `wr-demo` 7 of 7, `wr-w2`
+14 of 14.
+
+**For the owner:** try it in the browser (`web/?cart=desk5`, Write, File: Save... then Open...).

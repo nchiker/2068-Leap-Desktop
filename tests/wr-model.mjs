@@ -279,8 +279,8 @@ export function tvLook(g, d, focus) {
 /** CWindow's close box (SHELL 10.1). */
 export function closeBoxLook(g, x, y, w) { g.setOp(OP_CLR); g.fill(x + w - 19, y + 1, 15, 7); g.setOp(OP_SET); g.frame(x + w - 18, y + 2, 13, 5); }
 /** Write's window as drawn by W_UPDATE: the window look (active or not), the close box when active, the text view, the bar. */
-export function writeLook(g, d, { focus = true, active = true, barValue = null } = {}) {
-  wmWindowLook(g, { x: WINR.x, y: WINR.y, w: WINR.w, h: WINR.h, title: { codes: codesOf(WINR.title) } }, active);
+export function writeLook(g, d, { focus = true, active = true, barValue = null, title = WINR.title } = {}) {
+  wmWindowLook(g, { x: WINR.x, y: WINR.y, w: WINR.w, h: WINR.h, title: { codes: codesOf(title) } }, active);
   if (active) closeBoxLook(g, WINR.x, WINR.y, WINR.w);
   tvLook(g, d, focus);
   const b = d.bar();
@@ -299,13 +299,13 @@ export function dialogDraw(g, focusBtn) {
  * The whole screen: desk, the bar with "File" and "Edit" (W2; `menus` [FILE_MENU] for a W1 build), Write's window, then `covers` (plain Windows { x, y, w, h, title } in front, in order), then the dialog (focusBtn 0 / 1 / 2) when `dialog`.
  * Write has the active look (and its close box) only when nothing is in front of it; the caret only when `focus`.
  */
-export function renderScreen(d, { focus = true, covers = [], dialog = null, barValue = null, menus = MENUS } = {}) {
+export function renderScreen(d, { focus = true, covers = [], dialog = null, barValue = null, menus = MENUS, title = WINR.title } = {}) {
   const g = new Gfx6Model();
   g.setOp(OP_CLR); g.fill(0, 8, 512, 184);
   drawBar(g, menus, layoutOf(menus));
-  writeLook(g, d, { focus, active: covers.length === 0 && !dialog, barValue });
+  writeLook(g, d, { focus, active: covers.length === 0 && !dialog, barValue, title });
   covers.forEach((c, i) => wmWindowLook(g, { x: c.x, y: c.y, w: c.w, h: c.h, title: { codes: codesOf(c.title) } }, i === covers.length - 1 && !dialog));
-  if (dialog) dialogDraw(g, dialog.focusBtn);
+  if (dialog) { if (dialog.draw) dialog.draw(g); else dialogDraw(g, dialog.focusBtn); }      // W3: `dialog.draw(g)` draws the Save dialog or the alert instead of the discard dialog
   return g;
 }
 

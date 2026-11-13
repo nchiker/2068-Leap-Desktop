@@ -499,6 +499,7 @@ wr_save:
 ; wr_open: "Open..." once the discard dialog (if any) is passed (13.3): a file picked, checked, read into the gap's top end and
 ; inserted as a paste into the emptied document (the line count checked), the caret and top at 0.
 wr_open:
+    KFAR W_UPDATE               ; the menu or the dialog just closed is repainted before the wait
     ld hl,WR_PNAME
     call FS_PICK
     jr nc,.picked
@@ -545,11 +546,14 @@ wr_open:
     ld a,b
     or c
     jr z,.shown                 ; an empty file
+    push ix
+    ld ix,(WR_WIN)              ; hidden while the codes go in: W_DRAWVIEW draws nothing inside it
+    set 1,(ix+View_flags)
     ld a,1
-    ld (WR_RND),a
     call wr_replace             ; A = 1: the lines counted
-    ld a,0
-    ld (WR_RND),a
+    ld ix,(WR_WIN)
+    res 1,(ix+View_flags)
+    pop ix                      ; (the carry kept)
     jp c,.lines
     ld hl,0
     call wr_moveto
@@ -567,6 +571,8 @@ wr_open:
     ld (WR_MK),a
     ld hl,WR_PNAME
     call wr_setname
+    ld hl,$FFFF
+    ld (WR_BNL),hl              ; the bar set and drawn (the hidden replace set it unseen)
     call wr_bar
     xor a
     call wr_draw
@@ -2322,9 +2328,6 @@ wr_replace:
     ld hl,(WR_GS)               ; nothing is selected now: its lines are among those drawn
     ld (WR_SA),hl
     ld (WR_SB),hl
-    ld a,(WR_RND)
-    or a
-    ret nz                      ; Open: nothing drawn (carry clear)
     ld hl,(WR_CL)               ; top by "Shown" (11.5): unchanged, the changed lines; else a full draw at the new top
     ld de,(WR_TOP)
     or a
@@ -3428,7 +3431,6 @@ WR_ADLG:    DW 0
 WR_SFLD:    DW 0
 WR_CDLG:    DW 0
 WR_DK:      DB 0                ; the dialog open: 0 none (or the discard dialog), 1 Save, 2 the alert
-WR_RND:     DB 0                ; 1: wr_replace draws nothing (Open)
 WR_MODE:    DB 0
 WR_MJ:      DB 0
 WR_MJ2:     DB 0
