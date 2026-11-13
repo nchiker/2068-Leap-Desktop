@@ -327,10 +327,9 @@ start and end, offsets in the buffer; the caret is `WR_GS`), `WR_LT` (word: the 
   keyboard and reads joysticks 1 and 2 from connected gamepads (`tsrun/joystick.js`); the header shows the pad on joystick 1.
   `tests/web-smoke.mjs` checks that Space and the arrows reach the key matrix and leave the joystick idle.
 
-## 12. W2 interface (drafted 2026-11-12, **awaiting the owner's approval**; binding for the W2 code and tests once approved)
+## 12. W2 interface (designed 2026-11-12, owner approved; binding for the W2 code and tests)
 
-The tests are written from sections 1-11 and this section, never from the code. The decisions in 12.10 are recommendations
-until the owner takes them.
+The tests are written from sections 1-11 and this section, never from the code. The owner took every decision of 12.10.
 
 ### 12.1 Amendments
 
@@ -485,7 +484,7 @@ map).
 7. **Cross-emulator:** on ZEsarUX, a key-driven session: text typed, MARK and the caret keys select across lines, the "Edit"
    menu by MENU (CS+9) and the arrows: Copy, then Paste further on; every screen identical to TSRun's.
 
-### 12.10 For the owner: decisions (recommendations; nothing is built until approved)
+### 12.10 Decisions (owner, 2026-11-12: "I approve of your decisions"; every recommendation taken)
 
 1. **MARK on SS+E** (Ctrl+E on the test page) for selecting with the keys (12.1). *Alternatives:* SS+I (no mnemonic); a
    different key moved off its SS character.
@@ -499,3 +498,13 @@ map).
    (a title redraw on each MARK).
 6. **No key shortcuts for Cut, Copy and Paste** (only SS+I and SS+W are free, and Ctrl+W closes the browser tab); the "Edit"
    menu is reached by MENU (CS+9) and RIGHT.
+
+- **No keyboard shortcuts for now** (owner: "I don't see a logical place for them to go"; the owner tests mostly with the
+  mouse).
+- **Autoscroll may be revisited.** The owner asked whether a drag can reuse the scroll that keeps the caret shown while typing
+  ("Shown", 11.5). It can: the scroll is the same. What a drag lacks is a reason to scroll when the pointer stops, because
+  `E_MOVE` comes only when the pointer moves. Two ways:
+  - **(a)** the drag's line not clamped to the lines shown: a move above or below the view puts the caret one line past the
+    lines shown, and "Shown" scrolls one line. It scrolls only while the pointer moves outside the view. **EST** +30 bytes.
+  - **(b)** a hold loop like `VScroll`'s (`V_FRAMES`): a line every few frames while the button is held outside the view,
+    whether or not the pointer moves. **EST** +200 bytes.
