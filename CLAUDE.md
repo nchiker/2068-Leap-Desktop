@@ -44,7 +44,7 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
   read when `K_MSET` turns it on; TSRun emulates it as `m.mouse`, and the test page has a Mouse switch.
 - Step 5 placement (owner, 2026-11-12): toolkit always mapped; shell, Calculator, Write in DOCK 2-3; DOCK 6 for resources and
   later Paint's drawing core. Step 5's pool growth <= 3,400 bytes (3,029 used after T2 / T3).
-- Step 5 cartridge `desk5` (DOCK 0-5): boots into the shell (`docs/SHELL.md`). Programs: 0 shell, 1 Calculator, 2 Controls (window (176, 32, 320, 144), with a `List` and a `Field`), 3 Write (`src/apps/write.asm`, `docs/WRITE.md`; its symbols take the prefix `WR_`); one
+- Step 5 cartridge `desk5` (DOCK 0-5): boots into the shell (`docs/SHELL.md`). Programs: 0 shell, 1 Calculator, 2 Controls (window (176, 32, 320, 144), with a `List` and a `Field`), 3 Write (`src/apps/write.asm`, `docs/WRITE.md`; its symbols take the prefix `WR_`; `WR_MENU` is banked, so tests call it under A); one
   at a time through `K_LAUNCH` / `K_QUIT`; each copies its RAM image to `$C000` (<= 1 KB); app arena `$C400-$DFFF`. Windows
   that programs close are `CWindow`s (close box; SYMBOL SHIFT + Q = key code `CLOSE` 17). Programs dispatch with `TK_DISPATCH`.
 - Tests that use `desk5` boot through the shell (`tests/calc-lib.mjs` `bootDesk5`, `tests/shell-lib.mjs`).
@@ -93,5 +93,13 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
 - **The `VScroll` 12 x 80 draw bound is 47,700 T** (owner, 2026-11-12).
 - **Write W1 is done** (ZEsarUX 62 of 62; Fuse boot rows); the owner tried it and accepted it, scroll bounds at the measured
   figures (`docs/WRITE.md` 11.10).
+- **Write W2 is done** (selection and clipboard, `docs/WRITE.md` 12; ZEsarUX 95 of 95, Fuse boot rows). The owner tried it
+  with the mouse and accepted it; the report rows are bounds at the measured figures (12.13).
+  - Selecting by keys is **MARK** (SS+E, code 18; Ctrl+E on the test page): SHIFT cannot work on the TS2068 (12.1). No
+    keyboard shortcuts for Cut / Copy / Paste (owner).
+  - The clipboard is Write's own, 2,048 codes at **`$7800`** (cold RAM, under K), copied by `KFAR K_LDIR` (a label on
+    `k_zero`'s `ldir` / `ret`: 0 pool bytes). A paste that may be refused keeps overwritten codes at `$5800` (12.11).
+  - Autoscroll while dragging may be revisited (12.10: options (a) and (b)).
 - **Next:**
-  - Write W2 (selection and clipboard), starting with its interface section in `docs/WRITE.md`; then tape services before W3.
+  - The tape services contract (FEASIBILITY roadmap 5; files reach the desktop as tapes), then Write W3 ("Open..." and
+    "Save...").

@@ -528,10 +528,10 @@ map).
 | A drag over the view (16 lines) | 366,599 | report |
 | A typed code over a selection | 79,374 | <= 117,000 |
 | DELETE of a selection of 3 lines | 850,823 | report |
-| Copy of 2,048 codes | 45,293 | report (EST 46 k) |
-| Cut of 16 lines (about 1,280 codes) | 1,100,866 | report (EST 1.1 M) |
-| Paste of about 1,280 codes | 1,825,583 | report |
-| Select all of 5,120 codes | 1,473,804 | report |
+| Copy of 2,048 codes | 45,311 | report (EST 46 k) |
+| Cut of 16 lines (about 1,280 codes) | 1,100,884 | report (EST 1.1 M) |
+| Paste of about 1,280 codes | 1,825,586 | report |
+| Select all of 5,120 codes | 1,473,814 | report |
 | `W_DRAWVIEW` of 16 lines, all selected | 1,179,321 | report |
 | Stack: `M_EVENT` / `M_DRAW` / `WR_MENU` | 74 / 34 / 62 bytes | <= 128 |
 | W1's rows after W2 | typing 51,268 and 104,800; caret moves 16-23 k; scroll by DOWN 338,974, by a bar arrow 410,445; launch 14 frames | W1's bounds: all pass |
@@ -594,3 +594,30 @@ does not reach the browser.
 - **The report rows are fast enough** (owner: "it does feel fast enough - I selected all and pasted several times and
   scrolled up and down"). Their bounds become the figures measured on the final W2 build, rounded up to 100 T, as the
   scroll's were (11.10): see 12.13.
+
+### 12.13 Bounds set by the owner (2026-11-12)
+
+The report rows of 12.8 become bounds: the figures measured on the final W2 build (after a refused Paste was made to keep the
+UP / DOWN run), rounded up to 100 T, as the scroll's were (11.10). `tests/wr-perf.mjs` judges them.
+
+| Measure | Measured | Bound |
+|---|---|---|
+| A drag over the view (16 lines) | 366,599 | **<= 366,600** |
+| DELETE of a selection of 3 lines | 850,823 | **<= 850,900** |
+| Copy of 2,048 codes | 45,311 | **<= 45,400** |
+| Cut of 16 lines (about 1,280 codes) | 1,100,884 | **<= 1,100,900** |
+| Paste of about 1,280 codes | 1,825,586 | **<= 1,825,600** |
+| Select all of 5,120 codes | 1,473,814 | **<= 1,473,900** |
+| `W_DRAWVIEW` of 16 lines, all selected | 1,179,321 | **<= 1,179,400** |
+
+**Final runs:**
+- **The main model, on the final build:** `wr-w2` 14 of 14 groups; `wr-perf` every row passes.
+- **Haiku, on the build before the run fix:** `wr-w1` 12 of 12, `wr-demo` 7 of 7, `wr-w2` 14 of 14 on seeds 1 and 2. Shell,
+  Calculator, toolkit, key map (`gen-keymap` 26 of 26), kernel (`kern-k1`-`k3`, `kern-hit`, `kern-mouse`, `kern-model2`),
+  `bank-b0` and `web-smoke` all pass.
+- **ZEsarUX 13.0:** 95 of 95 rows. 33 are new: MARK and the caret keys select across lines, then the "Edit" menu by MENU and
+  RIGHT: Copy, a move, Paste. Every screen, the document variables, the anchor, the mark, the clipboard and the enabled bits
+  equal TSRun's.
+- **Fuse 1.9.1:** 6 of 6 boot rows.
+
+**W2 is closed.** Next (step 5): the tape services contract, then W3 ("Open..." and "Save...").

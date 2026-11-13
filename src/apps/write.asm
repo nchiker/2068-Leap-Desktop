@@ -158,8 +158,11 @@ wr_do:
     call wr_draw
     jp wr_menen
 
-; wr_edmenu: H = an item of "Edit".  Each ends the UP / DOWN run.
+; wr_edmenu: H = an item of "Edit".  Each that takes effect ends the UP / DOWN run.
 wr_edmenu:
+    ld a,h
+    cp 3
+    jr z,.paste                 ; (a refused paste keeps the run: it changes nothing)
     xor a
     ld (WR_RUN),a
     ld a,h
@@ -167,9 +170,7 @@ wr_edmenu:
     jr z,.cut
     dec a
     jr z,.copy
-    dec a
-    jr z,.paste
-    dec a
+    sub 2
     ret nz
     ld (WR_MK),a                ; Select all: anchor 0, caret L, mark 0
     ld h,a
@@ -198,7 +199,11 @@ wr_edmenu:
     or c
     ret z
     ld a,1                      ; the lines counted
-    jp wr_replace
+    call wr_replace
+    ret c
+    xor a
+    ld (WR_RUN),a
+    ret
 
 ; wr_rect: IX = a new view: x = HL, y = B, w = DE, h = C, id = A.
 wr_rect:
