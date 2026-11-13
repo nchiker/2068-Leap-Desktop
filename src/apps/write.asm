@@ -33,6 +33,8 @@ WR_START:
     ldir
     ld hl,WR_MENUS
     KFAR MB_SET
+    ld hl,WR_SUNT
+    call wr_nm
     ld bc,WR_CAP
     call K_ALLOC
     ld (WR_BUF),hl
@@ -103,6 +105,9 @@ wr_loop:
     cp WR_WINID
     ld a,1
     jr z,.ask                   ; quit
+    ld a,(WR_DK)
+    or a
+    jr nz,.dk
     ld a,(WR_PEND)
     or a
     jr z,wr_loop
@@ -123,8 +128,12 @@ wr_loop:
 .ask:
     call wr_ask
     jr wr_loop
+.dk:
+    call wr_dkcmd
+    jr wr_loop
 
-; WR_MENU: Write's E_MENU handler (K_EV holds the record): File (1): New (1); Edit (2): Cut, Copy, Paste, Select all (12.4).
+; WR_MENU: Write's E_MENU handler (K_EV holds the record): File (1): New (1), Open... (2), Save... (3) (13.1); Edit (2): Cut,
+; Copy, Paste, Select all (12.4).
 WR_MENU:
     xor a
     ld (WR_DRAWN),a
@@ -134,10 +143,11 @@ WR_MENU:
     jr z,wr_edmenu
     dec a
     ret nz
-    dec h
-    ret nz
-    ld a,2
-; wr_ask: A = 1 quit, 2 New: the dialog first when changed (11.6).
+    ld a,h
+    cp 3
+    jp z,wr_sopen
+    inc a                       ; New 2, Open 3
+; wr_ask: A = 1 quit, 2 New, 3 Open: the dialog first when changed (11.6, 13.3).
 wr_ask:
     ld b,a
     ld a,(WR_CHG)
@@ -146,13 +156,19 @@ wr_ask:
     jr z,wr_do
     ld (WR_PEND),a
     jp wr_dopen
-; wr_do: A = 1 quit (never returns), 2 New.
+; wr_do: A = 1 quit (never returns), 2 New, 3 Open.
 wr_do:
     dec a
     jr nz,.new
     KFAR K_QUIT
 .new:
+    dec a
+    jp nz,wr_open
+; wr_new: an empty document named "Untitled", drawn (11.6, 13.1).
+wr_new:
     call wr_empty
+    ld hl,WR_SUNT
+    call wr_setname
     call wr_bar
     xor a
     call wr_draw
@@ -225,74 +241,10 @@ wr_add:
 
 ; wr_dopen: the discard dialog (11.6), made once, opened.  wr_dclose: closed; nothing pending.
 wr_dopen:
-    ld ix,(WR_DLG)
-    ld a,ixh
-    or ixl
-    jr nz,.open
-    ld hl,CL_Dialog
-    call K_NEW
-    ld (WR_DLG),ix
-    ld hl,128
-    ld b,64
-    ld de,256
-    ld c,64
-    xor a
-    call wr_rect
-    ld hl,CL_Label
-    call K_NEW
-    ld hl,144
-    ld b,76
-    ld de,200
-    ld c,9
-    xor a
-    call wr_rect
-    ld (ix+Label_text),LOW WR_SASK
-    ld (ix+Label_text+1),HIGH WR_SASK
-    call .add
-    ld hl,224
-    ld de,WR_SDISC
-    ld a,1
-    call .button
-    ld (ix+View_flags),$11      ; focusable, the default
-    push ix
-    ld hl,304
-    ld de,WR_SCANC
-    ld a,2
-    call .button
-    push ix
-    ld ix,(WR_DLG)
-    pop hl
-    ld (ix+Dialog_cancel),l
-    ld (ix+Dialog_cancel+1),h
-    pop hl
-    ld (ix+Dialog_default),l
-    ld (ix+Dialog_default+1),h
-.open:
+    ld hl,WR_DLG
+    ld de,WR_TDIS
+    call wr_dlg
     KFAR W_OPEN
-    ret
-.button:                        ; HL = x, DE = the text, A = id -> a Button (y 100, 64 x 16, focusable), added
-    push de
-    push af
-    push hl
-    ld hl,CL_Button
-    call K_NEW
-    pop hl
-    pop af
-    ld b,100
-    ld de,64
-    ld c,16
-    call wr_rect
-    pop de
-    ld (ix+Button_text),e
-    ld (ix+Button_text+1),d
-    ld (ix+View_flags),1
-.add:
-    push ix
-    pop de
-    push ix
-    ld ix,(WR_DLG)
-    KFAR K_ADDCHILD
-    pop ix
     ret
 wr_dclose:
     ld ix,(WR_DLG)
@@ -300,6 +252,403 @@ wr_dclose:
     xor a
     ld (WR_PEND),a
     ret
+
+; ---------------------------------------------------------------------------------------------------------------------------
+; W3: Open and Save (13), through the FS_ calls (docs/FILES.md, src/apps/files.asm).
+
+; wr_dlg: HL -> a dialog's variable, DE -> its table: IX = the dialog, made (wr_mkdlg) the first time.
+wr_dlg:
+    ld a,(hl)
+    inc hl
+    or (hl)
+    jr z,.make
+    ld a,(hl)
+    dec hl
+    ld l,(hl)
+    ld h,a
+    push hl
+    pop ix
+    ret
+.make:
+    push hl
+    ex de,hl
+    call wr_mkdlg
+    pop hl
+    push ix
+    pop de
+    ld (hl),d
+    dec hl
+    ld (hl),e
+    ret
+
+; wr_mkdlg: HL -> a table: a Dialog made, its views made and added; IX = the Dialog.  The table: the Dialog's x (DW), y, w (DW),
+; h, flags, id (the View fields at 8-15, in order); then each view: its class (DW; 0 ends the table), those 8 bytes, a role
+; (bit 0 the default, bit 1 the cancel, bit 2 a Field: cap 30, kept in WR_SFLD) and the word at offset 16 (a Label's or
+; Button's text, a Field's buffer).
+wr_mkdlg:
+    push hl
+    ld hl,CL_Dialog
+    call K_NEW
+    pop hl
+    ld (WR_CDLG),ix
+    call .rect
+.view:
+    ld e,(hl)
+    inc hl
+    ld d,(hl)
+    inc hl
+    ld a,d
+    or e
+    jr z,.end
+    push hl
+    ex de,hl
+    call K_NEW
+    pop hl
+    call .rect
+    ld c,(hl)                   ; the role
+    inc hl
+    ld a,(hl)
+    ld (ix+16),a
+    inc hl
+    ld a,(hl)
+    ld (ix+17),a
+    inc hl
+    push hl
+    bit 2,c
+    jr z,.nf
+    ld (ix+Field_cap),30
+    ld (WR_SFLD),ix
+.nf:
+    push ix
+    pop de
+    ld ix,(WR_CDLG)
+    bit 0,c
+    jr z,.nd
+    ld (ix+Dialog_default),e
+    ld (ix+Dialog_default+1),d
+.nd:
+    bit 1,c
+    jr z,.nc
+    ld (ix+Dialog_cancel),e
+    ld (ix+Dialog_cancel+1),d
+.nc:
+    KFAR K_ADDCHILD
+    pop hl
+    jr .view
+.end:
+    ld ix,(WR_CDLG)
+    ret
+.rect:                          ; 8 bytes from HL to IX + 8; HL past them
+    push ix
+    pop de
+    ld a,8
+    add a,e
+    ld e,a
+    adc a,d
+    sub e
+    ld d,a
+    ld bc,8
+    ldir
+    ret
+
+; wr_setname: HL -> a name (a length byte, 1-30 codes): the document's name; the title "Write: " and the name; the title row
+; made dirty (W_INVAL: the window manager redraws it).  wr_nm: the name and the title only.
+wr_setname:
+    call wr_nm
+    ld hl,16
+    ld (GA),hl
+    ld (GA+2),hl
+    ld hl,480
+    ld (GA+4),hl
+    ld hl,8
+    ld (GA+6),hl
+    KFAR W_INVAL
+    ret
+
+wr_nm:
+    ld de,WR_NAME
+    ld bc,31
+    ldir
+    ld hl,WR_STW
+    ld de,WR_TITLE
+    ld c,8
+    ldir
+    ld hl,WR_NAME
+    ld a,(hl)
+    ld c,a
+    add a,7
+    ld (WR_TITLE),a
+    inc hl
+    ldir                        ; (B = 0; C >= 1)
+    ret
+
+; wr_alert: HL = a message (in the image): the alert (13.4), made once, opened.
+wr_alert:
+    push hl
+    ld hl,WR_ADLG
+    ld de,WR_TALR
+    call wr_dlg
+    pop de
+    ld l,(ix+View_child)        ; its Label
+    ld h,(ix+View_child+1)
+    ld bc,Label_text
+    add hl,bc
+    ld (hl),e
+    inc hl
+    ld (hl),d
+    KFAR W_OPEN
+    ld a,2
+    ld (WR_DK),a
+    ret
+
+; wr_sopen: "Save...": the Save dialog (13.2), made once, its Field holding the name, opened, the Field focused.
+wr_sopen:
+    ld hl,WR_SDLG
+    ld de,WR_TSAV
+    call wr_dlg
+    push ix
+    ld ix,(WR_SFLD)
+    ld hl,WR_NAME
+    KFAR TK_SETTEXT             ; (the window is closed: nothing drawn)
+    pop ix
+    KFAR W_OPEN
+    ld de,(WR_SFLD)
+    KFAR K_SETFOCUS
+    ld a,1
+    ld (WR_DK),a
+    ret
+
+; wr_dkcmd: A = the dialog open (1 Save, 2 the alert): its E_CMD (K_EV + 1 = the id).  The dialog closes; Save (1: the
+; button or ENTER in the Field) saves.
+wr_dkcmd:
+    ld b,a
+    xor a
+    ld (WR_DK),a
+    ld ix,(WR_ADLG)
+    djnz .close
+    ld ix,(WR_SDLG)
+    KFAR W_CLOSE
+    ld a,(K_EV+1)
+    dec a
+    ret nz                      ; Cancel
+    jr wr_save
+.close:
+    KFAR W_CLOSE
+    ret
+
+; wr_save: the Field's name (".txt" added when it has no "." and fits), the document written as text (13.2).
+wr_save:
+    ld hl,WR_FBUF
+    ld a,(hl)
+    or a
+    ret z                       ; an empty name: nothing saved
+    ld c,a
+    ld b,a
+.dot:
+    inc hl
+    ld a,(hl)
+    cp '.'
+    jr z,.named
+    djnz .dot
+    ld a,c
+    cp 27
+    jr nc,.named                ; ".txt" does not fit
+    add a,4
+    ld (WR_FBUF),a
+    inc hl
+    ex de,hl
+    ld hl,WR_STXT
+    ld bc,4
+    ldir
+.named:
+    ld hl,WR_FBUF
+    ld a,1                      ; write, text
+    call FS_OPEN
+    jp c,.fail
+    ld bc,(WR_GS)               ; the codes before the gap, then after it
+    ld a,b
+    or c
+    jr z,.after
+    ld hl,(WR_BUF)
+    call FS_WRITE
+    jp c,.fail
+.after:
+    ld hl,WR_CAP
+    ld de,(WR_GE)
+    or a
+    sbc hl,de
+    ld b,h
+    ld c,l
+    ld a,b
+    or c
+    jr z,.close
+    ld hl,(WR_GB)
+    call FS_WRITE
+    jp c,.fail
+.close:
+    call FS_CLOSE
+    jp c,.fail
+    xor a
+    ld (WR_CHG),a
+    ld hl,WR_FBUF
+    jp wr_setname
+.fail:
+    ld hl,WR_SNSAV
+    jp wr_alert
+
+; wr_open: "Open..." once the discard dialog (if any) is passed (13.3): a file picked, checked, read into the gap's top end and
+; inserted as a paste into the emptied document (the line count checked), the caret and top at 0.
+wr_open:
+    ld hl,WR_PNAME
+    call FS_PICK
+    jr nc,.picked
+    cp FS_CANCEL
+    ret z
+    jp .cant
+.picked:
+    ld hl,WR_PNAME
+    xor a                       ; read, text
+    call FS_OPEN
+    jp c,.cant
+    ld hl,WR_CAP
+    or a
+    sbc hl,bc
+    jr nc,.fits
+    call FS_CLOSE
+    ld hl,WR_SLONG
+    jp wr_alert
+.fits:
+    push hl                     ; CAP - n: where the codes go
+    push bc
+    call wr_empty
+    pop bc
+    pop de
+    ld hl,(WR_BUF)
+    add hl,de
+    ex de,hl                    ; DE = BUF + CAP - n
+    push de
+    push bc
+    ld a,b
+    or c
+    jr z,.read
+    call FS_READ                ; BC = the codes read
+    jp c,.rfail
+    pop hl
+    push hl
+    or a
+    sbc hl,bc
+    jp nz,.rfail                ; fewer than the length given
+.read:
+    call FS_CLOSE
+    pop bc
+    pop hl
+    ld a,b
+    or c
+    jr z,.shown                 ; an empty file
+    ld a,1
+    ld (WR_RND),a
+    call wr_replace             ; A = 1: the lines counted
+    ld a,0
+    ld (WR_RND),a
+    jp c,.lines
+    ld hl,0
+    call wr_moveto
+    call wr_findcl
+.shown:
+    ld hl,0
+    ld (WR_TOP),hl
+    ld (WR_TS),hl
+    ld (WR_AN),hl
+    ld (WR_SA),hl
+    ld (WR_SB),hl
+    xor a
+    ld (WR_CHG),a
+    ld (WR_RUN),a
+    ld (WR_MK),a
+    ld hl,WR_PNAME
+    call wr_setname
+    call wr_bar
+    xor a
+    call wr_draw
+    jp wr_menen
+.rfail:
+    pop bc
+    pop de
+    call wr_new
+.cant:
+    ld hl,WR_SNOPN
+    jp wr_alert
+.lines:
+    call wr_new
+    ld hl,WR_SLINES
+    jp wr_alert
+
+; The dialogs' tables (wr_mkdlg): the discard dialog (11.6), Save (13.2), the alert (13.4).
+WR_TDIS:
+    DW 128
+    DB 64
+    DW 256
+    DB 64, 0, 0
+    DW CL_Label, 144
+    DB 76
+    DW 200
+    DB 9, 0, 0, 0
+    DW WR_SASK
+    DW CL_Button, 224
+    DB 100
+    DW 64
+    DB 16, $11, 1, 1
+    DW WR_SDISC
+    DW CL_Button, 304
+    DB 100
+    DW 64
+    DB 16, 1, 2, 2
+    DW WR_SCANC
+    DW 0
+WR_TSAV:
+    DW 128
+    DB 56
+    DW 256
+    DB 80, 0, 0
+    DW CL_Label, 144
+    DB 68
+    DW 200
+    DB 9, 0, 0, 0
+    DW WR_SSVAS
+    DW CL_Field, 144
+    DB 84
+    DW 224
+    DB 12, 1, 1, 4
+    DW WR_FBUF
+    DW CL_Button, 224
+    DB 108
+    DW 64
+    DB 16, $11, 1, 1
+    DW WR_SSAVE
+    DW CL_Button, 304
+    DB 108
+    DW 64
+    DB 16, 1, 2, 2
+    DW WR_SCANC
+    DW 0
+WR_TALR:
+    DW 128
+    DB 64
+    DW 256
+    DB 64, 0, 0
+    DW CL_Label, 144
+    DB 76
+    DW 224
+    DB 18, 0, 0, 0              ; two lines (a message's 13)
+    DW 0
+    DW CL_Button, 304
+    DB 100
+    DW 64
+    DB 16, $11, 1, 3
+    DW WR_SOK
+    DW 0
+WR_STXT:    DB ".txt"
+WR_STW:     DB 7, "Write: "
 
 ; ===========================================================================================================================
 ; The document.
@@ -1973,6 +2322,9 @@ wr_replace:
     ld hl,(WR_GS)               ; nothing is selected now: its lines are among those drawn
     ld (WR_SA),hl
     ld (WR_SB),hl
+    ld a,(WR_RND)
+    or a
+    ret nz                      ; Open: nothing drawn (carry clear)
     ld hl,(WR_CL)               ; top by "Shown" (11.5): unchanged, the changed lines; else a full draw at the new top
     ld de,(WR_TOP)
     or a
@@ -3025,7 +3377,14 @@ WR_THD:     KTHUNK tv_draw
 WR_THE:     KTHUNK tv_event
 WR_THF:     KTHUNK tv_focus
 WR_THB:     KTHUNK tv_blur
-WR_TITLE:   DB 5, "Write"
+WR_SUNT:    DB 8, "Untitled"
+WR_SSVAS:   DB 8, "Save as:"
+WR_SSAVE:   DB 4, "Save"
+WR_SOK:     DB 2, "OK"
+WR_SNSAV:   DB 28, "The file could not be saved."
+WR_SNOPN:   DB 29, "The file could not be opened."
+WR_SLONG:   DB 50, "The file is too long for Write", 13, "(5,120 characters)."
+WR_SLINES:  DB 46, "The file has too many lines for Write", 13, "(1,024)."
 WR_SASK:    DB 21, "Discard the document?"
 WR_SDISC:   DB 7, "Discard"
 WR_SCANC:   DB 6, "Cancel"
@@ -3033,8 +3392,10 @@ WR_MENUS:
     DB 2
     DW WR_M1, WR_M2
 WR_M1:
-    DB 1, 4, "File", 1
+    DB 1, 4, "File", 3
     DB 1, 0, 3, "New"
+    DB 2, 0, 7, "Open..."
+    DB 3, 0, 7, "Save..."
 WR_M2:                          ; 12.4: Cut, Copy, Paste disabled at the start
     DB 2, 4, "Edit", 5
     DB 1, 1, 3, "Cut"
@@ -3061,7 +3422,13 @@ WR_WIN:     DW 0
 WR_TV:      DW 0
 WR_BAR:     DW 0
 WR_DLG:     DW 0
-WR_PEND:    DB 0                ; 1 quit, 2 New, waiting for the dialog
+WR_PEND:    DB 0                ; 1 quit, 2 New, 3 Open, waiting for the dialog
+WR_SDLG:    DW 0                ; W3 (13): the Save dialog, the alert, the Field, the dialog being made
+WR_ADLG:    DW 0
+WR_SFLD:    DW 0
+WR_CDLG:    DW 0
+WR_DK:      DB 0                ; the dialog open: 0 none (or the discard dialog), 1 Save, 2 the alert
+WR_RND:     DB 0                ; 1: wr_replace draws nothing (Open)
 WR_MODE:    DB 0
 WR_MJ:      DB 0
 WR_MJ2:     DB 0
@@ -3138,6 +3505,12 @@ WR_RGE:     DW 0
 WR_RSV:     DW 0
     ENT
 WR_IMG_LEN  EQU $ - WR_IMG
+; RAM after the image (below the arena, not copied: each is written before it is read).
+WR_TITLE    EQU PROG_IMG + WR_IMG_LEN   ; "Write: " and the name: a length byte and up to 37 codes (13.1)
+WR_NAME     EQU WR_TITLE + 38           ; the document's name: a length byte and up to 30 codes
+WR_FBUF     EQU WR_NAME + 31            ; the Save dialog's Field
+WR_PNAME    EQU WR_FBUF + 31            ; the picked name (FS_PICK)
+    ASSERT WR_PNAME + 32 <= AARENA_BASE
     ASSERT WR_IMG_LEN <= 1024 && (CL_TextView >> 8) == ((CL_TextView + 11) >> 8)
     ASSERT WR_OCX + 3 == WR_OCV && WR_NCX + 3 == WR_NCV
 WR_END:

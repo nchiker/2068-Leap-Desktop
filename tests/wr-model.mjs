@@ -39,12 +39,12 @@ import { vsLook } from './tk-model.mjs';
 
 export { Gfx6Model, OP_SET, OP_CLR, OP_XOR, toDisp };
 export const CAP = 5120, MAXLINES = 1024, NSHOWN = 16, W = 444, MAXLINE = 255, PITCH = 9;
-export const WINR = { x: 16, y: 16, w: 480, h: 168, title: 'Write' };
+export const WINR = { x: 16, y: 16, w: 480, h: 168, title: 'Write: Untitled' };   // W3 (13.1): "Write: " and the name
 export const TVR = { x: 24, y: 30, w: 448, h: 144 };
 export const BARR = { x: 478, y: 28, w: 12, h: 148 };
 export const TEXTX = 27;
 export const DLG = { x: 128, y: 64, w: 256, h: 64, label: { x: 144, y: 76, w: 200, h: 9, text: 'Discard the document?' }, discard: { x: 224, y: 100, w: 64, h: 16, text: 'Discard' }, cancel: { x: 304, y: 100, w: 64, h: 16, text: 'Cancel' } };
-export const FILE_MENU = menuSpec(1, 'File', [[1, 0, 'New']]);
+export const FILE_MENU = menuSpec(1, 'File', [[1, 0, 'New'], [2, 0, 'Open...'], [3, 0, 'Save...']]);   // W3 (13.1)
 export const KEY = { DELETE: 12, LEFT: 8, RIGHT: 9, DOWN: 10, UP: 11, ENTER: 13, TAB: 14, BACKTAB: 15, MENU: 16, CLOSE: 17, MARK: 18, ESC: 27 };
 export const CLIPMAX = 2048, CLIP_ADDR = 0x7800;
 export const EDIT_MENU = menuSpec(2, 'Edit', [[1, 1, 'Cut'], [2, 1, 'Copy'], [3, 1, 'Paste'], [0, 2, ''], [4, 0, 'Select all']]);   // 12.4: flags bit 0 disabled at start, bit 1 separator
