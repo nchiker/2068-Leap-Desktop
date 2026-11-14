@@ -58,7 +58,7 @@ function launchFrames(p) {
 
 // ===========================================================================================================================
 if (ONLY.includes(1)) {
-  const sec = cur = new Sec('1 the shell has three icons (Calculator, Controls, Write at (176, 40)); a double click on "Write" opens it: a CWindow "Write" (16, 16, 480, 168), the empty document drawn, the caret in the text view, within 30 frames');
+  const sec = cur = new Sec('1 the shell has three icons (Calculator, Key Caps, Notepad at (176, 40)); a double click on "Write" opens it: a CWindow "Write" (16, 16, 480, 168), the empty document drawn, the caret in the text view, within 30 frames');
   env.frames_(12);
   const d0 = H.shellDiff(env);
   sec.ok(d0 === null, () => `the shell's screen with three icons (the icon bitmap WRITE is read from icons.txt): ${d0}`);

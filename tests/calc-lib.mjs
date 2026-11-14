@@ -4,7 +4,7 @@
 //   - bootDesk5: boot (the cartridge runs the shell: docs/SHELL.md 9-10), mouse attached before the first frame, the memory watch of BANKING 10.7
 //     (makeWatch from bank-lib), V_FRAMES read after every normally run frame, frames until the shell runs, then the program under test is launched
 //     THROUGH THE SHELL (a double click on its icon, SHELL 4 / 10.4) and the writes to Calculator's RAM image are watched (opts.prog: 1 Calculator
-//     (default), 2 Controls, 0 stay in the shell);
+//     (default), 2 Key Caps, 0 stay in the shell);
 //   - launchByDoubleClick / quitByCloseBox / quitBySSQ / waitProgram: the shell's launcher driven by the mouse and the keys (SHELL 9.4, 10.1, 10.4);
 //   - the stack depth seen at K_GETEV's entry (the program's event loop): env.sp;
 //   - directKey: C_KEY called directly under mapping A (CALCULATOR 3), with the T-states;
@@ -125,7 +125,7 @@ export function openWindows(m, S) {
 }
 /** Where each program's first window is, after its launch (SHELL 4, 5, 10.4; CALCULATOR 4). */
 export const PROG_WIN = { 0: { x: 32, y: 24, w: 256, h: 80, title: 'Leap Desktop', plain: true }, 1: { x: 160, y: 24, w: 176, h: 144, title: 'Calculator' },
-  2: { x: 176, y: 32, w: 320, h: 144, title: 'Controls' },   // TOOLKIT 10.5: grown from 144 x 112
+  2: { x: 32, y: 32, w: 448, h: 136, title: 'Key Caps' },   // KEYCAPS 1
   3: { x: 16, y: 16, w: 480, h: 168, title: 'Notepad: Untitled' } };    // WRITE 11.3
 /** Program p is running: K_PROG = p and its window (class, rectangle, title) is on the desk, as the only one. */
 export function progUp(env, p) {
@@ -139,7 +139,7 @@ export function waitProgram(env, p, max = 120) {
   for (let i = 0; i <= max; i++) { if (progUp(env, p)) return i; if (i < max) env.frame(); }
   return -1;
 }
-/** The icons of the shell (SHELL 10.4, 10.5, WRITE 11.2): "Calculator" at (48, 40), "Controls" at (112, 40), "Write" at (176, 40); 64 x 26. */
+/** The icons of the shell (SHELL 10.4, 10.5, WRITE 11.2): "Calculator" at (48, 40), "Key Caps" at (112, 40), "Write" at (176, 40); 64 x 26. */
 export const ICON_RECT = { 1: { x: 48, y: 40, w: 64, h: 26 }, 2: { x: 112, y: 40, w: 64, h: 26 }, 3: { x: 176, y: 40, w: 64, h: 26 } };
 export const iconCentre = (p) => [ICON_RECT[p].x + 32, ICON_RECT[p].y + 13];
 /** CWindow's close box hit rectangle (LOOK 3.3, on the left): (x + 8, y + 1, 15, 7) of a window at (x, y); `ww` is unused. */

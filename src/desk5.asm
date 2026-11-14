@@ -22,7 +22,6 @@ KARENA_BASE EQU $F500
 KARENA_END  EQU $FB00
 PROG_IMG    EQU $C000           ; the running program's RAM image, at most 1 KB (docs/SHELL.md 2)
 C_IMG_ADDR  EQU PROG_IMG        ; Calculator's
-D_IMG_ADDR  EQU PROG_IMG        ; Controls'
 AARENA_BASE EQU $C400
 AARENA_END  EQU $E000
 
@@ -168,15 +167,16 @@ ISR_BODY:
     INCLUDE "kernel/tk.asm"     ; the toolkit (docs/TOOLKIT.md)
     INCLUDE "tk-classes.inc"
     INCLUDE "kernel/launch.asm" ; the launcher (docs/SHELL.md 3)
-K_PROGS:                        ; the programs (SHELL 10.3): 0 the shell, 1 Calculator, 2 Controls, 3 Write (docs/WRITE.md)
-    DW S_START, C_START, D_START, WR_START
+K_PROGS:                        ; the programs (SHELL 10.3): 0 the shell, 1 Calculator, 2 Key Caps (docs/KEYCAPS.md), 3 Write (docs/WRITE.md)
+    DW S_START, C_START, KC_START, WR_START
     ASSERT $ <= $C000           ; chunk 5 only
 
     INCLUDE "apps/calc.asm"     ; DOCK chunks 2-3
     ASSERT C_IMG_LEN <= 1024
-    INCLUDE "apps/demo.asm"
     INCLUDE "apps/shell.asm"
     INCLUDE "apps/write.asm"     ; program 3 (docs/WRITE.md)
+    INCLUDE "apps/applib.asm"   ; the app library (docs/APPLIB.md)
+    INCLUDE "apps/keycaps.asm"  ; program 2 (docs/KEYCAPS.md)
     INCLUDE "apps/files.asm"    ; the FS_ calls (docs/FILES.md)
     ASSERT $ <= $8000
 

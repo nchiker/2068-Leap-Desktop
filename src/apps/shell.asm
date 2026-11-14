@@ -10,17 +10,11 @@ S_START:
     ld de,PROG_IMG
     ld bc,S_IMG_LEN
     ldir
+    call AL_INIT
     ld hl,S_MENUS
     KFAR MB_SET
-    ld hl,CL_Window
-    call K_NEW
-    ld (ix+View_x),32
-    ld (ix+View_y),24
-    ld (ix+View_w),LOW 256
-    ld (ix+View_w+1),HIGH 256
-    ld (ix+View_h),80
-    ld (ix+Window_title),LOW S_TITLE
-    ld (ix+Window_title+1),HIGH S_TITLE
+    ld hl,S_TWIN                ; the window (the library's view table, APPLIB 3)
+    call AL_NEW
     ld (S_WIN),ix
     ld a,1                      ; the icons: programs 1 .. S_NICONS
 .icon:
@@ -58,10 +52,8 @@ S_START:
     inc hl
     ld a,(hl)
     ld (ix+Icon_name+1),a
-    push ix
-    pop de
-    ld ix,(S_WIN)
-    KFAR K_ADDCHILD
+    ld hl,S_WIN
+    call AL_ADD
     ld a,(S_I)
     inc a
     cp S_NICONS + 1
@@ -82,7 +74,7 @@ s_loop:
     jr z,.cmd
     KFAR TK_DISPATCH
     jr s_loop
-.menu:                          ; Leap (1): About (1), Calculator (3), Controls (4), Write (5)
+.menu:                          ; Leap (1): About (1), Calculator (3), Key Caps (4), Write (5)
     ld a,(K_EV+2)
     cp 1
     jr z,.about
@@ -99,59 +91,18 @@ s_loop:
     ld ix,(S_ABOUT)
     KFAR W_CLOSE
     jr s_loop
-.about:
-    ld ix,(S_ABOUT)
-    ld a,ixh
-    or ixl
-    call z,s_mkabout
-    KFAR W_OPEN
+.about:                         ; the library's alert (APPLIB 5)
+    ld hl,S_ABOUT
+    ld de,S_ABOUTT
+    call AL_ALERT
     jr s_loop
 
-; s_mkabout: the About dialog (10.4), made once -> IX, S_ABOUT.
-s_mkabout:
-    ld hl,CL_Dialog
-    call K_NEW
-    ld (ix+View_x),128
-    ld (ix+View_y),64
-    ld (ix+View_w),LOW 256
-    ld (ix+View_w+1),HIGH 256
-    ld (ix+View_h),64
-    ld (S_ABOUT),ix
-    ld hl,CL_Label
-    call K_NEW
-    ld (ix+View_x),144
-    ld (ix+View_y),76
-    ld (ix+View_w),200
-    ld (ix+View_h),9
-    ld (ix+Label_text),LOW S_ABOUTT
-    ld (ix+Label_text+1),HIGH S_ABOUTT
-    call s_addabout
-    ld hl,CL_Button
-    call K_NEW
-    ld (ix+View_x),LOW 304
-    ld (ix+View_x+1),HIGH 304
-    ld (ix+View_y),100
-    ld (ix+View_w),64
-    ld (ix+View_h),16
-    ld (ix+View_flags),$11      ; focusable, default
-    ld (ix+View_id),1
-    ld (ix+Button_text),LOW S_OK
-    ld (ix+Button_text+1),HIGH S_OK
-    push ix
-    call s_addabout
-    pop hl
-    ld ix,(S_ABOUT)
-    ld (ix+Dialog_default),l
-    ld (ix+Dialog_default+1),h
-    ld (ix+Dialog_cancel),l
-    ld (ix+Dialog_cancel+1),h
-    ret
-s_addabout:                     ; IX = a view -> the dialog's last child
-    push ix
-    pop de
-    ld ix,(S_ABOUT)
-    KFAR K_ADDCHILD
-    ret
+S_TWIN:                         ; the shell's window (SHELL 4): an APPLIB 3 entry
+    DW CL_Window, 32
+    DB 24
+    DW 256
+    DB 80, 0, 0, 8
+    DW S_TITLE
 
 ; ---------------------------------------------------------------------------------------------------------------------------
 ; Icon's methods (banked).  ic_draw (10.4, 10.5): paper, the bitmap (G_BLIT, copy 0: x + 16 is on the byte grid), the name centred
@@ -291,12 +242,12 @@ S_THEVENT:
     KTHUNK ic_event
 S_TITLE:    DB 12, "Leap Desktop"
 S_ABOUTT:   DB 20, "Leap Desktop, step 5"
-S_OK:       DB 2, "OK"
+
 S_NCALC:    DB 10, "Calculator"
-S_NCTRL:    DB 8, "Controls"
+S_NCTRL:    DB 8, "Key Caps"
 S_NWRITE:   DB 7, "Notepad"
 S_NAMES:    DW S_NCALC, S_NCTRL, S_NWRITE
-S_SETS:     DW ICON_CALC, ICON_CTRL, ICON_WRITE
+S_SETS:     DW ICON_CALC, ICON_KEYS, ICON_WRITE
 S_MENUS:
     DB 1
     DW S_M1
@@ -305,7 +256,7 @@ S_M1:
     DB 1, 0, 21, "About Leap Desktop..."
     DB 2, 2, 0                  ; a separator
     DB 3, 0, 10, "Calculator"
-    DB 4, 0, 8, "Controls"
+    DB 4, 0, 8, "Key Caps"
     DB 5, 0, 7, "Notepad"
 S_WIN:      DW 0
 S_ABOUT:    DW 0
@@ -319,5 +270,5 @@ S_NICONS    EQU 3
 Icon_prog   EQU 16
 Icon_name   EQU 17
 Icon_SIZE   EQU 19
-    ASSERT S_IMG_LEN <= 1024 && (CL_Icon >> 8) == ((CL_Icon + 11) >> 8)
+    ASSERT PROG_IMG + S_IMG_LEN <= AL_RAM && (CL_Icon >> 8) == ((CL_Icon + 11) >> 8)
 S_END:

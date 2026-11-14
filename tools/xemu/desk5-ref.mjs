@@ -2,15 +2,16 @@
 // desk5-ref.mjs -- the TSRun reference for the cross-emulator runs of desk5 (docs/SHELL.md 8 test 5).
 //   node tools/xemu/desk5-ref.mjs [OUTDIR]        (default build/xemu/desk5-ref)
 // Does NOT build: boots the existing build/desk5.dck (symbols from build/desk5/out.sym).  No mouse is attached (the Kempston ports read $FF).
-// The cartridge boots into the shell (K_PROG 0: "Leap Desktop" window, icons Calculator and Controls, Calculator focused).  Steps:
+// The cartridge boots into the shell (K_PROG 0: "Leap Desktop" window, icons Calculator, Key Caps and Notepad, Calculator focused).  Steps:
 //   1. boot (K_PROG poisoned with $FF after reset, RAM being random) until K_PROG = 0, then 30 frames more, then until the display RAM is unchanged over 20 frames (checked every 20): "shell"
 //   2. ENTER (opens the focused icon); until K_PROG = 1, 30 frames more, settled: "calc" (C_DSTR = "0")
 //   3. 1 2 3 . 4 5 SS+B 6 ENTER through the keyboard matrix (m.keyMatrix, active low, index = half-row in the order $FE $FD $FB $F7 $EF $DF
 //      $BF $7F, bit 0-4), each key (or chord) held 3 frames, released 3 frames ('.' = SS+M; 123.45 * 6 = 740.7); settled: "typed"
 //   4. SYMBOL SHIFT + Q (CLOSE, held 3 frames); until K_PROG = 0, 30 frames more, settled: "back", which must equal "shell" byte for byte.
-//   5. (T2/T3, docs/TOOLKIT.md 10.8 item 6) the Controls session: TAB (CAPS SHIFT + 1) focuses the Controls icon, ENTER opens it: "ctl" (K_PROG 2);
-//      TAB x5 (to the List), DOWN x10 (CS+6): "list"; TAB (the Field), LEFT x2 (CS+5), x, SS+P ('"'), SS+Z (':'), DELETE (CS+0): "field";
-//      ENTER (the status line reads Name: ...): "status"; SYMBOL SHIFT + Q: "back2" (K_PROG 0; whether it equals "shell" is reported, not required).
+//   5. (docs/KEYCAPS.md) the Key Caps session: TAB (CAPS SHIFT + 1) focuses the Key Caps icon, ENTER opens it: "kc" (K_PROG 2; status "Press a key.", the Plain radio checked);
+//      Q: "kc-q" (the status reads "Last key: q (code 113)", Q drawn pressed only while held, so the settled screen has no pressed cap); SYMBOL SHIFT + P ('"'): "kc-ss" (status "Last key: " (code 34));
+//      TAB (the Caps Shift radio takes the focus), SPACE (it is checked: the keyboard shows plane 1, the status reads "Last key: Space (code 32)"): "kc-radio";
+//      SYMBOL SHIFT + Q: "back2" (K_PROG 0; whether it equals "shell" is reported, not required).
 //   6. (docs/WRITE.md 8 item 7) the Write session, from the shell: TAB x2 (CAPS SHIFT + 1; the third icon), ENTER (K_PROG 3): "wr-open"; a typed paragraph that wraps
 //      (with SYMBOL SHIFT characters) and short lines to about 20 lines, so that the view scrolls: "wr-typed"; UP x4, LEFT, DELETE, x: "wr-edit";
 //      SYMBOL SHIFT + Q (the document has changed: the discard dialog): "wr-dialog" (K_PROG 3); ENTER (Discard): "wr-back" (K_PROG 0, equal to "shell" byte for byte).
@@ -51,10 +52,11 @@ const EXPECT = '740.7';
 const CLOSEKEYS = [SS, KQ];
 const CS = [0, 0], KZ = [0, 1], KX = [0, 2], KP = [5, 0], K0 = [4, 0];
 const TAB = [CS, D1], LEFT = [CS, D5], DOWN = [CS, D6], DELETE = [CS, K0], SSP = [SS, KP], SSZ = [SS, KZ];
-const CTL = [['TAB', TAB], ['ENTER', [ENTER]]];
-const LISTSEQ = [...Array(5).fill(['TAB', TAB]), ...Array(10).fill(['DOWN', DOWN])];
-const FIELDSEQ = [['TAB', TAB], ['LEFT', LEFT], ['LEFT', LEFT], ['x', [KX]], ['SS+P', SSP], ['SS+Z', SSZ], ['DELETE', DELETE]];
-const STATUSSEQ = [['ENTER', [ENTER]]];
+const KSPACE = [7, 0], KQQ = [2, 0];
+const KC_OPEN = [['TAB', TAB], ['ENTER', [ENTER]]];
+const KC_Q = [['q', [KQQ]]];
+const KC_SS = [['SS+P', SSP]];
+const KC_RADIO = [['TAB', TAB], ['SPACE', [KSPACE]]];
 
 // the Write session's keys
 const keymap = (() => {
@@ -164,23 +166,23 @@ const backSettled = settle(300);
 const back = dump('back', backSettled);
 kprog.back = back.K_PROG;
 
-// 5. the Controls session
+// 5. the Key Caps session
 const pressSeq = (seq) => { for (const [, keys] of seq) press(keys); };
-pressSeq(CTL.slice(0, 1));                  // TAB: the focus to the Controls icon
-press(CTL[1][1]);                            // ENTER: opens it
-const ctlUp = untilProg(2);
+pressSeq(KC_OPEN.slice(0, 1));              // TAB: the focus to the Key Caps icon
+press(KC_OPEN[1][1]);                        // ENTER: opens it
+const kcUp = untilProg(2);
 run(30);
-const ctlSettled = settle(300);
-const ctl = dump('ctl', ctlSettled);
-pressSeq(LISTSEQ);
-const listSettled = settle(60);
-const list = dump('list', listSettled);
-pressSeq(FIELDSEQ);
-const fieldSettled = settle(60);
-const field = dump('field', fieldSettled);
-pressSeq(STATUSSEQ);
-const statusSettled = settle(60);
-const status = dump('status', statusSettled);
+const kcSettled = settle(300);
+const kc = dump('kc', kcSettled);
+pressSeq(KC_Q);
+const kcqSettled = settle(60);
+const kcq = dump('kc-q', kcqSettled);
+pressSeq(KC_SS);
+const kcssSettled = settle(60);
+const kcss = dump('kc-ss', kcssSettled);
+pressSeq(KC_RADIO);
+const kcrSettled = settle(60);
+const kcr = dump('kc-radio', kcrSettled);
 press(CLOSEKEYS);
 const back2Up = untilProg(0);
 run(30);
@@ -248,7 +250,7 @@ if (['WR_AN', 'WR_MK', 'WR_CLN', 'WR_MENU', 'MB_ENT', 'ME_SIZE', 'ME_EN'].every(
   const names = ['w2-open', 'w2-typed', 'w2-sel', 'w2-menu', 'w2-copy', 'w2-paste', 'w2-dialog'];
   const distinct = names.every((n, i) => i === 0 || !same(rd_(n), rd_(names[i - 1])));
   const okW2 = up && open.K_PROG === 3 && typed.K_PROG === 3 && sel.K_PROG === 3 && menu.K_PROG === 3 && copy.K_PROG === 3 && paste.K_PROG === 3 && dlg.K_PROG === 3 && backUp && backSettled && back.K_PROG === 0 && backEq && distinct &&
-    vOpen.WR_CLN === 0 && vOpen.EDIT_EN === 1 && vSel.WR_MK === 1 && vSel.WR_AN !== vSel.WR_GS && vCopy.WR_CLN > 0 && vCopy.WR_MK === 0 && vPaste.WR_CLN === vCopy.WR_CLN && vPaste.WR_AN === vPaste.WR_GS && vPaste.WR_CHG === 1;
+    vOpen.WR_CLN === 0 && vOpen.EDIT_EN === 0x0A /* Select all and Find... (8 items, bit 7 - k: WRITE 14.3) */ && vSel.WR_MK === 1 && vSel.WR_AN !== vSel.WR_GS && vCopy.WR_CLN > 0 && vCopy.WR_MK === 0 && vPaste.WR_CLN === vCopy.WR_CLN && vPaste.WR_AN === vPaste.WR_GS && vPaste.WR_CHG === 1;
   console.log(`w2 session: open ${JSON.stringify(vOpen)}, typed ${JSON.stringify(vTyped)}, sel ${JSON.stringify(vSel)}, menu ${JSON.stringify(vMenu)}, copy ${JSON.stringify(vCopy)}, paste ${JSON.stringify(vPaste)}; w2-back equals shell ${backEq}`);
   w2 = { ok: okW2, keys: { open: WR_OPEN, typed: W2_TYPED, sel: W2_SEL, menu: W2_MENU, copy: W2_COPY, move: W2_MOVE, paste: W2_PASTE, close: CLOSEKEYS, enter: [ENTER] },
     vars: { open: vOpen, typed: vTyped, sel: vSel, menu: vMenu, copy: vCopy, paste: vPaste }, kprog: { open: open.K_PROG, typed: typed.K_PROG, sel: sel.K_PROG, menu: menu.K_PROG, copy: copy.K_PROG, paste: paste.K_PROG, dialog: dlg.K_PROG, back: back.K_PROG }, backEqShell: backEq };
@@ -294,9 +296,9 @@ if (['WR_NAME', 'WR_SDLG', 'WR_ADLG', 'WR_DK', 'WR_TITLE', 'WR_GB', 'WR_BUF', 'F
     vars: { open: vOpen, typed: vTyped, dialog: vDlg, name: vName, alert: vAlert, after: vAfter, discard: vDisc },
     kprog: { open: open.K_PROG, typed: typed.K_PROG, dialog: dlg.K_PROG, name: name.K_PROG, alert: alert.K_PROG, after: after.K_PROG, discard: disc.K_PROG, back: back.K_PROG }, backEqShell: backEq, afterEqTyped };
 } else console.log('w3 session: skipped (the build has no Write W3 symbols)');
-const ctlKeys = { tabIcon: CTL[0][1], enter: CTL[1][1], list: LISTSEQ, field: FIELDSEQ, status: STATUSSEQ, close: CLOSEKEYS };
+const kcKeys = { tabIcon: KC_OPEN[0][1], enter: KC_OPEN[1][1], q: KC_Q, ss: KC_SS, radio: KC_RADIO, close: CLOSEKEYS };
 
-writeFileSync(join(outDir, 'keys.json'), JSON.stringify({ seq: SEQ.map((s) => s[0]), afterKey, expect: EXPECT, kprog, ctl: ctlKeys, ctlKprog: { ctl: ctl.K_PROG, list: list.K_PROG, field: field.K_PROG, status: status.K_PROG, back2: back2.K_PROG }, back2EqShell,
+writeFileSync(join(outDir, 'keys.json'), JSON.stringify({ seq: SEQ.map((s) => s[0]), afterKey, expect: EXPECT, kprog, kc: kcKeys, kcKprog: { kc: kc.K_PROG, q: kcq.K_PROG, ss: kcss.K_PROG, radio: kcr.K_PROG, back2: back2.K_PROG }, back2EqShell,
   wr: { open: WR_OPEN, typed: WR_TYPED, edit: WR_EDIT, close: CLOSEKEYS, enter: [ENTER], text: WR_PARA, vars: { open: wrOpenV, typed: wrTypedV, edit: wrEditV }, kprog: { open: wrOpen.K_PROG, typed: wrTyped.K_PROG, edit: wrEdit.K_PROG, dialog: wrDlg.K_PROG, back: wrBack.K_PROG }, backEqShell: wrBackEqShell }, w2, w3 }) + '\n');
 console.log('display after each key: ' + afterKey.map(([k, s]) => `${k}:"${s}"`).join(' '));
 const backEqShell = same(rd_('back'), rd_('shell'));
@@ -304,10 +306,10 @@ console.log(`back screen equals shell screen byte for byte: ${backEqShell}`);
 const ok = shellUp && shellSettled && shell.K_PROG === 0 && calcUp && calcSettled && calc.K_PROG === 1 && calc.display === '0' &&
   typedSettled && typed.K_PROG === 1 && typed.display === EXPECT && backUp && backSettled && back.K_PROG === 0 && backEqShell && mismatch === 0 &&
   !same(rd_('shell'), rd_('calc')) && !same(rd_('calc'), rd_('typed')) &&
-  ctlUp && ctlSettled && ctl.K_PROG === 2 && listSettled && list.K_PROG === 2 && fieldSettled && field.K_PROG === 2 && statusSettled && status.K_PROG === 2 &&
+  kcUp && kcSettled && kc.K_PROG === 2 && kcqSettled && kcq.K_PROG === 2 && kcssSettled && kcss.K_PROG === 2 && kcrSettled && kcr.K_PROG === 2 &&
   back2Up && back2Settled && back2.K_PROG === 0 &&
-  ['ctl', 'list', 'field', 'status'].every((n, i, a) => i === 0 || !same(rd_(n), rd_(a[i - 1]))) && wrOk && (w2 === null || w2.ok) && (w3 === null || w3.ok);
-console.log(`controls session: ctl/list/field/status K_PROG ${ctl.K_PROG}/${list.K_PROG}/${field.K_PROG}/${status.K_PROG}, back2 K_PROG ${back2.K_PROG}, back2 equals shell ${back2EqShell}`);
+  ['kc', 'kc-q', 'kc-ss', 'kc-radio'].every((n, i, a) => i === 0 || !same(rd_(n), rd_(a[i - 1]))) && wrOk && (w2 === null || w2.ok) && (w3 === null || w3.ok);
+console.log(`key caps session: kc/kc-q/kc-ss/kc-radio K_PROG ${kc.K_PROG}/${kcq.K_PROG}/${kcss.K_PROG}/${kcr.K_PROG}, back2 K_PROG ${back2.K_PROG}, back2 equals shell ${back2EqShell}`);
 console.log(`${ok ? 'PASS' : 'FAIL'}: desk5 reference: shell up after ${framesToShell} frames (settled ${shellSettled}), calc "${calc.display}" K_PROG ${calc.K_PROG}, typed "${typed.display}" (expected "${EXPECT}") K_PROG ${typed.K_PROG}, ` +
   `back K_PROG ${back.K_PROG} = shell ${backEqShell}, rendered-vs-RAM mismatches ${mismatch}; written to ${outDir}`);
 process.exitCode = ok ? 0 : 1;

@@ -57,7 +57,7 @@ export function bootW3(opts = {}) {
   const wr0 = m.bus.write;
   m.bus.write = function (addr, v) {
     const a = addr & 0xFFFF;
-    if (env.imgw.armed && a >= 0xC000 && a < 0xC400 && (a < lo || a >= hi)) {
+    if (env.imgw.armed && a >= 0xC000 && a < 0xC400 && (a < lo || a >= hi) && !(a >= (S.AL_RAM ?? 0xC3C0))) {   // AL_RAM ($C3C0-$C3FF) belongs to the app library (APPLIB 1): AL_INIT, AL_NAMEDLG's AL_FLD
       env.imgw.n++; if (env.imgw.first.length < 8) env.imgw.first.push(`${hex(a)} <- ${hex(v, 2)}, PC ${hex(m.cpu.pc)}`);
     }
     wr0(addr, v);

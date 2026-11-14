@@ -30,14 +30,14 @@ H.needSyms(S, H.SHELL_NEEDED);
 // ---- bytes (SHELL 7) ---------------------------------------------------------------------------------------------------------------------------
 {
   const code = S.K_PROGS - S.K_LAUNCH;                                  // K_LAUNCH, K_QUIT; K_PROGS is the cartridge's table that follows
-  const nprog = 3, table = 2 * nprog;                                   // a word per program: the shell, Calculator, Controls
+  const nprog = 3, table = 2 * nprog;                                   // a word per program: the shell, Calculator, Key Caps
   row('the launcher\'s bytes in the pool (K_PROGS - K_LAUNCH: K_LAUNCH and K_QUIT; EST 90)', code, 150, `K_LAUNCH ${hex(S.K_LAUNCH)}, K_QUIT ${hex(S.K_QUIT)}, K_PROGS ${hex(S.K_PROGS)}; with the ${nprog}-word program table ${code + table}`);
   const pool = (S.K_PROGS + table) - S.TK_CODE;
   row('step 5\'s pool growth so far: the toolkit and the launcher (TK_CODE .. the end of the K_PROGS table); BANKING 6.1 bounds the whole step at 3,400', pool, 3400, `TK_CODE ${hex(S.TK_CODE)} .. ${hex(S.K_PROGS + table)}: toolkit ${S.TK_END - S.TK_CODE} + TK_END..K_LAUNCH ${S.K_LAUNCH - S.TK_END} + launcher with table ${code + table}`);
   row('the shell\'s bytes in DOCK 2-3 (S_END - S_START: code, image, icons; EST 1,100)', S.S_END - S.S_START, 1600, `S_START ${hex(S.S_START)}, S_END ${hex(S.S_END)}; the image is ${S.S_IMG_LEN} of them`);
   row('Calculator\'s bytes in DOCK 2-3 (C_END - C_START), for reference (CALCULATOR 7: <= 2,500)', S.C_END - S.C_START, 2500);
-  row('Controls\' bytes in DOCK 2-3 (D_END - D_START), report', S.D_END - S.D_START, null);
-  for (const [name, len] of [['the shell', S.S_IMG_LEN], ['Calculator', S.C_IMG_LEN], ['Controls', S.D_IMG_LEN]]) row(`${name}'s RAM image (<= 1,024: $C000-$C3FF, below the app arena at $C400)`, len, 1024);
+  row('Key Caps\' bytes in DOCK 2-3 (KC_END - KC_START; KEYCAPS 4: <= 1,225, what Controls took)', S.KC_END - S.KC_START, 1225);
+  for (const [name, len] of [['the shell', S.S_IMG_LEN], ['Calculator', S.C_IMG_LEN], ['Key Caps', S.KC_IMG_LEN]]) row(`${name}'s RAM image (<= 1,024: $C000-$C3FF, below the app arena at $C400)`, len, 1024);
 }
 
 // ---- DI (SHELL 7: none) --------------------------------------------------------------------------------------------------------------------------
@@ -135,11 +135,11 @@ const { m } = env;
   }
   const worst = (a) => Math.max(...a);
   for (const p of [1, 2, 3]) {
-    const name = p === 1 ? 'Calculator' : p === 2 ? 'Controls' : 'Notepad';
+    const name = p === 1 ? 'Calculator' : p === 2 ? 'Key Caps' : 'Notepad';
     row(`launch ${name}: frames from the second click's press (frame 1) to its window drawn (the screen equals the model's), worst of ${NREP} (EST about 8)`, worst(frames.launch[p]), 30, `all ${frames.launch[p].join(', ')}`);
   }
   for (const p of [1, 2, 3]) {
-    const name = p === 1 ? 'Calculator' : p === 2 ? 'Controls' : 'Notepad';
+    const name = p === 1 ? 'Calculator' : p === 2 ? 'Key Caps' : 'Notepad';
     row(`quit ${name} by the close box: frames from the release (frame 1; E_UP closes) to the shell's window drawn, worst of ${NREP}`, worst(frames.quitBox[p]), 30, `all ${frames.quitBox[p].join(', ')}`);
     row(`quit ${name} by SYMBOL SHIFT + Q: frames from the key's first frame to the shell's window drawn, worst of ${NREP}`, worst(frames.quitKey[p]), 30, `all ${frames.quitKey[p].join(', ')}`);
   }
@@ -165,9 +165,9 @@ const { m } = env;
     const d0 = H.compareStates(e, base[0], c0, `cycle ${i}: shell`); diffs += d0.length; if (d0.length) firstDiff ||= d0[0];
     cyc++;
   }
-  row(`${NCYC} launch / quit cycles: differences from the first launch's state (K_PROG, only that program's windows, the app arena's top at its base plus the program's own, K_FOCUS / K_CAPTURE / W_MODAL / the posted queue, the screen)`, diffs, 0, `${cyc} cycles; ${e.frames} frames (${Math.round(e.frames / Math.max(cyc, 1))} a cycle with the 12-frame settles); arena tops (own allocations above $C400): shell ${[...tops[0]].map((t) => t - 0xC400)}, Calculator ${[...tops[1]].map((t) => t - 0xC400)}, Controls ${[...tops[2]].map((t) => t - 0xC400)}${firstDiff ? '; first: ' + firstDiff : ''}`);
+  row(`${NCYC} launch / quit cycles: differences from the first launch's state (K_PROG, only that program's windows, the app arena's top at its base plus the program's own, K_FOCUS / K_CAPTURE / W_MODAL / the posted queue, the screen)`, diffs, 0, `${cyc} cycles; ${e.frames} frames (${Math.round(e.frames / Math.max(cyc, 1))} a cycle with the 12-frame settles); arena tops (own allocations above $C400): shell ${[...tops[0]].map((t) => t - 0xC400)}, Calculator ${[...tops[1]].map((t) => t - 0xC400)}, Key Caps ${[...tops[2]].map((t) => t - 0xC400)}${firstDiff ? '; first: ' + firstDiff : ''}`);
   const spDistinct = (s) => s.size;
-  row('stack at the program\'s event loop (SP at K_GETEV\'s entry) after the cycles: distinct values over all launches of the shell / Calculator / Controls (must be 1 each: no growth)', Math.max(spDistinct(sps[0]), spDistinct(sps[1]), spDistinct(sps[2]), spDistinct(sps[3])), 1, `SP shell ${[...sps[0]].map((v) => hex(v))}, Calculator ${[...sps[1]].map((v) => hex(v))}, Controls ${[...sps[2]].map((v) => hex(v))}, Write ${[...sps[3]].map((v) => hex(v))} (the stack top is $FF00)`);
+  row('stack at the program\'s event loop (SP at K_GETEV\'s entry) after the cycles: distinct values over all launches of the shell / Calculator / Key Caps (must be 1 each: no growth)', Math.max(spDistinct(sps[0]), spDistinct(sps[1]), spDistinct(sps[2]), spDistinct(sps[3])), 1, `SP shell ${[...sps[0]].map((v) => hex(v))}, Calculator ${[...sps[1]].map((v) => hex(v))}, Key Caps ${[...sps[2]].map((v) => hex(v))}, Notepad ${[...sps[3]].map((v) => hex(v))} (the stack top is $FF00)`);
   row('frame interrupts lost over the 50-cycle machine\'s normal frames (V_FRAMES must rise by 1 a frame)', e.vf.bad, 0, `${e.vf.checked} frames checked${e.vf.bad ? '; first ' + e.vf.first : ''}; memory watch: ${e.w.summary()}`);
   if (e.w.n) { missed++; console.log('FAIL | the memory watch (BANKING 10.7) reported violations in the cycle run'); }
   void me;
@@ -189,11 +189,11 @@ const { m } = env;
   const d0 = H.shellDiff(e);
   row('W_DRAWVIEW of a selected icon (Calculator, the focused one: its 64 x 26, bitmap, 58-pixel name, inverted name box): direct call under K', sel[0], null, `T-states; repeated ${sel.join(', ')}; the shell's screen after: ${d0 === null ? 'equals the model' : 'DIFFERS: ' + d0}`);
   const uns = times(icons[1]);
-  row('W_DRAWVIEW of an icon not selected (Controls, not focused), report', uns[0], null, `T-states; repeated ${uns.join(', ')}`);
-  // Controls selected: move the focus there through the kernel's K_SETFOCUS (the user's TAB), then draw it
+  row('W_DRAWVIEW of an icon not selected (Key Caps, not focused), report', uns[0], null, `T-states; repeated ${uns.join(', ')}`);
+  // Key Caps selected: move the focus there through the kernel's K_SETFOCUS (the user's TAB), then draw it
   L.directCall(e, S.K_SETFOCUS, { de: icons[1] }, 'K');
   const sel2 = times(icons[1]);
-  row('W_DRAWVIEW of a selected icon (Controls, after K_SETFOCUS), report', sel2[0], null, `T-states; repeated ${sel2.join(', ')}`);
+  row('W_DRAWVIEW of a selected icon (Key Caps, after K_SETFOCUS), report', sel2[0], null, `T-states; repeated ${sel2.join(', ')}`);
   void me;
 }
 

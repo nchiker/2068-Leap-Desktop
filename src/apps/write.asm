@@ -31,10 +31,9 @@ WR_START:
     ld de,PROG_IMG
     ld bc,WR_IMG_LEN
     ldir
+    call AL_INIT
     ld hl,WR_MENUS
     KFAR MB_SET
-    ld hl,WR_SUNT
-    call wr_nm
     ld bc,WR_CAP
     call K_ALLOC
     ld (WR_BUF),hl
@@ -42,42 +41,22 @@ WR_START:
     call K_ALLOC
     ld (WR_LT),hl
     call wr_empty
-    ld hl,CL_CWindow
-    call K_NEW
+    ld hl,WR_TWIN               ; the window, the text view, the bar (the library's view table, APPLIB 3)
+    call AL_NEW
     ld (WR_WIN),ix
-    ld hl,16
-    ld b,16
-    ld de,480
-    ld c,168
-    ld a,WR_WINID
-    call wr_rect
-    ld (ix+Window_title),LOW WR_TITLE
-    ld (ix+Window_title+1),HIGH WR_TITLE
-    ld hl,CL_TextView
-    call K_NEW
-    ld (WR_TV),ix
-    ld hl,TV_X
-    ld b,TV_Y
-    ld de,TV_W
-    ld c,TV_H
-    ld a,1
-    call wr_rect
-    ld (ix+View_flags),1
-    call wr_add
-    ld hl,CL_VScroll
-    call K_NEW
-    ld (WR_BAR),ix
-    ld hl,478
-    ld b,28
-    ld de,12
-    ld c,148
-    ld a,2
-    call wr_rect
+    push hl
+    ld hl,WR_SUNT
+    call wr_nm
+    pop hl
+    call AL_VIEW
+    ld (WR_TV),de
+    call AL_VIEW
+    ld (WR_BAR),de
+    ld ix,(WR_BAR)
     ld hl,(WR_TV)
     ld (ix+VScroll_target),l
     ld (ix+VScroll_target+1),h
     ld (ix+VScroll_page),TV_N
-    call wr_add
     ld ix,(WR_WIN)
     KFAR W_OPEN
     ld de,(WR_TV)
@@ -232,31 +211,11 @@ wr_selto:
     call wr_seldraw
     jp wr_shown
 
-; wr_rect: IX = a new view: x = HL, y = B, w = DE, h = C, id = A.
-wr_rect:
-    ld (ix+View_x),l
-    ld (ix+View_x+1),h
-    ld (ix+View_y),b
-    ld (ix+View_w),e
-    ld (ix+View_w+1),d
-    ld (ix+View_h),c
-    ld (ix+View_id),a
-    ret
-; wr_add: IX = a view -> the window's last child.
-wr_add:
-    push ix
-    pop de
-    ld ix,(WR_WIN)
-    KFAR K_ADDCHILD
-    ret
 
-; wr_dopen: the discard dialog (11.6), made once, opened.  wr_dclose: closed; nothing pending.
+; wr_dopen: the discard dialog (11.6, the library's ask), made once, opened.  wr_dclose: closed; nothing pending.
 wr_dopen:
     ld hl,WR_DLG
-    ld de,WR_TDIS
-    call wr_dlg
-    KFAR W_OPEN
-    ret
+    jp AL_ASK
 wr_dclose:
     ld ix,(WR_DLG)
     KFAR W_CLOSE
@@ -267,199 +226,49 @@ wr_dclose:
 ; ---------------------------------------------------------------------------------------------------------------------------
 ; W3: Open and Save (13), through the FS_ calls (docs/FILES.md, src/apps/files.asm).
 
-; wr_dlg: HL -> a dialog's variable, DE -> its table: IX = the dialog, made (wr_mkdlg) the first time.
-wr_dlg:
-    ld a,(hl)
-    inc hl
-    or (hl)
-    jr z,.make
-    ld a,(hl)
-    dec hl
-    ld l,(hl)
-    ld h,a
-    push hl
-    pop ix
-    ret
-.make:
-    push hl
-    ex de,hl
-    call wr_mkdlg
-    pop hl
-    push ix
-    pop de
-    ld (hl),d
-    dec hl
-    ld (hl),e
-    ret
-
-; wr_mkdlg: HL -> a table: a Dialog made, its views made and added; IX = the Dialog.  The table: the Dialog's x (DW), y, w (DW),
-; h, flags, id (the View fields at 8-15, in order); then each view: its class (DW; 0 ends the table), those 8 bytes, a role
-; (bit 0 the default, bit 1 the cancel, bit 2 a Field: cap 30) and the word at offset 16 (a Label's or
-; Button's text, a Field's buffer).
-wr_mkdlg:
-    push hl
-    ld hl,CL_Dialog
-    call K_NEW
-    pop hl
-    ld (WR_CDLG),ix
-    call .rect
-.view:
-    ld e,(hl)
-    inc hl
-    ld d,(hl)
-    inc hl
-    ld a,d
-    or e
-    jr z,.end
-    push hl
-    ex de,hl
-    call K_NEW
-    pop hl
-    call .rect
-    ld c,(hl)                   ; the role
-    inc hl
-    ld a,(hl)
-    ld (ix+16),a
-    inc hl
-    ld a,(hl)
-    ld (ix+17),a
-    inc hl
-    push hl
-    bit 2,c
-    jr z,.nf
-    ld (ix+Field_cap),30
-.nf:
-    push ix
-    pop de
-    ld ix,(WR_CDLG)
-    bit 0,c
-    jr z,.nd
-    ld (ix+Dialog_default),e
-    ld (ix+Dialog_default+1),d
-.nd:
-    bit 1,c
-    jr z,.nc
-    ld (ix+Dialog_cancel),e
-    ld (ix+Dialog_cancel+1),d
-.nc:
-    KFAR K_ADDCHILD
-    pop hl
-    jr .view
-.end:
-    ld ix,(WR_CDLG)
-    ret
-.rect:                          ; 8 bytes from HL to IX + 8; HL past them
-    push ix
-    pop de
-    ld a,8
-    add a,e
-    ld e,a
-    adc a,d
-    sub e
-    ld d,a
-    ld bc,8
-    ldir
-    ret
-
-; wr_setname: HL -> a name (a length byte, 1-30 codes): the document's name; the title "Notepad: " and the name; the title row
-; made dirty (W_INVAL: the window manager redraws it).  wr_nm: the name and the title only.
+; wr_setname: HL -> a name (a length byte, 1-30 codes): the document's name; the title "Notepad: " and the name (AL_TITLE); the
+; title row made dirty.  wr_nm: the name and the title only.  IX kept.
 wr_setname:
-    call wr_nm
-    ld hl,16
-    ld (GA),hl
-    ld (GA+2),hl
-    ld hl,480
-    ld (GA+4),hl
-    ld hl,8
-    ld (GA+6),hl
-    KFAR W_INVAL
-    ret
-
+    scf
+    jr wr_nm1
 wr_nm:
+    or a
+wr_nm1:
     ld de,WR_NAME
     ld bc,31
     ldir
+    push ix
+    ld ix,(WR_WIN)
     ld hl,WR_STW
-    ld de,WR_TITLE
-    ld c,10
-    ldir
-    ld hl,WR_NAME
-    ld a,(hl)
-    ld c,a
-    add a,9
-    ld (WR_TITLE),a
-    inc hl
-    ldir                        ; (B = 0; C >= 1)
+    ld de,WR_NAME
+    ld bc,WR_TITLE
+    call AL_TITLE
+    pop ix
     ret
 
-; wr_alert: HL = a message (in the image): the alert (13.4), made once, opened.
+; wr_alert: HL = a message (in the image): the alert (13.4, the library's), made once, opened.
 wr_alert:
-    push hl
+    ex de,hl
     ld hl,WR_ADLG
-    ld de,WR_TALR
-    call wr_dlg
-    pop de
-    ld l,(ix+View_child)        ; its Label
-    ld h,(ix+View_child+1)
-    ld bc,Label_text
-    add hl,bc
-    ld (hl),e
-    inc hl
-    ld (hl),d
-    KFAR W_OPEN
+    call AL_ALERT
     ld a,2
     ld (WR_DK),a
     ret
 
-; wr_sopen: "Save...": the Save dialog (13.2), made once, its Field holding the name, opened, the Field focused.
-; wr_fopen: "Find...": the same dialog as the Find dialog (14.4): its label, Field buffer and button text set, the Field holding F.
+; wr_sopen: "Save...": the name dialog (13.2) as Save, its Field holding the name.  wr_fopen: "Find...": the same dialog as
+; Find (14.4, 14.9 item 4), its Field holding F.  WR_SFLD: the Field.
 wr_sopen:
-    ld hl,WR_PSAV
+    ld de,WR_PSAV
     ld a,1
     jr wr_tdo
 wr_fopen:
-    ld hl,WR_PFND
+    ld de,WR_PFND
     ld a,3
-; wr_tdo: HL -> 4 words: the Label's text, the Field's buffer, the Button's text, the Field's text; A = WR_DK.  The dialog's
-; first three views take the first three words (at offset 16), and it is opened with the Field focused.
 wr_tdo:
     ld (WR_DK),a
-    push hl
     ld hl,WR_SDLG
-    ld de,WR_TSAV
-    call wr_dlg
-    pop hl
-    push ix
-    ld e,(ix+View_child)
-    ld d,(ix+View_child+1)
-    ld b,3
-.v:
-    push de
-    pop ix
-    ld a,(hl)
-    ld (ix+16),a
-    inc hl
-    ld a,(hl)
-    ld (ix+17),a
-    inc hl
-    ld a,b
-    cp 2
-    jr nz,.nf
+    call AL_NAMEDLG
     ld (WR_SFLD),ix
-.nf:
-    ld e,(ix+View_next)
-    ld d,(ix+View_next+1)
-    djnz .v
-    ld a,(hl)
-    inc hl
-    ld h,(hl)
-    ld l,a
-    ld ix,(WR_SFLD)
-    KFAR TK_SETTEXT             ; (the window is closed: nothing drawn)
-    pop ix
-    KFAR W_OPEN
-    ld de,(WR_SFLD)
-    KFAR K_SETFOCUS
     ret
 
 ; wr_dkcmd: A = the dialog open (1 Save, 2 the alert, 3 Find): its E_CMD (K_EV + 1 = the id).  The dialog closes; id 1 (the
@@ -615,24 +424,8 @@ wr_save:
     ld a,(hl)
     or a
     ret z                       ; an empty name: nothing saved
-    ld c,a
-    ld b,a
-.dot:
-    inc hl
-    ld a,(hl)
-    cp '.'
-    jr z,.named
-    djnz .dot
-    ld a,c
-    cp 27
-    jr nc,.named                ; ".txt" does not fit
-    add a,4
-    ld (WR_FBUF),a
-    inc hl
-    ex de,hl
-    ld hl,WR_STXT
-    ld bc,4
-    ldir
+    ld de,WR_STXT
+    call AL_EXTNAME
 .named:
     ld hl,WR_FBUF
     ld a,1                      ; write, text
@@ -762,71 +555,24 @@ wr_open:
     ld hl,WR_SLINES
     jp wr_alert
 
-; The dialogs' tables (wr_mkdlg): the discard dialog (11.6), Save (13.2), the alert (13.4).
-WR_TDIS:
-    DW 128
-    DB 64
-    DW 256
-    DB 64, 0, 0
-    DW CL_Label, 144
-    DB 76
-    DW 200
-    DB 9, 0, 0, 0
-    DW WR_SASK
-    DW CL_Button, 224
-    DB 100
-    DW 64
-    DB 16, $11, 1, 1
-    DW WR_SDISC
-    DW CL_Button, 304
-    DB 100
-    DW 64
-    DB 16, 1, 2, 2
-    DW WR_SCANC
+; wr_tdo's words (AL_NAMEDLG): Save (13.2), Find (14.4).
+WR_TWIN:                        ; the window (11.3), the text view, the bar (11.1): APPLIB 3 entries
+    DW CL_CWindow, 16
+    DB 16
+    DW 480
+    DB 168, 0, WR_WINID, 0
     DW 0
-WR_TSAV:
-    DW 128
-    DB 56
-    DW 256
-    DB 80, 0, 0
-    DW CL_Label, 144
-    DB 68
-    DW 200
-    DB 9, 0, 0, 0
-    DW WR_SSVAS
-    DW CL_Field, 144
-    DB 84
-    DW 224
-    DB 12, 1, 1, 4
-    DW WR_FBUF
-    DW CL_Button, 224
-    DB 108
-    DW 64
-    DB 16, $11, 1, 1
-    DW WR_SSAVE
-    DW CL_Button, 304
-    DB 108
-    DW 64
-    DB 16, 1, 2, 2
-    DW WR_SCANC
+    DW CL_TextView, TV_X
+    DB TV_Y
+    DW TV_W
+    DB TV_H, 1, 1, 0
     DW 0
-WR_TALR:
-    DW 128
-    DB 64
-    DW 256
-    DB 64, 0, 0
-    DW CL_Label, 144
-    DB 76
-    DW 224
-    DB 18, 0, 0, 0              ; two lines (a message's 13)
+    DW CL_VScroll, 478
+    DB 28
+    DW 12
+    DB 148, 0, 2, 0
     DW 0
-    DW CL_Button, 304
-    DB 100
-    DW 64
-    DB 16, $11, 1, 3
-    DW WR_SOK
-    DW 0
-WR_PSAV:    DW WR_SSVAS, WR_FBUF, WR_SSAVE, WR_NAME     ; wr_tdo: Save (13.2), Find (14.4)
+WR_PSAV:    DW WR_SSVAS, WR_FBUF, WR_SSAVE, WR_NAME
 WR_PFND:    DW WR_SFND, WR_FFB, WR_SFIND, WR_FN
 WR_STXT:    DB ".txt"
 WR_STW:     DB 9, "Notepad: "
@@ -3749,14 +3495,10 @@ WR_THB:     KTHUNK tv_blur
 WR_SUNT:    DB 8, "Untitled"
 WR_SSVAS:   DB 8, "Save as:"
 WR_SSAVE:   DB 4, "Save"
-WR_SOK:     DB 2, "OK"
 WR_SNSAV:   DB 28, "The file could not be saved."
 WR_SNOPN:   DB 29, "The file could not be opened."
 WR_SLONG:   DB 52, "The file is too long for Notepad", 13, "(5,120 characters)."
 WR_SLINES:  DB 48, "The file has too many lines", 13, "for Notepad (1,024)."
-WR_SASK:    DB 21, "Discard the document?"
-WR_SDISC:   DB 7, "Discard"
-WR_SCANC:   DB 6, "Cancel"
 WR_SFND:    DB 5, "Find:"
 WR_SFIND:   DB 4, "Find"
 WR_SNF:     DB 10, "Not found."
@@ -3801,7 +3543,6 @@ WR_PEND:    DB 0                ; 1 quit, 2 New, 3 Open, waiting for the dialog
 WR_SDLG:    DW 0                ; W3 (13): the Save dialog, the alert, the Field, the dialog being made
 WR_ADLG:    DW 0
 WR_SFLD:    DW 0                ; the Field of the dialog opened last (Save or Find)
-WR_CDLG:    DW 0
 WR_DK:      DB 0                ; the dialog open: 0 none (or the discard dialog), 1 Save, 2 the alert, 3 Find
 WR_LCK:     DW $FFFF            ; W4 (14.2): the clicked code of the text view's last press ($FFFF: none)
 WR_MODE:    DB 0
@@ -3888,7 +3629,7 @@ WR_NAME     EQU WR_TITLE + 40           ; the document's name: a length byte and
 WR_FBUF     EQU WR_NAME + 31            ; the Save dialog's Field
 WR_PNAME    EQU WR_FBUF + 31            ; the picked name (FS_PICK)
 WR_FFB      EQU WR_PNAME + 32           ; the Find dialog's Field (14.4)
-    ASSERT WR_FFB + 31 <= AARENA_BASE && WR_FN + 1 == WR_FCODES
+    ASSERT WR_FFB + 31 <= AL_RAM && WR_FN + 1 == WR_FCODES
     ASSERT WR_IMG_LEN <= 1024 && (CL_TextView >> 8) == ((CL_TextView + 11) >> 8)
     ASSERT WR_OCX + 3 == WR_OCV && WR_NCX + 3 == WR_NCV
 WR_END:

@@ -1,9 +1,9 @@
 "use strict";
 // tk-lib.mjs -- shared harness of the toolkit T1 tests (tests/tk-t1.mjs, tests/tk-perf.mjs).  Written from docs/TOOLKIT.md (sections 1-9), docs/WINDOWS.md
-// and docs/BANKING.md only; src/kernel/tk.asm and src/apps/demo.asm were never read.  It never builds: it loads the prebuilt build/desk5.dck and
+// and docs/BANKING.md only; src/kernel/tk.asm was never read.  It never builds: it loads the prebuilt build/desk5.dck and
 // build/desk5/out.sym through tests/calc-lib.mjs.
 //   - bootParked: desk5 booted (it runs the shell since SHELL.md 9-10), the pointer erased, the shell's window closed and the app arena reset: an empty desk for direct
-//     calls under K (the groups that build their own windows do not need a program, so none is launched; the Controls demo is launched through the shell by bootDesk5({ prog: 2 }));
+//     calls under K (the groups that build their own windows do not need a program, so none is launched);
 //   - runCall: a routine called under K with a sentinel return, stepped instruction by instruction, interrupts ON (so a DI is seen), with hooks:
 //     every W_DRAWVIEW (IX) and every K_POST is logged, a HALT is a frame boundary the test answers (V_FRAMES + 1, events put in the ring), the stack
 //     depth, the T-states, the preserved registers; user hooks at chosen addresses (a stub target, a method's entry);
@@ -23,7 +23,7 @@ export const TK_NEEDED = ['CL_Check', 'CL_VScroll', 'CL_Group', 'CL_Window', 'CL
   'VScroll_press', 'Window_slot', 'Window_title', 'Label_text', 'K_NEW', 'K_ADDCHILD', 'K_ARESET', 'K_AARENA', 'K_ARENA', 'W_OPEN', 'W_CLOSE', 'W_UPDATE', 'W_DRAWVIEW',
   'K_DISPATCH', 'K_EV', 'K_FOCUS', 'K_CAPTURE', 'K_FSCOPE', 'K_SETFOCUS', 'K_POST', 'K_PN', 'K_PHEAD', 'K_POSTQ', 'K_RING', 'K_RHEAD', 'K_RTAIL', 'K_GETEV', 'K_PX', 'K_PY', 'K_BTN',
   'TK_SETBAR', 'TK_CODE', 'TK_END', 'TK_EV', 'V_FRAMES', 'T_SEND', 'T_RET', 'E_SCROLL', 'E_CMD', 'M_EVENT', 'M_DRAW', 'P_SHIELD', 'P_UNSHIELD', 'GA', 'G_SETCLIP',
-  'D_WIN', 'D_VSTR', 'D_TGT', 'D_LBL', 'S_WIN', 'CL_CWindow', 'W_DIRTY'];
+  'S_WIN', 'CL_CWindow', 'W_DIRTY'];
 
 // T2 / T3: item arrays, their strings and Field buffers live in $5800-$5BFF (free RAM under K; reset by buildTree)
 export const BUF0 = 0x5800, BUF_END = 0x5C00;

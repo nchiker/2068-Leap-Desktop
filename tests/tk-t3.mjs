@@ -1,8 +1,7 @@
 "use strict";
 // tk-t3.mjs -- toolkit slice T3 (Field) on the prebuilt `desk5` cartridge (build/desk5.dck, build/desk5/out.sym; never rebuilt here).
 // Written from docs/TOOLKIT.md (1-10; section 10.4 and 10.8 items 1 and 3 are what is tested), docs/WINDOWS.md (4, 5, 7, 17) and docs/OBJECTS_EVENTS.md (5, 6, 15); never from src/kernel/tk.asm,
-// tk2.asm or src/apps/demo.asm.  The reference is tests/tk-model2.mjs (built on tk-model.mjs and gfx6-model.mjs); the harness is tests/tk-lib.mjs and tests/tk-lib2.mjs.
-// (The demo, over real frames, is tests/tk-demo.mjs.)
+// tk2.asm.  The reference is tests/tk-model2.mjs (built on tk-model.mjs and gfx6-model.mjs); the harness is tests/tk-lib.mjs and tests/tk-lib2.mjs.
 //   node tests/tk-t3.mjs [--seed N] [--nlook N] [--nclip N] [--ntree N] [--nev N] [--nset N] [--ndirect N] [--only LIST] [--verbose]
 //     --nlook N    random Fields drawn whole by W_DRAWVIEW (default 1200)
 //     --nclip N    random Fields drawn by M_DRAW under a random clip (default 800)

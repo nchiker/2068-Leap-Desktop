@@ -1,6 +1,6 @@
 "use strict";
 // tk-model.mjs -- reference model of toolkit slice T1 (docs/TOOLKIT.md sections 1-7 and 9): Check (and radio) and VScroll.  Written from the
-// contract only (TOOLKIT 9, WINDOWS 4-5, 7, 17.3, 17.5, OBJECTS_EVENTS 5-6, 15); src/kernel/tk.asm and src/apps/demo.asm were never read.
+// contract only (TOOLKIT 9, WINDOWS 4-5, 7, 17.3, 17.5, OBJECTS_EVENTS 5-6, 15); src/kernel/tk.asm were never read.
 //
 //   node tests/tk-model.mjs --self-test      hand-worked cases of the model itself
 //
