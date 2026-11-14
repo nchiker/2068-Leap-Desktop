@@ -81,9 +81,19 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
     re-running its tests in the main tree.
 - **Look for code to share (owner's standing rule, 2026-11-14).** In every contract and every slice, look for code that another
   program has or will need, and share it instead of copying it:
-  - in the kernel, when it must be (the pool is costly, as the double-click flag in `E_DOWN` was, WRITE 14.9);
-  - otherwise in a documented library in DOCK 2-3 that programs call: `files.asm` (FILES), and the app library planned after
-    W4 (`docs/APPLIB.md`: the dialog builder, the alert, the discard dialog, the name dialog, the title).
+  Shared code goes in one of three places (owner, 2026-11-14: "keep programs light in code if there is a shared
+  opportunity"):
+  - **The kernel pool** (always mapped; the scarcest): what the kernel itself needs or must run under K. That is windows,
+    menus, events and the toolkit, the drawing they use all the time, and flags every program reads, such as the
+    double-click flag in `E_DOWN` (WRITE 14.9).
+  - **The graphics library in DOCK 6** (mapping R, reached by `KFAR` from any program or the kernel): drawing that programs
+    use but the kernel does not need constantly. It holds line drawing and `G_BLIT`, `G_SCROLLV`, flood fill and pattern
+    fills as they come. It cannot see a program's RAM image, so its arguments go through the kernel's variables, and the
+    bitmaps it draws must be visible under R.
+  - **The app library in DOCK 2-3** (mapping A, a plain `CALL`): program-level helpers that use a program's RAM.
+    `files.asm` (FILES) and `applib.asm` (`docs/APPLIB.md`: view tables, dialogs, the alert, the ask, the name dialog, the
+    title, file naming) are here.
+  A program keeps only what is its own.
   Each contract says what it shares and what it could share. This follows the object model (shared classes and calls) and
   keeps programs small.
 - Commit only when the owner asks. **Standing request (owner, 2026-11-12): commit checkpoints as the work goes** (a slice's
