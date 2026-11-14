@@ -277,6 +277,66 @@ K_LDIR:
     ldir
     ret
 
+    IFDEF K_BOXES
+; K_BOX (docs/PAINT.md 6): a box of rows between the app arena and cold RAM in one crossing (KFAR K_BOX).  HL -> the box's first byte in the
+; arena (its rows IXL bytes apart), DE -> the cold RAM (rows packed), B = rows (>= 1), C = bytes a row (>= 1), IXL = the stride (>= C),
+; A = 0 arena to cold, 1 cold to arena, 2 swap.  Returns DE (and HL) past what they used.  Clobbers AF, BC, DE, HL, IXH.
+K_BOX:
+    push af
+    ld a,ixl
+    sub c
+    ld ixh,a                    ; the step from a row's end to the next row's start
+    pop af
+    or a
+    jr z,.save
+    dec a
+    jr z,.load
+.swap:
+    push bc
+.sw:
+    ld a,(de)
+    ld b,(hl)
+    ld (hl),a
+    ld a,b
+    ld (de),a
+    inc hl
+    inc de
+    dec c
+    jr nz,.sw
+    pop bc
+    call .adv
+    djnz .swap
+    ret
+.save:
+    push bc
+    ld b,0
+    ldir
+    pop bc
+    call .adv
+    djnz .save
+    ret
+.load:
+    ex de,hl                    ; HL = the cold RAM, DE = the arena
+.ld:
+    push bc
+    ld b,0
+    ldir
+    pop bc
+    ex de,hl
+    call .adv
+    ex de,hl
+    djnz .ld
+    ex de,hl
+    ret
+.adv:
+    ld a,ixh
+    add a,l
+    ld l,a
+    ret nc
+    inc h
+    ret
+    ENDIF
+
 ; k_clrptr: HL -> a pointer: 0 when it equals DE.  HL += 2.  Clobbers AF.
 k_clrptr:
     ld a,(hl)
