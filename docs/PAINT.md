@@ -293,3 +293,39 @@ with the tool icons, the pattern swatches and the brush cells; and the shell's w
 border, so the top row and left column sit 1 pixel outside the section 2 rectangles (still inside the content area); the tool icons are 16 x 12
 in a 31 x 15 interior; the selected pattern has a 2-pixel solid frame (an XOR ring is invisible on the checker); the 16 patterns include a weave, a
 2 x 2 checker and a back diagonal; the Options menu is a title only. These are the figures P1 builds unless the owner changes them.
+
+## 15. As built: P0 and P1 (2026-11-14; the reference for the tests)
+
+**Symbols and files.** `src/apps/paint.asm` (`PN_`, `pn_`; the build's `out.sym` has every `PN_` variable), `src/apps/ticons.txt` (the ten 16 x 16 tool icons, in tool
+order: MARQUEE PENCIL BRUSH ERASER SPRAY BUCKET LINE RECT RRECT OVAL), `src/apps/icons.txt` (`PAINT`, the shell's fourth icon), `K_BOX` in `kernel.asm` (`desk5` only).
+Paint is program 4; the shell is 320 wide with four icons; its "Leap" menu has the items About, a separator, Calculator, Key Caps, Notepad, Paint (item id 6).
+
+**The window (as built).** `CWindow` (48, 16, 416, 176), id 255, title "Paint: name" (AL_TITLE); children in this order: the tool box `Palette` (55, 28, 66, 82) id 1, the `Canvas`
+(126, 30, 324, 148) id 4, the status `Label` (127, 180, 324, 9) id 5. (The pattern and brush palettes of section 2 arrive in P2.) The menus: File (New, Open..., Save..., separator, Quit),
+Edit (Undo, disabled at the start; Clear). The picture is at (128, 32), 320 x 144.
+
+**The tool box.** Cell t (0-9, row-major, 2 columns) has its interior at (56 + 32 (t AND 1), 29 + 16 (t >> 1)), 32 x 16; the icon (`TICON_<name>`, 16 x 16, opaque) is drawn at the interior's x + 8, y;
+then the frame (x - 1, y - 1, 33, 17) in SET; the chosen tool's interior (x, y, 31, 15) is inverted (XOR). A press on a cell chooses that tool and the status line shows its name
+(Marquee, Pencil, Brush, Eraser, Spray, Bucket, Line, Rectangle, Rounded rectangle, Oval). At start the Pencil is chosen. Only the Pencil (1) and the Eraser (3) draw in P1: a press in the picture with
+another tool sets the status "Not built yet".
+
+**The canvas.** Its `M_DRAW` draws two frames (the view's rectangle and the one inside it, each 1 pixel, SET), then the picture from the copy by bands (section 4). A stroke is a press inside
+the picture (x - 128 in 0..319, y - 32 in 0..143) with the Pencil or the Eraser; the view takes the capture; every `E_MOVE` while it is held adds a segment from the last point to the pointer; the
+release commits. Drawing is clipped to the picture (128, 32, 320, 144) and the pointer is shielded from it.
+- **Pencil:** `G_LINE` in SET from the last point to the new point (the first press draws the single pixel).
+- **Eraser:** CLR stamps of 16 x 8 at (x - 8, y - 4). The walk from the last point (lx, ly) to the new one (nx, ny): dx = |nx - lx|, dy = |ny - ly|, sx, sy the signs (a zero difference steps +1 and is
+  never used); the steps n = max(dx, dy) (x major when dx > dy, else y major); with the error e = 0 and the counter c = 0: for each of the n steps, the major coordinate steps; e = e + (the minor delta);
+  when e >= the major delta, e = e - the major delta and the minor coordinate steps; c = c + 1; **a stamp at the new point when c is a multiple of 4**; after the last step **one stamp at the end** (and when n = 0, one stamp
+  at the point). Each segment starts its own walk (c = 0). (A stamp the first press: n = 0.)
+- **The commit (release):** the stroke's box in byte columns (the picture's columns 0-39 = (x - 128) >> 3, each point's column +-1, clamped) and rows (y - 32 +- 4, clamped) is widened to an even first column
+  and an even column count; with nc columns and nr rows the box is "fit" when nc x nr <= 2,048. Fit: the box's bytes (both parts, rows nr, H = nc / 2 bytes a row of each part) are copied from the copy to
+  cold RAM `$5800` (part 1's rows, then part 2's, packed) by `K_BOX`, `PN_UNDO` = 1 and Undo is enabled. Not fit: `PN_UNDO` = 0, Undo is disabled and the status says "Too big to undo". Either way the whole
+  picture is then saved from the screen into the copy (`G_SAVERECT`) and `PN_DIRTY` = 1.
+- **Undo:** if `PN_UNDO`, the box (`PN_UB0`, `PN_UBN`, `PN_UR0`, `PN_URN`) is swapped between the copy and `$5800`, and its rows are redrawn from the copy; Undo stays enabled (a second Undo redoes).
+- **Clear:** paper over the picture, the copy saved, `PN_UNDO` = 0 (Undo disabled), `PN_DIRTY` = 1. **New:** Clear, `PN_DIRTY` = 0, the name "Untitled".
+- **The discard question** (`AL_ASK`, "Discard the document?") comes first for New, Open, Clear and Quit (File > Quit, the close box, SS+Q) when `PN_DIRTY` = 1: Discard (id 1) does the action, Cancel (id 2) does nothing.
+- **Save:** the name dialog (`AL_NAMEDLG`: "Save as:", the name, "Save"), ".pbm" added when the name has no "."; the PBM (section 9: 11 header bytes, then 144 rows of 40 bytes, binary, 5,771 in all); on success `PN_DIRTY` = 0
+  and the title is "Paint: name"; a host failure shows the alert "Cannot save the picture.". **Open:** `FS_PICK`, the file's length must be 5,771 and its first 11 bytes the header, else the alert
+  "Not a 320 x 144 PBM picture."; a read failure shows "Cannot read the file."; on success the copy is replaced, the picture redrawn, `PN_DIRTY` = 0, Undo disabled, the title "Paint: name".
+
+**Sizes (P1, 2026-11-14):** Paint's code and image 2,753 bytes (`PN_END - PN_START`), its image 377, its variables 201; `K_BOX` in the pool (`calc-perf`'s row 258 of 264); the cartridge 57 KB (chunk 6 holds the library, the shell's and the tool icons).
