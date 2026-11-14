@@ -188,9 +188,8 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
 - **Branches:** `main` holds everything, and the worktrees are removed. TSRun is still at `b4dc564`, our own commit.
 - **Tests:** after the last Key Caps change, `kc-k1` passes 9 of 9. The merged build passed every suite before it (all 19 and
   `desk5-ref`).
-- **A baseline run was in progress** at hand-off (Haiku, one suite at a time, with times). Its logs are in the old session's
-  scratchpad, which a new session cannot see. If the figures are not recorded in `docs/TESTSPEED.md`, rerun it: every suite
-  of the list below, one at a time, recording each pass line, check count, wall and CPU time.
+- **The test-speed baseline is recorded** in `docs/TESTSPEED.md` 7: every suite passes, 1,505 s one at a time. Each S step is
+  compared with it.
 - **The suites:**
   `al-a1 kc-k1 calc-c1 shell-s1 tk-t1 tk-t2 tk-t3 wr-w1 wr-w2 wr-w3 wr-w4 wr-demo fs-f1 kern-dclick web-smoke calc-perf
   shell-perf tk-perf wr-perf`, plus `node tools/xemu/desk5-ref.mjs`. `web-smoke` needs `build/hello.dck`, and `calc-perf`

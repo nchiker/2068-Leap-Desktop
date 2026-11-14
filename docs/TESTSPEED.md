@@ -83,3 +83,34 @@ cores with 8 jobs:
 
 **S3:** LeapG moves its pin to `6ccf56e` once the open branches are merged. It first copies the proof test (with a
 `docs/PROVENANCE.md` entry), then runs every suite, which must give identical results.
+
+## 7. The baseline (2026-11-14, main at `a817d59`, TSRun `b4dc564`; one suite at a time)
+
+Every suite passes. Wall and CPU time are in seconds; the machine was shared with other sessions' work at the time.
+
+| Suite | Result | Wall | CPU | Max RSS (MB) |
+|---|---|---|---|---|
+| al-a1 | 12 of 12 groups pass | 1 | 1 | 82 |
+| kc-k1 | 9 of 9 groups pass | 24 | 25 | 100 |
+| calc-c1 | 5 passed, 0 failed | 24 | 24 | 93 |
+| shell-s1 | 18 passed, 0 failed | 49 | 50 | 90 |
+| tk-t1 | 6 of 6 groups pass | 48 | 49 | 152 |
+| tk-t2 | 11 of 11 groups pass | 23 | 24 | 124 |
+| tk-t3 | 9 of 9 groups pass | 9 | 10 | 111 |
+| wr-w1 | 12 of 12 groups pass | 120 | 107 | 122 |
+| wr-w2 | 14 of 14 groups pass | 250 | 204 | 110 |
+| wr-w3 | 7 of 7 groups pass | 86 | 72 | 109 |
+| wr-w4 | 9 of 9 groups pass | 360 | 304 | 173 |
+| wr-demo | 7 of 7 groups pass | 11 | 9 | 72 |
+| fs-f1 | 8 of 8 groups pass | 10 | 8 | 104 |
+| kern-dclick | 7 of 7 groups pass | 147 | 123 | 75 |
+| web-smoke | All checks passed | 13 | 0 | 65 |
+| calc-perf | 9 passed, 0 missed, 3 reported | 44 | 34 | 81 |
+| shell-perf | 28 passed, 0 missed, 8 reported | 23 | 16 | 106 |
+| tk-perf | 54 passed, 0 missed, 28 reported | 7 | 6 | 82 |
+| wr-perf | 39 pass, 0 missed, 11 reported | 257 | 185 | 100 |
+| **All, one at a time** | | **1,505 (25 min)** | | |
+
+- **Where the time goes:** the Notepad suites (`wr-w1` to `wr-w4` and `wr-perf`) take 1,073 s, 71 % of the run, and
+  `kern-dclick` another 147 s. S1 to S4 aim at these first.
+- **Check counts per group:** each suite's log prints them. A step is judged against the same logs rerun, group by group.
