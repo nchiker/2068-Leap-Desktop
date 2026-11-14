@@ -42,3 +42,18 @@ CLAUDE.md's "never run two tests of the same cartridge at once" applies only to 
 - **S2:** a proof that the full machine state at the cartridge's entry, and 50 frames later, equals a cold boot's, as
   Arcade's `boot-snapshot.mjs` does.
 - **S4:** a full run through the runner, compared with the one-at-a-time run.
+
+## 5. Arcade's whole-run figure and a trap (from the Arcade session, 2026-11-14)
+
+**The whole run,** with everything together (video off, boot once, silent AY, a faster interpreter, a sharded pool), on 8
+cores with 8 jobs:
+- **105 suites and 1,448 mutants:** 84 min wall, against a baseline of 108 min with 4 jobs, in which three suites never
+  finished.
+- **The suites alone:** about 8 min wall, against about 17 min before.
+- **Raw speed:** 41-47 MT/s per process with video off, against 22-27 MT/s with it on.
+
+**The trap: wall-clock checks under parallel load.** Under 8 jobs, a headless-Chrome page wait of 8 s timed out, and an
+"under 20 ms" check failed.
+- Here, `web-smoke`'s page waits get long timeouts.
+- Any wall-clock check is measured as the best of N, spread over time.
+- The T-state rows of the perf suites are not affected: they are counted, not timed.
