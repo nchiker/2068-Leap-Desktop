@@ -131,6 +131,7 @@ redraw of 16 long lines is about 15 frames (**EST** 870 k T: 16 x 80 glyphs at a
 | **W1** | The document, wrapping, the text view, caret keys and clicks, scrolling and the bar, "New", the discard dialog, the shell icon |
 | **W2** | A selection (SHIFT with the caret keys, a drag), Cut / Copy / Paste in an "Edit" menu, the clipboard in the arena |
 | **W3** | "Open..." and "Save..." on tape, after the tape services contract (FEASIBILITY roadmap 5; files reach the desktop as tapes) |
+| **W4** | A double-click selects a word; "Find..." and "Find again" in the "Edit" menu (section 14; owner's order, 2026-11-12) |
 
 - Each slice starts with its interface section here: exact pixels, routines, and how each bound is measured.
 - Z80: main model. Models and tests: Sonnet, from this contract. Runs: Haiku. A missed speed bound is recorded with options.
@@ -767,3 +768,141 @@ Find). Its image 535 (<= 1,024). `files.asm` 181 (FILES **EST** 250-350). Pool g
   too many lines for Notepad (1,024)." breaks before "for" (the first line would be 229 pixels; the label is 224). The source
   file, this document and the `WR_` symbols keep the name Write. All suites re-run: shell-s1 13/13, shell-perf 24 pass,
   wr-demo 7/7, wr-w3 7/7, fs-f1 8/8, wr-w1 12/12, wr-w2 14/14, wr-perf 33 pass 0 missed.
+
+## 14. W4 interface: double-click and Find (contract, 2026-11-14; for the owner's decisions in 14.8)
+
+The owner's order (2026-11-12): after W3, double-click and Find in Write (shown as Notepad), then Paint. The tests are written
+from sections 1-13 and this section, never from the code. Nothing here is built yet.
+
+### 14.1 What it builds
+
+- **A double-click** in the text view selects the word under the pointer (14.2).
+- **"Find..."** and **"Find again"** in the "Edit" menu: a dialog asks for a text, which is searched for from the caret
+  forward, wrapping once to the start; a match is selected (14.3-14.5).
+- No pool bytes, no kernel change: everything is Write's code in DOCK 2-3 and its image.
+- Not built: replace ("Change..."), whole-word or match-case options, a triple-click, a search backwards, key shortcuts (12.10:
+  none for now).
+
+### 14.2 The double-click
+
+**The clicked code.** For an `E_DOWN` at (px, py) in the text view:
+- its line t is 11.5's (top + floor((py - 30) / 9), or the last line when that is past it), holding codes [s, s + n), with
+  n' = n less a final 13;
+- the clicked code is the k in [s, s + n') with 27 + tw(s, k) <= px < 27 + tw(s, k + 1). When px < 27 it is s (when n' >= 1).
+- When px is right of the last drawn code, or the line is empty, there is **no clicked code**.
+
+**A double-click** is an `E_DOWN` that meets all of these:
+- the mark is 0;
+- the previous `E_DOWN` in the text view was at most 20 frames (`V_FRAMES`) earlier, as the shell's icons and `List` count;
+- both have a clicked code, and it is the same code (the same document offset, and the text has not changed between them).
+
+Otherwise the `E_DOWN` is W2's (12.4).
+
+**What it selects** is the run around the clicked code k, by class. A run never crosses a 13.
+- **Word codes** (`0`-`9`, `A`-`Z`, `a`-`z`): the run of word codes around k.
+- **A space** (32): the run of spaces around k.
+- **Any other code** (punctuation): k alone.
+
+Then anchor = the run's start, caret = its end, mark 0. The "Edit" menu's enabled bits are updated (12.4), and the view is
+drawn in the "selection" mode (12.1). "Shown" (11.5) applies to the caret.
+
+- **A drag after the double-click** (the button still held) is W2's drag: the caret follows the pointer and the anchor stays
+  at the word's start (14.8, decision 3).
+- **A third click** within 20 frames is an ordinary `E_DOWN` (W2's click). The previous `E_DOWN` now counts from the second
+  click, so a fourth one may double-click again.
+- Neither click changes the text or "changed".
+
+### 14.3 The menu
+
+The "Edit" menu (12.4) gains, after "Select all":
+
+| Item | Id | Enabled | Action |
+|---|---|---|---|
+| (separator) | 0 | never | |
+| Find... | 5 | always | the Find dialog (14.4) |
+| Find again | 6 | the search text F is not empty | the search (14.5) with F, no dialog |
+
+- The menu has 8 items: H = 82 rows. Its save-under fits (WINDOWS 18.2).
+- The enabled bit of "Find again" is set with `MB_ENABLE` when F first becomes non-empty. It is disabled at the start (its
+  flags in the table).
+
+### 14.4 The Find dialog
+
+As the Save dialog (13.2), from the same table-driven builder:
+- a `Dialog` (128, 56, 256, 80), with a `Label` "Find:" at (144, 68, 200, 9);
+- a `Field` (144, 84, 224, 12), cap 30, holding F, focused, its caret at the end;
+- a `Button` "Find" (224, 108, 64, 16), id 1, the default; a `Button` "Cancel" (304, 108, 64, 16), id 2, the cancel.
+
+**ENTER in the `Field`** is "Find".
+- **"Find":** the dialog closes. An empty text changes nothing (F is kept). Otherwise F = the text, and then the search (14.5).
+- **"Cancel":** the dialog closes; nothing changes, F included.
+
+### 14.5 The search
+
+- **F** is 1-30 codes of 32-126 (a `Field` cannot hold a 13). It is kept until Write quits. "New" and Open keep it. At the
+  start it is empty.
+- **Where:** the search starts at p0 = the selection's end, max(anchor, caret); with no selection that is the caret.
+  - It tries every start p0, p0 + 1, ..., L - |F|.
+  - Then it wraps: 0, 1, ..., up to p0 - 1, a match not crossing L.
+- **A match at p:** for every i < |F|, code p + i equals F[i] **ignoring case**: the letters A-Z and a-z compare equal to
+  their other case; every other code compares exactly. A match can span wrapped lines, but never a 13, since F holds none.
+- **Found:** anchor = p, caret = p + |F|, mark 0. The menu bits are updated, "Shown" applies to the caret, and the view is
+  drawn. A match that is the current selection itself cannot be found first: the search starts after it, so "Find again"
+  moves on.
+- **Not found** (nothing in the whole text, the wrap included): the alert (13.4) "Not found." Nothing else changes.
+- The document, its lines and "changed" never change.
+
+### 14.6 Where things live
+
+| Where | What |
+|---|---|
+| DOCK 2-3 | the click test and the runs, the dialog's table, the search, the menu items and their handlers |
+| The image | the 3 new menu items; `WR_FN` (byte: F's length, 0 at the start); `WR_LCK` (word: the last `E_DOWN`'s clicked code, or $FFFF for none); `WR_LCF` (word: its `V_FRAMES`) |
+| RAM after the image | F's 30 codes (written before they are read), and the Find dialog (`WR_FDLG`, 0 until first opened) |
+| Pool / arena | **0** bytes; the arena holds the dialog while it exists, as the Save dialog |
+
+### 14.7 Bounds and tests
+
+| Measure | Bound |
+|---|---|
+| Write's bytes for W4 | **report**; **EST** +350-550; all of Write <= 7,000 (6,424 now: 576 left) |
+| Pool bytes / RAM image | **0** / <= 1,024 |
+| **A double-click:** the second `E_DOWN` (`K_DISPATCH` to the return) selecting a 10-code word in line 5 of 16 full lines | <= 58,000 (as W2's "extend by one code") |
+| A search that finds nothing in 5,120 codes (F = 5 codes whose first code is common) | **report** (**EST** 0.3-0.5 M, then the alert) |
+| A search that finds F at the end of a 5,120-code text, from the caret at 0 | **report** |
+| "Find again" finding the next match in the same line | <= 117,000 (two frames, as W1's line start) |
+| W1, W2 and W3's rows | unchanged |
+| Stack / `DI` / interrupts lost | <= 128 bytes / none / 0 |
+
+**Tests (Sonnet, from this contract; `tests/wr-w4.mjs`, the W3 harness):**
+1. **The model** grows by the clicked code, the classes and runs, the double-click rule (19, 20 and 21 frames; the same code,
+   a neighbouring code), F and the search with its wrap, case folding and "Not found."
+2. **Random sessions:** clicks and double-clicks (mouse), Find... (keys through the dialog, and the mouse), Find again, edits
+   between them, all against the model: text, caret, anchor, mark, top, F, the menu bits, the screen.
+3. **Hand cases:**
+   - a double-click on a word that wraps across lines; on spaces; on punctuation; past a line's end; with the mark on;
+   - after an edit between the two clicks;
+   - F at 0, at L - |F|, crossing the caret, and a match spanning the wrap point of the search (it must not be found twice);
+   - 30-code F; an empty "Find" (no change).
+4. **Looks:** the Find dialog and "Not found." against the model's rendering.
+5. **Regression:** `wr-w1`, `wr-w2`, `wr-w3`, `wr-demo`, `fs-f1`, the shell and toolkit suites.
+6. **Bounds:** the table above in `tests/wr-perf.mjs`.
+7. **Cross-emulator:** ZEsarUX's `desk5` runner gains a key-driven session: text typed, MENU, RIGHT to "Edit", DOWN to
+   "Find...", ENTER; a word typed, ENTER (found, selected); MENU, "Find again"; a word that is not there ("Not found.").
+   Every screen must be identical to TSRun's. A double-click needs the mouse, which the ZEsarUX runner does not drive, so it is
+   tested on TSRun only.
+
+### 14.8 Decisions for the owner
+
+1. **Find in the "Edit" menu** ("Find...", "Find again", after a separator). *Alternative:* a third menu "Search" in the bar
+   (about 15 bytes more).
+2. **Ignoring case** in the search. *Alternative:* exact case (about 15 bytes less), or a "Match case" check box in the
+   dialog (about 60 bytes more).
+3. **A drag after a double-click extends by codes** from the word's start, as W2's drag. *Alternative:* by whole words, as
+   on a Macintosh: the word stays selected and the other end snaps to word boundaries (**EST** +60-90 bytes).
+4. **Word codes are letters and digits.** *Alternative:* also the apostrophe, so that "don't" is one word (about 6 bytes).
+5. **The double-click time is 20 frames** (0.4 s), as the shell's icons and `List`. *Alternative:* 25 or 30 frames, for a
+   slower hand.
+6. **"Not found."** as the whole message. *Alternative:* the text quoted in the message, ""text" was not found." (about 30
+   bytes more: the message is built in RAM).
+
