@@ -769,10 +769,10 @@ Find). Its image 535 (<= 1,024). `files.asm` 181 (FILES **EST** 250-350). Pool g
   file, this document and the `WR_` symbols keep the name Write. All suites re-run: shell-s1 13/13, shell-perf 24 pass,
   wr-demo 7/7, wr-w3 7/7, fs-f1 8/8, wr-w1 12/12, wr-w2 14/14, wr-perf 33 pass 0 missed.
 
-## 14. W4 interface: double-click and Find (contract, 2026-11-14; for the owner's decisions in 14.8)
+## 14. W4 interface: double-click and Find (contract, 2026-11-14, owner approved; binding for the W4 code and tests)
 
 The owner's order (2026-11-12): after W3, double-click and Find in Write (shown as Notepad), then Paint. The tests are written
-from sections 1-13 and this section, never from the code. Nothing here is built yet.
+from sections 1-13 and this section, never from the code.
 
 ### 14.1 What it builds
 
@@ -892,7 +892,7 @@ As the Save dialog (13.2), from the same table-driven builder:
    Every screen must be identical to TSRun's. A double-click needs the mouse, which the ZEsarUX runner does not drive, so it is
    tested on TSRun only.
 
-### 14.8 Decisions for the owner
+### 14.8 Decisions (owner, 2026-11-14: "I accept your recommendations"; every recommendation taken)
 
 1. **Find in the "Edit" menu** ("Find...", "Find again", after a separator). *Alternative:* a third menu "Search" in the bar
    (about 15 bytes more).
