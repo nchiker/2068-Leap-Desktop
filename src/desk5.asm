@@ -171,8 +171,8 @@ ISR_BODY:
     INCLUDE "kernel/tk.asm"     ; the toolkit (docs/TOOLKIT.md)
     INCLUDE "tk-classes.inc"
     INCLUDE "kernel/launch.asm" ; the launcher (docs/SHELL.md 3)
-K_PROGS:                        ; the programs (SHELL 10.3): 0 the shell, 1 Calculator, 2 Key Caps (docs/KEYCAPS.md), 3 Write (docs/WRITE.md)
-    DW S_START, C_START, KC_START, WR_START
+K_PROGS:                        ; the programs (SHELL 10.3): 0 the shell, 1 Calculator, 2 Key Caps (docs/KEYCAPS.md), 3 Write (docs/WRITE.md), 4 Paint (docs/PAINT.md)
+    DW S_START, C_START, KC_START, WR_START, PT_START
     ASSERT $ <= $C000           ; chunk 5 only
 
     INCLUDE "apps/calc.asm"     ; DOCK chunks 2-3
@@ -182,6 +182,7 @@ K_PROGS:                        ; the programs (SHELL 10.3): 0 the shell, 1 Calc
     INCLUDE "apps/applib.asm"   ; the app library (docs/APPLIB.md)
     INCLUDE "apps/keycaps.asm"  ; program 2 (docs/KEYCAPS.md)
     INCLUDE "apps/files.asm"    ; the FS_ calls (docs/FILES.md)
+    INCLUDE "apps/paint.asm"    ; program 4 (docs/PAINT.md)
     ASSERT $ <= $8000
 
 ; DOCK chunk 6 (mapping R; docs/SIZE.md 4): the graphics library and the data it draws from.  A program reaches it by KFAR; under R the
@@ -192,6 +193,7 @@ G6_START:
     INCLUDE "gfx6/s3bl.asm"     ; G_BLIT (uses sc_clip)
     INCLUDE "gfx6/s3ln.asm"     ; G_LINE
     INCLUDE "icons.inc"         ; the shell's icons (G_BLIT's set, 160 bytes each)
+    INCLUDE "ticons.inc"        ; Paint's tool icons (G_BLIT's set, 96 bytes each)
 G6_END:
     ASSERT $ <= $E000
 

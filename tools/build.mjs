@@ -12,7 +12,7 @@ import { buildDck, chunksFromImage } from './mkdck.mjs';
 import { genTables, genTables4 } from './gen-tables.mjs';
 import { genClasses } from './gen-classes.mjs';
 import { genKeymap } from './gen-keymap.mjs';
-import { genIcons } from './gen-icons.mjs';
+import { genIcons, genTicons } from './gen-icons.mjs';
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const TARGETS = {
@@ -29,9 +29,9 @@ export const TARGETS = {
   kern4demo: { src: 'src/kern4.asm', chunks: [0, 1, 4, 5], tables: true, defs: { DEMO: 1 },   // the PoC demo, section 18.6
     classes: ['src/kernel/classes.txt', 'src/kern4-classes.txt'], keymap: 'src/kernel/keymap.txt' },
   desk5: { src: 'src/desk5.asm', chunks: [0, 1, 2, 3, 4, 5, 6], tables: true,   // docs/CALCULATOR.md, docs/TOOLKIT.md
-    classes: ['src/kernel/classes.txt', 'src/kernel/tk-classes.txt'], icons: 'src/apps/icons.txt', keymap: 'src/kernel/keymap.txt' },
+    classes: ['src/kernel/classes.txt', 'src/kernel/tk-classes.txt'], icons: 'src/apps/icons.txt', ticons: 'src/apps/ticons.txt', keymap: 'src/kernel/keymap.txt' },
   desk5l: { src: 'src/desk5.asm', chunks: [0, 1, 2, 3, 4, 5, 6], tables: true, defs: { TK_LIST: 1 },   // desk5 with the List class (docs/SIZE.md 6): tk-t2 and tk-perf's List rows
-    classes: ['src/kernel/classes.txt', 'src/kernel/tk-classes.txt'], icons: 'src/apps/icons.txt', keymap: 'src/kernel/keymap.txt' },
+    classes: ['src/kernel/classes.txt', 'src/kernel/tk-classes.txt'], icons: 'src/apps/icons.txt', ticons: 'src/apps/ticons.txt', keymap: 'src/kernel/keymap.txt' },
   bank5: { src: 'src/kern4.asm', chunks: [0, 1, 2, 3, 4, 5, 6], tables: true, defs: { BANK5: 1 },   // docs/BANKING.md 10
     classes: ['src/kernel/classes.txt', 'src/kern4-classes.txt'], keymap: 'src/kernel/keymap.txt' },
 };
@@ -53,6 +53,7 @@ export function build(name, defs = {}) {
   if (TARGETS[name].classes) genClasses(TARGETS[name].classes.map(f => join(ROOT, f)), dir);   // build/<name>/*.inc, classes.json
   if (TARGETS[name].keymap) genKeymap(join(ROOT, TARGETS[name].keymap), dir);   // build/<name>/keymap.inc
   if (TARGETS[name].icons) genIcons(join(ROOT, TARGETS[name].icons), dir);       // build/<name>/icons.inc
+  if (TARGETS[name].ticons) genTicons(join(ROOT, TARGETS[name].ticons), dir);    // build/<name>/ticons.inc (Paint's tool icons)
   const args = ['--nologo', '--lstlab', `--lst=${join(dir, 'out.lst')}`, `--sym=${join(dir, 'out.sym')}`,
     `-I${join(ROOT, 'src')}`];
   if (TARGETS[name].classes || TARGETS[name].keymap) args.push(`-I${dir}`);

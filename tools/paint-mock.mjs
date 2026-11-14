@@ -327,3 +327,19 @@ panels('pt1-menus.png', [
   { g: menuScene(1, 1, [102, 20]), caption: 'File menu (New, Open..., Save..., Quit)', crop: [0, 0, 192, 96] },
   { g: menuScene(2, 0, [127, 12]), caption: 'Edit menu (Undo, Clear)', crop: [0, 0, 192, 96] },
 ], { sx: 3, sy: 6, stack: false });
+
+// DUMP_ICONS=1 node tools/paint-mock.mjs: write the icons the cartridge builds from (src/apps/ticons.txt: the ten tool icons, 16 x 16, the
+// 16 x 12 art centred; the Paint icon text for src/apps/icons.txt is printed).  The cartridge reads the text files, not this script.
+if (process.env.DUMP_ICONS) {
+  let t = "# ticons.txt -- Paint's tool icons (docs/PAINT.md 7): 16 x 16 pixels each, '#' ink, '.' paper; tools/gen-icons.mjs makes G_BLIT sets (copy 0, opaque),\n# labelled TICON_<name>, in the order of PT_TOOLS.  Made from tools/paint-mock.mjs (DUMP_ICONS=1); edit here, not there.\n";
+  const names = ['MARQUEE', 'PENCIL', 'BRUSH', 'ERASER', 'SPRAY', 'BUCKET', 'LINE', 'RECT', 'RRECT', 'OVAL'];
+  ICONS12.forEach(([, make], i) => {
+    const b = make();
+    t += `\nicon ${names[i]}\n`;
+    for (let y = -2; y < 14; y++) t += Array.from({ length: 16 }, (_, x) => (b.get(x, y) ? '#' : '.')).join('') + '\n';
+  });
+  writeFileSync(join(ROOT, 'src/apps/ticons.txt'), t);
+  let p = '\nicon PAINT\n';
+  SH.ICONART.PAINT.forEach((r) => { p += r + '\n'; });
+  writeFileSync(join(OUT, 'paint-icon.txt'), p);
+}

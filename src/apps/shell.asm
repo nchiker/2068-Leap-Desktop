@@ -74,7 +74,7 @@ s_loop:
     jr z,.cmd
     KFAR TK_DISPATCH
     jr s_loop
-.menu:                          ; Leap (1): About (1), Calculator (3), Key Caps (4), Write (5)
+.menu:                          ; Leap (1): About (1), Calculator (3), Key Caps (4), Notepad (5), Paint (6)
     ld a,(K_EV+2)
     cp 1
     jr z,.about
@@ -100,7 +100,7 @@ s_loop:
 S_TWIN:                         ; the shell's window (SHELL 4): an APPLIB 3 entry
     DW CL_Window, 32
     DB 24
-    DW 256
+    DW 320                      ; four icons at x = 48 + 64 (p - 1): Paint is the fourth (docs/PAINT.md 10)
     DB 80, 0, 0, 8
     DW S_TITLE
 
@@ -246,18 +246,20 @@ S_ABOUTT:   DB 20, "Leap Desktop, step 5"
 S_NCALC:    DB 10, "Calculator"
 S_NCTRL:    DB 8, "Key Caps"
 S_NWRITE:   DB 7, "Notepad"
-S_NAMES:    DW S_NCALC, S_NCTRL, S_NWRITE
-S_SETS:     DW ICON_CALC, ICON_KEYS, ICON_WRITE   ; the bitmaps are in DOCK 6 (desk5.asm, docs/SIZE.md 4): G_BLIT runs under R
+S_NPAINT:   DB 5, "Paint"
+S_NAMES:    DW S_NCALC, S_NCTRL, S_NWRITE, S_NPAINT
+S_SETS:     DW ICON_CALC, ICON_KEYS, ICON_WRITE, ICON_PAINT   ; the bitmaps are in DOCK 6 (desk5.asm, docs/SIZE.md 4): G_BLIT runs under R
 S_MENUS:
     DB 1
     DW S_M1
 S_M1:
-    DB 1, 4, "Leap", 5
+    DB 1, 4, "Leap", 6
     DB 1, 0, 21, "About Leap Desktop..."
     DB 2, 2, 0                  ; a separator
     DB 3, 0, 10, "Calculator"
     DB 4, 0, 8, "Key Caps"
     DB 5, 0, 7, "Notepad"
+    DB 6, 0, 5, "Paint"
 S_WIN:      DW 0
 S_ABOUT:    DW 0
 S_LAST:     DW 0                ; the icon last pressed
@@ -265,7 +267,7 @@ S_TW:       DW 0
 S_I:        DB 0
     ENT
 S_IMG_LEN   EQU $ - S_IMG
-S_NICONS    EQU 3
+S_NICONS    EQU 4
 Icon_prog   EQU 16
 Icon_name   EQU 17
 Icon_SIZE   EQU 19
