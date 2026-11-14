@@ -44,38 +44,25 @@ AL_DIALOG:
     ld (hl),e
     ret
 
-; AL_VIEWS: IX = a parent view, HL -> a view table (APPLIB 3): each view made, its rectangle, flags, id and word set, and
-; added as the parent's last child; a Dialog parent's default and cancel set by the roles.  IX = the parent.  Clobbers AF, BC,
-; DE, HL.
+; AL_VIEWS: IX = a parent view, HL -> a view table (APPLIB 3): AL_VIEW for each entry, up to a class of 0.  IX = the parent.
+; Clobbers AF, BC, DE, HL.
 AL_VIEWS:
-    ld e,(hl)
+    ld a,(hl)
     inc hl
-    ld d,(hl)
-    inc hl
-    ld a,d
-    or e
+    or (hl)
+    dec hl
     ret z
+    call AL_VIEW
+    jr AL_VIEWS
+
+; AL_VIEW: IX = a parent view, HL -> a view-table entry: the view made (AL_NEW) and added as the parent's last child; a Dialog
+; parent's default and cancel set by the roles.  DE = the view, HL past the entry, IX = the parent.  Clobbers AF, BC.
+AL_VIEW:
     push ix                     ; the parent
-    push hl
-    ex de,hl
-    call K_NEW
-    pop hl
-    call al_rect
-    ld c,(hl)                   ; the role
-    inc hl
-    ld a,(hl)
-    ld (ix+16),a
-    inc hl
-    ld a,(hl)
-    ld (ix+17),a
-    inc hl
-    bit 2,c
-    jr z,.nf
-    ld (ix+Field_cap),30
-.nf:
+    call AL_NEW
     push ix
     pop de                      ; DE = the view
-    pop ix                      ; IX = the parent
+    pop ix
     bit 0,c
     jr z,.nd
     ld (ix+Dialog_default),e
@@ -86,12 +73,69 @@ AL_VIEWS:
     ld (ix+Dialog_cancel),e
     ld (ix+Dialog_cancel+1),d
 .nc:
-    push ix
     push hl
+    push de
+    push ix
     KFAR K_ADDCHILD
-    pop hl
     pop ix
-    jr AL_VIEWS
+    pop de
+    pop hl
+    ret
+
+; AL_NEW: HL -> a view-table entry (APPLIB 3): IX = a new view of its class, its rectangle, flags and id set, its word at offset 16
+; (at 17 with role bit 3: a Window's title, an Icon's name), a Field's cap 30 with role bit 2.  C = the role, HL past the entry.
+; Clobbers AF, B, DE.
+AL_NEW:
+    ld e,(hl)
+    inc hl
+    ld d,(hl)
+    inc hl
+    push hl
+    ex de,hl
+    call K_NEW
+    pop hl
+    call al_rect
+    ld c,(hl)                   ; the role
+    inc hl
+    push ix
+    pop de
+    ld a,16
+    bit 3,c
+    jr z,.w
+    inc a
+.w:
+    add a,e
+    ld e,a
+    adc a,d
+    sub e
+    ld d,a
+    ld a,(hl)
+    ld (de),a
+    inc hl
+    inc de
+    ld a,(hl)
+    ld (de),a
+    inc hl
+    bit 2,c
+    ret z
+    ld (ix+Field_cap),30
+    ret
+
+; AL_ADD: IX = a view, HL -> the word holding its parent: the view added as the parent's last child.  IX kept.  Clobbers AF, BC,
+; DE, HL.
+AL_ADD:
+    push ix
+    pop de
+    push ix
+    ld a,(hl)
+    inc hl
+    ld h,(hl)
+    ld l,a
+    push hl
+    pop ix
+    KFAR K_ADDCHILD
+    pop ix
+    ret
 
 ; al_rect: 8 bytes from HL to IX + 8 (x, y, w, h, flags, id); HL past them.  Clobbers AF, BC, DE.
 al_rect:

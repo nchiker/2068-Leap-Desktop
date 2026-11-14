@@ -72,28 +72,11 @@ C_KEYS_N    EQU $ - C_KEYS
 
 ; c_build (section 4): the window, the display and the 20 buttons in the app arena.
 c_build:
-    ld hl,CL_CWindow
-    call K_NEW
-    ld (ix+View_id),C_WINID
-    ld (ix+View_x),160
-    ld (ix+View_x+1),0
-    ld (ix+View_y),24
-    ld (ix+View_w),176
-    ld (ix+View_w+1),0
-    ld (ix+View_h),144
-    ld (ix+Window_title),LOW C_TITLE
-    ld (ix+Window_title+1),HIGH C_TITLE
+    ld hl,C_TWIN                ; the window and the display (the library's view table, APPLIB 3)
+    call AL_NEW
     ld (C_WIN),ix
-    ld hl,CL_CDisp
-    call K_NEW
-    ld (ix+View_x),168
-    ld (ix+View_x+1),0
-    ld (ix+View_y),40
-    ld (ix+View_w),160
-    ld (ix+View_w+1),0
-    ld (ix+View_h),16
-    ld (C_DISP),ix
-    call c_addchild
+    call AL_VIEW
+    ld (C_DISP),de
     xor a
     ld (C_I),a
 .b:
@@ -142,7 +125,8 @@ c_build:
     inc hl
     ld a,(hl)
     ld (ix+Button_text+1),a
-    call c_addchild
+    ld hl,C_WIN
+    call AL_ADD
     ld hl,C_I
     inc (hl)
     ld a,(hl)
@@ -150,13 +134,17 @@ c_build:
     jr c,.b
     ret
 
-; c_addchild: IX = a new view -> the window's last child.  Preserves nothing but IX's value in C_WIN.
-c_addchild:
-    push ix
-    pop de
-    ld ix,(C_WIN)
-    KFAR K_ADDCHILD
-    ret
+C_TWIN:                         ; the window (a CWindow, section 4) and the display: APPLIB 3 entries
+    DW CL_CWindow, 160
+    DB 24
+    DW 176
+    DB 144, 0, C_WINID, 8
+    DW C_TITLE
+    DW CL_CDisp, 168
+    DB 40
+    DW 160
+    DB 16, 0, 0, 0
+    DW 0
 
 C_BTNS:                         ; id, text: rows of 4 (section 4)
     DB 27

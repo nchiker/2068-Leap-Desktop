@@ -13,15 +13,8 @@ S_START:
     call AL_INIT
     ld hl,S_MENUS
     KFAR MB_SET
-    ld hl,CL_Window
-    call K_NEW
-    ld (ix+View_x),32
-    ld (ix+View_y),24
-    ld (ix+View_w),LOW 256
-    ld (ix+View_w+1),HIGH 256
-    ld (ix+View_h),80
-    ld (ix+Window_title),LOW S_TITLE
-    ld (ix+Window_title+1),HIGH S_TITLE
+    ld hl,S_TWIN                ; the window (the library's view table, APPLIB 3)
+    call AL_NEW
     ld (S_WIN),ix
     ld a,1                      ; the icons: programs 1 .. S_NICONS
 .icon:
@@ -59,10 +52,8 @@ S_START:
     inc hl
     ld a,(hl)
     ld (ix+Icon_name+1),a
-    push ix
-    pop de
-    ld ix,(S_WIN)
-    KFAR K_ADDCHILD
+    ld hl,S_WIN
+    call AL_ADD
     ld a,(S_I)
     inc a
     cp S_NICONS + 1
@@ -105,6 +96,13 @@ s_loop:
     ld de,S_ABOUTT
     call AL_ALERT
     jr s_loop
+
+S_TWIN:                         ; the shell's window (SHELL 4): an APPLIB 3 entry
+    DW CL_Window, 32
+    DB 24
+    DW 256
+    DB 80, 0, 0, 8
+    DW S_TITLE
 
 ; ---------------------------------------------------------------------------------------------------------------------------
 ; Icon's methods (banked).  ic_draw (10.4, 10.5): paper, the bitmap (G_BLIT, copy 0: x + 16 is on the byte grid), the name centred

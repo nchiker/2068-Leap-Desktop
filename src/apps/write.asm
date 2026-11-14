@@ -41,42 +41,22 @@ WR_START:
     call K_ALLOC
     ld (WR_LT),hl
     call wr_empty
-    ld hl,CL_CWindow
-    call K_NEW
+    ld hl,WR_TWIN               ; the window, the text view, the bar (the library's view table, APPLIB 3)
+    call AL_NEW
     ld (WR_WIN),ix
-    ld hl,16
-    ld b,16
-    ld de,480
-    ld c,168
-    ld a,WR_WINID
-    call wr_rect
+    push hl
     ld hl,WR_SUNT
     call wr_nm
-    ld hl,CL_TextView
-    call K_NEW
-    ld (WR_TV),ix
-    ld hl,TV_X
-    ld b,TV_Y
-    ld de,TV_W
-    ld c,TV_H
-    ld a,1
-    call wr_rect
-    ld (ix+View_flags),1
-    call wr_add
-    ld hl,CL_VScroll
-    call K_NEW
-    ld (WR_BAR),ix
-    ld hl,478
-    ld b,28
-    ld de,12
-    ld c,148
-    ld a,2
-    call wr_rect
+    pop hl
+    call AL_VIEW
+    ld (WR_TV),de
+    call AL_VIEW
+    ld (WR_BAR),de
+    ld ix,(WR_BAR)
     ld hl,(WR_TV)
     ld (ix+VScroll_target),l
     ld (ix+VScroll_target+1),h
     ld (ix+VScroll_page),TV_N
-    call wr_add
     ld ix,(WR_WIN)
     KFAR W_OPEN
     ld de,(WR_TV)
@@ -231,23 +211,6 @@ wr_selto:
     call wr_seldraw
     jp wr_shown
 
-; wr_rect: IX = a new view: x = HL, y = B, w = DE, h = C, id = A.
-wr_rect:
-    ld (ix+View_x),l
-    ld (ix+View_x+1),h
-    ld (ix+View_y),b
-    ld (ix+View_w),e
-    ld (ix+View_w+1),d
-    ld (ix+View_h),c
-    ld (ix+View_id),a
-    ret
-; wr_add: IX = a view -> the window's last child.
-wr_add:
-    push ix
-    pop de
-    ld ix,(WR_WIN)
-    KFAR K_ADDCHILD
-    ret
 
 ; wr_dopen: the discard dialog (11.6, the library's ask), made once, opened.  wr_dclose: closed; nothing pending.
 wr_dopen:
@@ -593,6 +556,22 @@ wr_open:
     jp wr_alert
 
 ; wr_tdo's words (AL_NAMEDLG): Save (13.2), Find (14.4).
+WR_TWIN:                        ; the window (11.3), the text view, the bar (11.1): APPLIB 3 entries
+    DW CL_CWindow, 16
+    DB 16
+    DW 480
+    DB 168, 0, WR_WINID, 0
+    DW 0
+    DW CL_TextView, TV_X
+    DB TV_Y
+    DW TV_W
+    DB TV_H, 1, 1, 0
+    DW 0
+    DW CL_VScroll, 478
+    DB 28
+    DW 12
+    DB 148, 0, 2, 0
+    DW 0
 WR_PSAV:    DW WR_SSVAS, WR_FBUF, WR_SSAVE, WR_NAME
 WR_PFND:    DW WR_SFND, WR_FFB, WR_SFIND, WR_FN
 WR_STXT:    DB ".txt"
