@@ -13,14 +13,34 @@ export const FRAME_T = M.tStatesPerFrame;          // 58,688 on TSRun
 // TSRun's frame buffer: 640 x 240 palette indices at the hi-res pixel clock; the 512 x 192 screen starts at (64, 24).
 export const FRAME_W = 640, SCR_X0 = 64, SCR_Y0 = 24, SCR_W = 512, SCR_H = 192;
 
-/** New stock TS2068 (stock ROMs) with the DCK inserted and reset. */
-export function boot(dck) {
+/**
+ * TESTSPEED S1: turn screen drawing off. TSRun paints m.pixels every frame, even headless; with drawing off it only keeps the beam position, and
+ * the T-states are the same (no memory contention). m.pixels then throws on any read or write, so a check that needs the picture fails loudly
+ * instead of reading a stale buffer. The display RAM ($4000 / $6000) is unaffected.
+ */
+export function videoOff(m) {
+  M.setVideoOn(m, false);
+  const buf = m.pixels;
+  // a plain data property (a getter would turn m into a slow dictionary-mode object): any read through it throws
+  const trap = () => { throw new Error('m.pixels used with screen drawing off: boot with { video: true } (tests/lib.mjs videoOff)'); };
+  m.pixels = new Proxy(new Uint8Array(0), { get: trap, set: trap, has: trap, getOwnPropertyDescriptor: trap });
+  return buf;
+}
+
+// TESTSPEED S2 measure: TS_BOOTS=1 prints how many machines this process booted (and the frames it ran in total) when it exits.
+export const bootStats = { boots: 0 };
+if (process.env.TS_BOOTS === '1') process.on('exit', () => console.error(`TS_BOOTS ${bootStats.boots}`));
+
+/** New stock TS2068 (stock ROMs) with the DCK inserted and reset. opts.video: false turns screen drawing off (videoOff); default true. */
+export function boot(dck, opts = {}) {
   const m = M.createMachine(new Uint8Array(9).fill(0x1F), new Uint8Array(2).fill(0xFF));
   const must = (e) => { if (e) throw new Error(e); };
   must(M.setHomeRom(m, new Uint8Array(readFileSync(join(TSRUN, 'roms/ts2068-0.rom')))));
   must(M.setExRom(m, new Uint8Array(readFileSync(join(TSRUN, 'roms/ts2068-1.rom')))));
   must(M.insertDock(m, new Uint8Array(dck)));
   M.resetMachine(m);
+  bootStats.boots++;
+  if (opts.video === false) videoOff(m);
   return m;
 }
 

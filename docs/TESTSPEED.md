@@ -124,3 +124,18 @@ Every suite passes. Wall and CPU time are in seconds; the machine was shared wit
 - **Time (report):** CPU summed over the 19 suites **794 s, against 1,251 s** at the baseline (-37 %). Per suite, CPU
   baseline to now: `wr-w4` 304 to 138, `wr-w2` 204 to 106, `wr-perf` 185 to 101, `kern-dclick` 123 to 51, `wr-w1` 107 to 113 (the
   one that did not gain). The suites ran four at a time this time, so the wall times are not comparable with section 7.
+
+## 9. S1 done (2026-11-14): screen drawing off in the `desk5` suites
+
+- **What changed:** `tests/lib.mjs` `boot(dck, { video: false })` calls `M.setVideoOn(m, false)` (`videoOff`) and replaces `m.pixels` with a
+  `Proxy` that throws on any use, so a check that reads the picture fails loudly. (A getter on `m` was tried first and made the
+  machine slower: V8 turned `m` into a dictionary-mode object.) `bootDesk5` passes `video: false` unless a test asks for it, or
+  `TS_VIDEO=1` is set. Every other boot (`hello`, `spike6`, `gfx6-s4`, `kern-k2`, `probe23`, the `tools/xemu` references) keeps drawing on.
+- **Result:** all 19 suites pass with every pass line, group and check count identical to section 8's logs, and every T-state
+  row of the four perf suites identical. Only timings printed in the logs differ (`calc-c1`'s elapsed seconds; `web-smoke`'s frame
+  count, which depends on wall time).
+- **Time (report, one suite at a time, A/B with `TS_VIDEO`):** `kc-k1` 17.9 s to 9.3 s CPU (-48 %); `tk-t3` 9.8 to 9.3 (-5 %);
+  `wr-w1` 60.5 to 60.6 (none: its time is the test harness, see below). The whole-run figure is S4's to measure.
+- **Where `wr-w1`'s time goes (profile):** Z80 emulation 45 %; `runCall` (`tests/tk-lib.mjs`, one `runZ80` call per instruction plus its
+  hooks) 18 %; the memory watch (`makeWatch` `check`) 8 %; `dispatch` 8 %. The Notepad suites gain from parallelism (S4), not from
+  drawing. A cheaper `runCall` is a harness change outside this slice and is not planned.
