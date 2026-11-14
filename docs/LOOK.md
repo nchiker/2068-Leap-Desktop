@@ -200,7 +200,8 @@ arrow). `desk5.asm` defines `DESK_STR` and patches the tile.
 - **`window_draw`** clears the whole rectangle, then draws its lines from a table of (dx, dy, dw, dh): 6 lines, 9 when active.
   A negative entry counts from the right or the bottom. Then it draws the title.
 - **The arrow's tip is 2 columns wide** (`##o` in row 0). OBJECTS_EVENTS 14.6 asks for ink at columns 0-1 of row 0. The
-  section 3.6 block and `tests/look-model.mjs` show it; mock-ups 1-11 were redrawn.
+  section 3.6 block and `tests/look-model.mjs` show it. Mock-ups 1-11 were redrawn with the chosen 25% grey. The generator now
+  checks that side against the `desk5` test models.
 - **The close box** amends SHELL 10.1 on `desk5`. Its hit rectangle is (x + 8, y + 1, 15, 7).
 
 **Bytes:** pool +157 (chunk 5 +119, chunk 1 +38): the kernel +142, the menus +38, the close box -23. That is within the 250 of

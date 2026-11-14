@@ -3,8 +3,9 @@
 // models: wm-model2, wm-model3, shell-model, wr-model) beside the proposed one (tests/look-model.mjs), as PNGs in docs/look/.
 //   node tools/look-mock.mjs [OUTDIR]          (default docs/look)
 // Mode 6's pixels are twice as tall as they are wide, so each screen pixel becomes 2 x 4 PNG pixels (1,024 x 768 a screen): the
-// shapes look as they do on a 4:3 display.  Before writing, every "today" scene is checked pixel for pixel against the model
-// function the tests use for that screen (renderShell, renderScreen), so the left side is what the tests hold the cartridge to.
+// shapes look as they do on a 4:3 display.  Today's side is drawn by the step 4-5 models (wm-model2, wm-model3), which kern4's
+// tests still use.  Before writing, the chosen look's scenes are checked pixel for pixel against the models the desk5 tests use
+// (renderShell, renderScreen), so the right side is what the tests hold the cartridge to (since L1, LOOK 10).
 // Builds nothing, reads no cartridge.
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -43,7 +44,7 @@ const mac = (pat, name) => ({
   arrow: LK.ARROW_MAC,
 });
 const MAC50 = mac(LK.PATTERNS.grey50, 'proposed, grey 50%');
-const MAC25 = mac(LK.PATTERNS.grey25, 'proposed, grey 25%');
+const MAC25 = mac(LK.PATTERNS.grey25, 'chosen, grey 25%');
 const MAC50P = { ...MAC50, name: 'proposed, grey 50%, patterned outline', patOutline: true };
 
 // ---- the scenes (each returns a Gfx6Model; `ptr` false leaves the pointer out, for the check against the test models)
@@ -96,14 +97,14 @@ const notepadSave = (L) => notepad(L, { dialog: saveDlg });
 
 // ---- the check: today's scenes = the test models' screens
 function same(a, b) { for (let i = 0; i < a.px.length; i++) if (a.px[i] !== b.px[i]) return `differ at (${i % 512}, ${(i / 512) | 0})`; return null; }
-const checks = [
-  ['shell = shell-model renderShell', same(shell(NOW, { ptr: false }), SH.renderShell({ sel: 0 }))],
-  ['notepad = wr-model renderScreen', same(notepad(NOW, { ptr: false }), WR.renderScreen(doc(), { title: NAME }))],
-  ['notepad + Save dialog = renderScreen with the dialog', same(notepad(NOW, { ptr: false, dialog: saveDlg }), WR.renderScreen(doc(), { focus: false, title: NAME, dialog: { draw: saveDlg } }))],
+const checks = [                                         // since L1 (LOOK 10) the test models draw the chosen look: check that side against them
+  ['shell = shell-model renderShell', same(shell(MAC25, { ptr: false }), SH.renderShell({ sel: 0 }))],
+  ['notepad = wr-model renderScreen', same(notepad(MAC25, { ptr: false }), WR.renderScreen(doc(), { title: NAME }))],
+  ['notepad + Save dialog = renderScreen with the dialog', same(notepad(MAC25, { ptr: false, dialog: saveDlg }), WR.renderScreen(doc(), { focus: false, title: NAME, dialog: { draw: saveDlg } }))],
 ];
 let bad = 0;
-for (const [what, d] of checks) { console.log(`${d ? 'FAIL' : 'ok  '}  today's ${what}${d ? ': ' + d : ''}`); if (d) bad++; }
-if (bad) { console.log('look-mock: the "today" scenes do not match the test models; nothing written'); process.exit(1); }
+for (const [what, d] of checks) { console.log(`${d ? 'FAIL' : 'ok  '}  chosen look's ${what}${d ? ': ' + d : ''}`); if (d) bad++; }
+if (bad) { console.log('look-mock: the chosen look\'s scenes do not match the test models; nothing written'); process.exit(1); }
 
 // ---- PNG
 const INK = 0, PAPER = 255, GAP = 150;
@@ -162,7 +163,7 @@ function detail(file, title, scene, looks, cx, cy, cw, ch, z = [4, 8]) {
   c.save(file);
 }
 
-const TWO = [NOW, MAC50];
+const TWO = [NOW, MAC25];                               // the owner chose 25% (LOOK 8); 7-grey.png keeps the three options
 sideBySide('1-shell.png', 'The shell', shell, TWO);
 sideBySide('2-shell-menu.png', 'The Leap menu open', shellMenu, TWO);
 sideBySide('3-notepad.png', 'Notepad', notepad, TWO);
