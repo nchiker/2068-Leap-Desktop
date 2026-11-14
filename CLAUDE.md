@@ -33,18 +33,18 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
 - Mode 6: byte column c is in file `c AND 1` (`$4000` / `$6000`) at offset `c >> 1`; the border follows the paper, so it
   cannot signal PASS/FAIL.
 - TSRun's timings have no memory contention; real hardware will be slower on `$4000-$7FFF`.
-- Kernel layout: the main part is in DOCK chunk 5 from `$A000`; the menus are a second part, `src/kernel/kernel1.asm`,
+- Kernel layout: the main part starts at `$9E00` (chunk 4's tail, then chunk 5; `K_FAR` maps `$8000-$BFFF` as K; SIZE 1 S1); the menus are a second part, `src/kernel/kernel1.asm`,
   assembled by each cartridge in chunk 1 after the gfx6 tables. Step 5 cartridges add, after the kernel in chunk 5, the toolkit
   (`src/kernel/tk.asm`, classes in `tk-classes.txt`) and the launcher (`launch.asm`); `far.asm` sits in page 0's hole at
-  `$0068`. `List` and `Field` are in `src/kernel/tk2.asm`, assembled in chunk 1 after `kernel1.asm`. The pool had 4,483 bytes
-  free before step 5 (`docs/BANKING.md` 1); step 5 has used 3,029 of its 3,400.
+  `$0068`. `Field` is in `src/kernel/tk2.asm`, assembled in chunk 1 after `kernel1.asm`; `List` is there too but only with `TK_LIST` (target `desk5l`; not in `desk5`).
+  `ROWTAB` is at `$0200`, in front of gfx6 (SIZE 1 S2). The pool's free bytes are measured by `shell-perf` (2,121 on 2026-11-14; reserve 1,000; `docs/SIZE.md` 7).
   `kern3` / `kern4` / `bank5` keep their own layouts and stay as they were (one `KEYMAP` byte changed: SS+Q).
 - Input: CAPS SHIFT + 1 = TAB, CS + 4 = ESC; BREAK counts as ESC in the window manager. The test page sends every key to the
   keyboard; the TS2068 joystick comes only from a gamepad (owner, 2026-11-12: never mapped to keys). A Kempston mouse (ports `$xxDF`) is
   read when `K_MSET` turns it on; TSRun emulates it as `m.mouse`, and the test page has a Mouse switch.
 - Step 5 placement (owner, 2026-11-12): toolkit always mapped; shell, Calculator, Write in DOCK 2-3; DOCK 6 for resources and
-  later Paint's drawing core. Step 5's pool growth <= 3,400 bytes (3,029 used after T2 / T3).
-- Step 5 cartridge `desk5` (DOCK 0-5): boots into the shell (`docs/SHELL.md`). Programs: 0 shell, 1 Calculator, 2 Controls (window (176, 32, 320, 144), with a `List` and a `Field`), 3 Write (`src/apps/write.asm`, `docs/WRITE.md`; its symbols take the prefix `WR_`; `WR_MENU` is banked, so tests call it under A); one
+  later Paint's drawing core. The old step 5 growth bound (3,400) is replaced by the free-space measure (SIZE 2).
+- Step 5 cartridge `desk5` (DOCK 0-5): boots into the shell (`docs/SHELL.md`). Programs: 0 shell, 1 Calculator, 2 Key Caps (it replaced the Controls demo; `docs/KEYCAPS.md`), 3 Write (`src/apps/write.asm`, `docs/WRITE.md`; its symbols take the prefix `WR_`; `WR_MENU` is banked, so tests call it under A); one
   at a time through `K_LAUNCH` / `K_QUIT`; each copies its RAM image to `$C000` (<= 1 KB); app arena `$C400-$DFFF`. Windows
   that programs close are `CWindow`s (close box; SYMBOL SHIFT + Q = key code `CLOSE` 17). Programs dispatch with `TK_DISPATCH`.
 - Tests that use `desk5` boot through the shell (`tests/calc-lib.mjs` `bootDesk5`, `tests/shell-lib.mjs`).
@@ -165,7 +165,9 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
   - 1,113 bytes, under the 1,225 bound;
   - the owner accepted its speed: "keycaps speed is fine - no effort needs to be spent on this".
 
-## Hand-off (2026-11-14, end of the W4 / app library / Key Caps session)
+## Hand-off (2026-11-14, end of the test-speed / pool / audit session; Paint is next)
+
+**Start Paint from `docs/PAINT_PLAYBOOK.md`** (read `docs/FEASIBILITY.md`, this file, then the playbook; the steps and the questions for the owner are there).
 
 **Working rule, repeated because it matters (owner, 2026-11-14: "use lower cost agents for routine tasks and testing"):**
 - **Haiku runs** every test suite, baseline and regression run.
@@ -185,40 +187,23 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
 - **One `desk5` build at a time;** do not run suites while a build changes `build/desk5`.
 - **Use a LeapG git worktree** for code that would rebuild under a running suite (see Working method).
 
-**State:**
-- **Branches:** `main` holds everything, and the worktrees are removed. TSRun is pinned at `6ccf56e` (the fork's main, 2026-11-14).
-- **Tests:** after the last Key Caps change, `kc-k1` passes 9 of 9. The merged build passed every suite before it (all 19 and
-  `desk5-ref`).
-- **The test-speed baseline is recorded** in `docs/TESTSPEED.md` 7: every suite passes, 1,505 s one at a time (now 210 s through the runner, section 11). Each S step was
-  compared with it.
-- **The suites:**
-  `al-a1 kc-k1 calc-c1 shell-s1 tk-t1 tk-t2 tk-t3 wr-w1 wr-w2 wr-w3 wr-w4 wr-demo fs-f1 kern-dclick web-smoke calc-perf
-  shell-perf tk-perf wr-perf`, plus `node tools/xemu/desk5-ref.mjs`. `web-smoke` needs `build/hello.dck`, and `calc-perf`
-  needs `build/kern4`.
+**State (2026-11-14):**
+- **Branches:** `main` holds everything, pushed to `origin` (`nchiker/2068-Leap-Desktop`, private). TSRun is pinned at `6ccf56e` (the fork's main).
+- **Programs:** 0 shell, 1 Calculator, 2 Key Caps, 3 Notepad (code and symbols keep the name Write, `WR_`).
+- **Tests:** all 20 suites pass (`node tools/runtests.mjs --compare <good run's log dir>`, about 3-5 minutes; logs in `build/test-logs/<time>/`):
+  `al-a1 kc-k1 calc-c1 shell-s1 tk-t1 tk-t2 tk-t3 wr-w1 wr-w2 wr-w3 wr-w4 wr-demo fs-f1 kern-dclick web-smoke calc-perf shell-perf tk-perf wr-perf boot-snapshot`,
+  plus `node tools/xemu/desk5-ref.mjs`. The runner needs `build/desk5.dck`, `build/desk5l.dck`, `build/kern4.dck` and `build/hello.dck` (`node tools/build.mjs`).
+  Cross-emulator: Fuse (`sh tools/xemu/fuse-desk5.sh`, 6 of 6 rows) and ZEsarUX (`python3 tools/xemu/zesarux-desk5.py`, 177 of 177 rows, with the Key Caps and the W4 Find sessions).
+- **Done this session:** test speed S1-S4 (`TESTSPEED.md` 8-11: 1,505 s to about 210-320 s); the pool changes `SIZE.md` 1 S1-S5 and `List` as a build switch (SIZE 6-7): the
+  pool has **2,121 bytes free** (reserve 1,000), DOCK 2-3 has 4,540 free; the object-model audit (`docs/OO_AUDIT.md`: the balance is right, no `App` base class);
+  the ZEsarUX Key Caps and Find sessions.
+- **Owner's vision (2026-11-14):** LeapG may become, like Leap Arcade, a builder for graphical environments and apps: prefer selectable parts and a clean ABI.
+- **Deferred to the end of the project (owner):** Notepad's faster search (`SIZE.md` 3).
 
 **Next, in order (all owner-approved):**
-1. **Test speed (`docs/TESTSPEED.md`): DONE (S1-S4).** The steps below are kept for the record.
-   - **S3:** move the `tsrun` pin to `6ccf56e`, the fork's main. Copy Arcade's `tests/tsrun-ay-silent.mjs` from
-     `~/Projects/Leap-IDE`, read only, with a `docs/PROVENANCE.md` entry. Keep the fork's rules, TESTSPEED 6.
-   - **S1:** screen drawing off (`M.setVideoOn(m, false)`), with a guard on every `m.pixels` read.
-   - **S2:** boot once, where it pays.
-   - **S4:** the parallel runner.
-2. **The safe pool changes (`docs/SIZE.md` 1): DONE with `List` made a build switch (SIZE 6-7): the pool has 2,121 bytes free (was 930), the free-space measure is in `shell-perf`.** Kept for the record, about +1,055 bytes:
-   - the kernel at `$9E00`;
-   - `ROWTAB` at `$0200`;
-   - `G_CLS`, `G_VLINE`, `G_ROWADDR` and `K_WARP` left out of `desk5`;
-   - the masks shared.
+1. **Paint** (`docs/PAINT_PLAYBOOK.md`): the contract `docs/PAINT.md` with mock-ups, the owner's approval, then **SIZE 4** (the DOCK 6 graphics library: `G_LINE` with `G_ADDR`,
+   `G_BLIT` with the shell's icons, `G_SCROLLV`; Check's X as five rectangles; chunk 6 into `desk5`), then the Paint slices.
+2. The **15-tile Puzzle**, after Paint. Then colour with the mode 2 graphics.
 
-   Then the pool's free-space measure with its 1,000-byte reserve (SIZE 2), replacing step 5's growth bound in
-   `shell-perf`.
-3. **Notepad's faster search (SIZE 3): DEFERRED to the end of the project, an enhancement if wanted (owner, 2026-11-14: its bytes are wanted for other features).**
-4. **The ZEsarUX runs:**
-   - W4's key-driven Find session (WRITE 14.7 item 7);
-   - Key Caps in `tools/xemu/zesarux-desk5.py`: what it needs is listed in the Key Caps test agent's notes, `refk["kc"]`, the
-     checkpoints `kc`, `kc-q`, `kc-ss`, `kc-radio` and `back2`;
-   - Fuse's boot rows.
-5. **Paint:** a contract and mock-ups first. It starts with the DOCK 6 graphics library (SIZE 4): `G_LINE` with `G_ADDR`,
-   `G_BLIT` with the shell's icons, `G_SCROLLV`; Check's X as five rectangles. Then the **15-tile Puzzle** (after Paint).
-
-- **Owner (2026-11-13):** W3 tried in the browser and accepted. Program 3 is now shown as **Notepad** (icon, "Leap" menu,
-  title "Notepad: name", alerts); the code, `docs/WRITE.md` and the `WR_` symbols keep the name Write (WRITE 13.10).
+- **Owner (2026-11-13):** W3 tried in the browser and accepted. Program 3 is shown as **Notepad** (icon, "Leap" menu, title "Notepad: name", alerts); the code,
+  `docs/WRITE.md` and the `WR_` symbols keep the name Write (WRITE 13.10).

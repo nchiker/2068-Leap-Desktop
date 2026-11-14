@@ -9,8 +9,8 @@ released 3 frames, as in TSRun.  Sequence (as the reference): (1) the shell: K_P
 ($4000-$57FF, $6000-$77FF) read 20 frames apart are equal; (2) ENTER (opens the focused icon, Calculator): until K_PROG = 1, 30 frames, settled;
 (3) 1 2 3 . 4 5 * 6 ENTER ('.' = SS+M, '*' = SS+B; digits: ASCII; ENTER 129; SYMBOL SHIFT = 137 = UTIL_KEY_ALT_R, verified through K_NOW at $F090);
 (4) SYMBOL SHIFT + Q (CLOSE): until K_PROG = 0, 30 frames, settled.
-(5) the Controls session (docs/TOOLKIT.md 10.8 item 6; steps and keys are read from the reference's keys.json, written by desk5-ref.mjs): TAB (CAPS SHIFT + 1) to the
-Controls icon, ENTER (K_PROG = 2): "ctl"; TAB x5, DOWN x10 (CS+6): "list"; TAB, LEFT x2 (CS+5), x, SS+P, SS+Z, DELETE (CS+0): "field"; ENTER: "status"; SS+Q: "back2".
+(5) the Key Caps session (docs/KEYCAPS.md; keys from keys.json "kc"): TAB (CAPS SHIFT + 1) to the Key Caps icon, ENTER (K_PROG = 2): "kc"; Q: "kc-q"; SS+P: "kc-ss"; TAB, SPACE (the Caps Shift radio): "kc-radio";
+SS+Q: "back2" (K_PROG 0).  Rows: every settled screen = TSRun's byte for byte, K_PROG after each = TSRun's, the "back2" screen = the shell screen (as TSRun reports).
 (7) the W2 session (WRITE 12.9 item 7; keys from keys.json "w2", skipped when the reference has none): MARK (SS+E) and the caret keys select across lines, MENU (CS+9) + RIGHT opens "Edit",
 DOWN + ENTER = Copy, move, MENU + RIGHT + ENTER = Paste, SS+Q, ENTER: rows per checkpoint as (6), plus the W2 variables and the clipboard's bytes.
 (6) the Write session (docs/WRITE.md 8 item 7; steps and keys from keys.json "wr"): TAB x2 (the Write icon), ENTER (K_PROG = 3): "wr-open"; a typed wrapping paragraph (SYMBOL SHIFT
@@ -20,6 +20,11 @@ characters included) and short lines, about 20 lines so that the view scrolls: "
 (K_PROG 3): "w3-open"; "abc": "w3-typed"; MENU, DOWN x2, ENTER (File > Save...): "w3-dialog"; DELETE x8, "t1": "w3-name"; ENTER (Save fails): "w3-alert"; ENTER (OK): "w3-after"; SS+Q: "w3-discard";
 ENTER (Discard): "w3-back" (= "shell").  Rows: every settled screen = TSRun's, K_PROG = TSRun's, the W3 variables (document codes, WR_NAME, WR_TITLE, WR_CHG, WR_DK, dialogs made) = TSRun's; on ZEsarUX itself the
 alert screen differs from the Save dialog screen, "w3-after" = "w3-typed" (as TSRun), and the document, name and WR_CHG after the alert are those before "Save...".
+(9) the W4 session (WRITE 14.7 item 7; keys from keys.json "w4", skipped when the reference has none): TAB x2, ENTER (K_PROG 3): "w4-open"; three lines typed ("one two three", "four two six", "three"): "w4-typed";
+MENU, RIGHT, DOWN, ENTER (Edit > Find...): "w4-fdlg"; "two", ENTER (the search wraps to the first "two"): "w4-found"; Edit > Find again (the DOWN steps are the reference's, counted over the enabled items): "w4-again" (the second "two");
+Find again: "w4-again2" (wraps to the first); Find... : "w4-fdlg2"; DELETE x3, "zzz", ENTER (the alert "Not found."): "w4-notfound"; ENTER (OK): "w4-after"; SS+Q: "w4-discard"; ENTER (Discard): "w4-back" (= "shell").
+Rows: every settled screen = TSRun's, K_PROG = TSRun's, the W4 variables (document, WR_GS, WR_GE, WR_AN, WR_MK, WR_CLN, the Edit enable word, WR_FN, F's codes, WR_LCK, WR_DK) = TSRun's, the match offsets (4..7, 19..22, 4..7),
+"w4-after" = "w4-again2" on ZEsarUX itself, "w4-back" = "shell".
 Rows: the settled screens "shell", "calc", "typed", "back" = TSRun's .bin byte for byte; "back" = "shell"; K_PROG after each step = TSRun's;
 the display string "0" after the launch and after each key = TSRun's, the typed one "740.7"; per key K_NOW shows the keys down; the pointer
 K_PX, K_PY = TSRun's; DOCK chunks 0-5 (memory zone 19) = the DCK after the run.
@@ -249,9 +254,9 @@ def main():
         back = step("back", "SS+Q quit to the shell", up, nb)
         results.append(("\"back\" screen = \"shell\" screen on ZEsarUX itself, byte for byte", back == shell_cur, "equal" if back == shell_cur else "differ"))
 
-        # 5. the Controls session (TOOLKIT 10.8 item 6)
-        ck = refk["ctl"]
-        cnames = ("ctl", "list", "field", "status", "back2")
+        # 5. the Key Caps session (KEYCAPS: keys from keys.json "kc"; TAB to the Key Caps icon, ENTER, Q, SS+P, TAB + SPACE, SS+Q)
+        kk = refk["kc"]
+        cnames = ("kc", "kc-q", "kc-ss", "kc-radio", "back2")
         cref = {n: (refdir / f"{n}.bin").read_bytes() for n in cnames}
         crefj = {n: json.loads((refdir / f"{n}.json").read_text()) for n in cnames}
 
@@ -260,34 +265,29 @@ def main():
             results.append((f"{label}: K_NOW shows every key down ({len(seq)} presses: " + " ".join(n for n, _ in seq) + ")", all(downs),
                             f"{sum(downs)} of {len(downs)}"))
 
-        def csettle(tag, label, extra):
+        def csettle(tag, label, extra, up=True, nb=0):
             ok, cur, used = settle(extra)
             res = compare(f"settled \"{tag}\" screen = TSRun's {tag} ({label})", cur, cref[tag], tag)
-            results.append((res[0], res[1] and ok, res[2] + f"; settled {ok} after {used} more frames"))
-            results.append((f"K_PROG after \"{tag}\" = TSRun's", kprog() == crefj[tag]["K_PROG"], f"{kprog()}, TSRun {crefj[tag]['K_PROG']}"))
+            results.append((res[0], res[1] and ok and up, res[2] + f"; settled {ok} after {used} more frames" + (f"; K_PROG reached after {nb} frame stops" if nb else "")))
+            kp = kprog()
+            results.append((f"K_PROG after \"{tag}\" = TSRun's", kp == crefj[tag]["K_PROG"], f"{kp}, TSRun {crefj[tag]['K_PROG']}"))
             return cur
 
-        run_keys("TAB to the Controls icon", [("TAB", ck["tabIcon"])])
-        run_keys("ENTER opens Controls", [("ENTER", ck["enter"])])
+        run_keys("Key Caps: TAB to the Key Caps icon", [("TAB", kk["tabIcon"])])
+        run_keys("Key Caps: ENTER opens Key Caps", [("ENTER", kk["enter"])])
         up, nb = until_prog(2)
         wait_frames(30)
-        ok, cur, used = settle(300)
-        res = compare("settled \"ctl\" screen = TSRun's ctl (Controls as opened, K_PROG 2)", cur, cref["ctl"], "ctl")
-        results.append((res[0], res[1] and ok and up, res[2] + f"; settled {ok} after {used} more frames; K_PROG reached after {nb} frame stops"))
-        results.append(("K_PROG after \"ctl\" = TSRun's", kprog() == crefj["ctl"]["K_PROG"], f"{kprog()}, TSRun {crefj['ctl']['K_PROG']}"))
-        run_keys("list: TAB x5, DOWN x10", ck["list"])
-        csettle("list", "the List scrolled, bar moved", 60)
-        run_keys("field: TAB, LEFT x2, x, SS+P, SS+Z, DELETE", ck["field"])
-        csettle("field", "Field edited", 60)
-        run_keys("status: ENTER in the Field", ck["status"])
-        csettle("status", "status line Name: ...", 60)
-        run_keys("SS+Q", [("SS+Q", ck["close"])])
+        csettle("kc", "Key Caps as opened, K_PROG 2", 300, up, nb)
+        run_keys("Key Caps: Q", kk["q"])
+        csettle("kc-q", "the status reads the last key q", 60)
+        run_keys("Key Caps: SS+P", kk["ss"])
+        csettle("kc-ss", "the status reads the symbol shifted P", 60)
+        run_keys("Key Caps: TAB, SPACE (the Caps Shift radio)", kk["radio"])
+        csettle("kc-radio", "the Caps Shift plane shown", 60)
+        run_keys("Key Caps: SS+Q", [("SS+Q", kk["close"])])
         up, nb = until_prog(0)
         wait_frames(30)
-        ok, cur, used = settle(300)
-        res = compare("settled \"back2\" screen = TSRun's back2 (SS+Q quit to the shell)", cur, cref["back2"], "back2")
-        results.append((res[0], res[1] and ok and up, res[2] + f"; settled {ok} after {used} more frames; K_PROG reached after {nb} frame stops"))
-        results.append(("K_PROG after \"back2\" = TSRun's", kprog() == crefj["back2"]["K_PROG"], f"{kprog()}, TSRun {crefj['back2']['K_PROG']}"))
+        cur = csettle("back2", "SS+Q quit to the shell, K_PROG 0", 300, up, nb)
         results.append(("\"back2\" screen = \"shell\" screen on ZEsarUX itself (as TSRun: " + str(refk["back2EqShell"]) + ")", (cur == shell_cur) == refk["back2EqShell"],
                         "equal" if cur == shell_cur else "differ"))
 
@@ -451,6 +451,79 @@ def main():
             results.append(("W3 on ZEsarUX itself: after the alert the document, its name, the title and WR_CHG (still set) are as before \"Save...\"; the alert showed (WR_DK 2), then closed (0)",
                             all(va[k] == vt[k] for k in ("DOC", "NAME", "TITLE", "WR_CHG", "WR_NL", "WR_TOP", "WR_GS", "WR_GE")) and va["WR_CHG"] == 1 and w3got["alert"]["WR_DK"] == 2 and va["WR_DK"] == 0,
                             f"typed {vt}, after {va}, alert WR_DK {w3got['alert']['WR_DK']}"))
+
+        # 9. the W4 session (WRITE 14.7 item 7): Find... and Find again by the Edit menu's keys, "Not found."; every screen identical to TSRun's
+        w4 = refk.get("w4")
+        if not w4:
+            print("  SKIP  the W4 session: the reference has no W4 data (the build has no Write W4 symbols)")
+        else:
+            w4names = ("w4-open", "w4-typed", "w4-fdlg", "w4-found", "w4-again", "w4-again2", "w4-fdlg2", "w4-notfound", "w4-after", "w4-discard", "w4-back")
+            w4ref = {n: (refdir / f"{n}.bin").read_bytes() for n in w4names}
+            w4refj = {n: json.loads((refdir / f"{n}.json").read_text()) for n in w4names}
+            w4got = {}
+
+            def w4vars():
+                v = wvars()
+                v["WR_AN"] = int.from_bytes(rd(c, Z(S["WR_AN"]), 2), "little")
+                v["WR_MK"] = rd(c, Z(S["WR_MK"]), 1)[0]
+                v["WR_CLN"] = int.from_bytes(rd(c, Z(S["WR_CLN"]), 2), "little")
+                v["EDIT_EN"] = int.from_bytes(rd(c, Z(S["MB_ENT"] + S["ME_SIZE"] + S["ME_EN"]), 2), "little")
+                fn = rd(c, Z(S["WR_FN"]), 1)[0]
+                v["WR_FN"] = fn
+                v["FCODES"] = rd(c, Z(S["WR_FCODES"]), min(fn, 30)).hex()
+                v["WR_LCK"] = int.from_bytes(rd(c, Z(S["WR_LCK"]), 2), "little")
+                v["WR_DK"] = rd(c, Z(S["WR_DK"]), 1)[0]
+                buf, gb = (int.from_bytes(rd(c, Z(S[n]), 2), "little") for n in ("WR_BUF", "WR_GB"))
+                v["DOC"] = rd(c, Z(buf), v["WR_GS"]).hex() + "|" + rd(c, Z(gb), 0x1400 - v["WR_GE"]).hex()
+                return v
+
+            def w4settle(tag, label, extra, vkey=None, up=True, nb=0):
+                ok, cur, used = settle(extra)
+                res = compare(f"settled \"{tag}\" screen = TSRun's {tag} ({label})", cur, w4ref[tag], tag)
+                results.append((res[0], res[1] and ok and up, res[2] + f"; settled {ok} after {used} more frames" + (f"; K_PROG reached after {nb} frame stops" if nb else "")))
+                results.append((f"K_PROG after \"{tag}\" = TSRun's", kprog() == w4refj[tag]["K_PROG"], f"{kprog()}, TSRun {w4refj[tag]['K_PROG']}"))
+                if vkey:
+                    v = w4vars()
+                    w4got[vkey] = v
+                    results.append((f"W4 variables (document, caret, anchor, mark, Edit enable bits, F and its length, WR_LCK, WR_DK) after \"{tag}\" = TSRun's", v == w4["vars"][vkey], f"{v}, TSRun {w4['vars'][vkey]}"))
+                w4got[tag] = cur
+                return cur
+
+            k4 = w4["keys"]
+            run_keys("W4: TAB x2 to the Notepad icon", k4["open"][:2])
+            run_keys("W4: ENTER opens Notepad", k4["open"][2:])
+            up, nb = until_prog(3)
+            wait_frames(30)
+            w4settle("w4-open", "Notepad as opened, K_PROG 3", 300, "open", up, nb)
+            run_keys("W4: three lines typed", k4["typed"])
+            w4settle("w4-typed", "text typed", 120, "typed")
+            run_keys("W4: MENU, RIGHT, DOWN, ENTER (Edit > Find...)", k4["find1"])
+            w4settle("w4-fdlg", "the Find dialog, F empty", 120, "fdlg")
+            run_keys("W4: \"two\", ENTER (found, the search wrapped)", k4["two"] + k4["go"])
+            w4settle("w4-found", "the first \"two\" selected", 120, "found")
+            run_keys("W4: MENU, RIGHT, DOWN x4, ENTER (Edit > Find again)", k4["again1"])
+            w4settle("w4-again", "the second \"two\" selected", 120, "again")
+            run_keys("W4: Find again (wraps to the first match)", k4["again2"])
+            w4settle("w4-again2", "the first \"two\" selected again", 120, "again2")
+            run_keys("W4: Edit > Find... (F shown)", k4["find2"])
+            w4settle("w4-fdlg2", "the Find dialog with F = two", 120, "fdlg2")
+            run_keys("W4: DELETE x3, \"zzz\", ENTER (not found)", k4["zzz"] + k4["go"])
+            w4settle("w4-notfound", "the alert \"Not found.\"", 120, "notfound")
+            run_keys("W4: ENTER (OK)", k4["go"])
+            w4settle("w4-after", "the alert dismissed", 120, "after")
+            run_keys("W4: SS+Q (discard dialog)", [("SS+Q", k4["close"])])
+            wait_frames(30)
+            w4settle("w4-discard", "the discard dialog, K_PROG 3", 300, "discard")
+            run_keys("W4: ENTER (Discard)", [("ENTER", k4["enter"])])
+            up, nb = until_prog(0)
+            wait_frames(30)
+            cur = w4settle("w4-back", "Discard quit to the shell, K_PROG 0", 300, None, up, nb)
+            results.append(("\"w4-back\" screen = \"shell\" screen on ZEsarUX itself", cur == shell_cur, "equal" if cur == shell_cur else "differ"))
+            results.append(("W4 on ZEsarUX itself: Find... selected the first \"two\" (WR_AN 4, caret 7), Find again the second (19, 22), then the first again; the alert showed (WR_DK 2), then closed (0), the selection and F = zzz kept",
+                            (w4got["found"]["WR_AN"], w4got["found"]["WR_GS"]) == (4, 7) and (w4got["again"]["WR_AN"], w4got["again"]["WR_GS"]) == (19, 22)
+                            and (w4got["again2"]["WR_AN"], w4got["again2"]["WR_GS"]) == (4, 7) and w4got["notfound"]["WR_DK"] == 2 and w4got["after"]["WR_DK"] == 0
+                            and w4got["after"]["FCODES"] == "7a7a7a" and w4got["after"]["WR_AN"] == 4 and w4got["w4-after"] == w4got["w4-again2"],
+                            f"found {(w4got['found']['WR_AN'], w4got['found']['WR_GS'])}, again {(w4got['again']['WR_AN'], w4got['again']['WR_GS'])}, again2 {(w4got['again2']['WR_AN'], w4got['again2']['WR_GS'])}"))
 
         c.command("set-memory-zone 19")
         dock_bad = {}

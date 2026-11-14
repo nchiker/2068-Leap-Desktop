@@ -296,10 +296,66 @@ if (['WR_NAME', 'WR_SDLG', 'WR_ADLG', 'WR_DK', 'WR_TITLE', 'WR_GB', 'WR_BUF', 'F
     vars: { open: vOpen, typed: vTyped, dialog: vDlg, name: vName, alert: vAlert, after: vAfter, discard: vDisc },
     kprog: { open: open.K_PROG, typed: typed.K_PROG, dialog: dlg.K_PROG, name: name.K_PROG, alert: alert.K_PROG, after: after.K_PROG, discard: disc.K_PROG, back: back.K_PROG }, backEqShell: backEq, afterEqTyped };
 } else console.log('w3 session: skipped (the build has no Write W3 symbols)');
+// 9. the W4 session (WRITE 14.7 item 7; only when the build has the W4 symbols WR_FN, WR_FCODES, WR_LCK): Find... and Find again by the Edit menu's keys, from the shell: TAB x2, ENTER (K_PROG 3): "w4-open";
+//    three lines typed ("one two three" / "four two six" / "three", the caret at the end): "w4-typed"; MENU, RIGHT, DOWN x1 (the first enabled item after Select all... is Find...), ENTER: "w4-fdlg" (the Find dialog, F empty);
+//    "two", ENTER: "w4-found" (no match after the caret, so the search wraps to the first "two"); Find again (the Edit menu's DOWN steps are counted over the enabled items, read from the enable word): "w4-again" (the second "two");
+//    Find again: "w4-again2" (wraps to the first); Find... with F = "two" shown: "w4-fdlg2"; DELETE x3, "zzz", ENTER: "w4-notfound" (the alert "Not found."); ENTER (OK): "w4-after" (as "w4-again2" on the screen);
+//    SYMBOL SHIFT + Q: "w4-discard" (the discard dialog); ENTER (Discard): "w4-back" (= "shell").  Extra data per checkpoint: the W2 variables, WR_FN, F's codes (hex), WR_LCK, WR_DK and the document's codes.
+let w4 = null;
+if (['WR_FN', 'WR_FCODES', 'WR_LCK', 'WR_DK', 'WR_AN', 'WR_MK', 'WR_CLN', 'WR_BUF', 'WR_GB', 'MB_ENT', 'ME_SIZE', 'ME_EN'].every((n) => S[n] !== undefined)) {
+  const MENUK = keymap.get(16) ?? [CS, [4, 1]], RIGHTK = keymap.get(9) ?? [CS, [4, 2]];
+  const ITEM_IDX = { 1: 0, 2: 1, 3: 2, 4: 4, 5: 6, 6: 7 };
+  const hex = (a, n) => Buffer.from(m.ram.subarray(a, a + n)).toString('hex');
+  const editEn = () => rd16(m, S.MB_ENT + S.ME_SIZE + S.ME_EN);
+  // MENU, RIGHT (Edit), DOWN over the enabled items up to `item` (ids 1 Cut .. 4 Select all, 5 Find..., 6 Find again), ENTER; steps counted from the live enable word
+  const editSeq = (item) => {
+    const en = editEn(), order = [1, 2, 3, 4, 5, 6].filter((i) => (en >> (7 - ITEM_IDX[i])) & 1), steps = order.indexOf(item);
+    if (steps < 0) throw new Error(`w4: Edit item ${item} is disabled (enable word ${en.toString(16)})`);
+    return [['MENU', MENUK], ['RIGHT', RIGHTK], ...Array(steps).fill(['DOWN', DOWN]), ['ENTER', [ENTER]]];
+  };
+  const vars4 = () => {
+    const gs = rd16(m, S.WR_GS), ge = rd16(m, S.WR_GE), buf = rd16(m, S.WR_BUF), gb = rd16(m, S.WR_GB), fn = m.ram[S.WR_FN];
+    return { ...wrvars(), WR_AN: rd16(m, S.WR_AN), WR_MK: m.ram[S.WR_MK], WR_CLN: rd16(m, S.WR_CLN), EDIT_EN: editEn(), WR_FN: fn, FCODES: hex(S.WR_FCODES, Math.min(fn, 30)),
+      WR_LCK: rd16(m, S.WR_LCK), WR_DK: m.ram[S.WR_DK], DOC: hex(buf, gs) + '|' + hex(gb, 0x1400 - ge) };
+  };
+  const W4_TYPED = typeText('one two three\nfour two six\nthree');
+  const W4_TWO = typeText('two');
+  const W4_ZZZ = [...Array(3).fill(['DELETE', DELETE]), ...typeText('zzz')];
+  const W4_GO = [['ENTER', [ENTER]]];
+  const k4 = {};
+  pressSeq(WR_OPEN.slice(0, 2));
+  press(WR_OPEN[2][1]);
+  const up = untilProg(3);
+  run(30);
+  const open = dump('w4-open', settle(300)); const vOpen = vars4();
+  pressSeq(W4_TYPED); const typed = dump('w4-typed', settle(120)); const vTyped = vars4();
+  k4.find1 = editSeq(5); pressSeq(k4.find1); const fdlg = dump('w4-fdlg', settle(120)); const vFdlg = vars4();
+  pressSeq(W4_TWO); pressSeq(W4_GO); const found = dump('w4-found', settle(120)); const vFound = vars4();
+  k4.again1 = editSeq(6); pressSeq(k4.again1); const again = dump('w4-again', settle(120)); const vAgain = vars4();
+  k4.again2 = editSeq(6); pressSeq(k4.again2); const again2 = dump('w4-again2', settle(120)); const vAgain2 = vars4();
+  k4.find2 = editSeq(5); pressSeq(k4.find2); const fdlg2 = dump('w4-fdlg2', settle(120)); const vFdlg2 = vars4();
+  pressSeq(W4_ZZZ); pressSeq(W4_GO); const notfound = dump('w4-notfound', settle(120)); const vNotfound = vars4();
+  pressSeq(W4_GO); const after = dump('w4-after', settle(120)); const vAfter = vars4();
+  press(CLOSEKEYS); const discSettled = (run(30), settle(300)); const disc = dump('w4-discard', discSettled); const vDisc = vars4();
+  press([ENTER]); const backUp = untilProg(0); run(30); const backSettled = settle(300); const back = dump('w4-back', backSettled);
+  const backEq = same(rd_('w4-back'), rd_('shell'));
+  const afterEqAgain2 = same(rd_('w4-after'), rd_('w4-again2'));
+  const names = ['w4-open', 'w4-typed', 'w4-fdlg', 'w4-found', 'w4-again', 'w4-again2', 'w4-fdlg2', 'w4-notfound'];
+  const distinct = names.every((n, i) => i === 0 || !same(rd_(n), rd_(names[i - 1])));
+  const two = Buffer.from('two').toString('hex');
+  const okW4 = up && [open, typed, fdlg, found, again, again2, fdlg2, notfound, after, disc].every((x) => x.K_PROG === 3) && backUp && backSettled && back.K_PROG === 0 && backEq && distinct &&
+    vOpen.EDIT_EN === 0x0A && vFdlg.WR_DK === 3 && vFound.WR_FN === 3 && vFound.FCODES === two && vFound.WR_AN === 4 && vFound.WR_GS === 7 && vAgain.WR_AN === 19 && vAgain.WR_GS === 22 &&
+    vAgain2.WR_AN === 4 && vNotfound.WR_DK === 2 && vNotfound.FCODES === 'zzz'.split('').map((ch) => ch.charCodeAt(0).toString(16)).join('') && vAfter.WR_DK === 0 && afterEqAgain2 && vAfter.DOC === vAgain2.DOC && vAfter.WR_AN === vAgain2.WR_AN;
+  console.log(`w4 session: typed ${JSON.stringify(vTyped)}, found ${JSON.stringify(vFound)}, again ${JSON.stringify(vAgain)}, again2 ${JSON.stringify(vAgain2)}, notfound ${JSON.stringify(vNotfound)}, after ${JSON.stringify(vAfter)}; w4-after equals w4-again2 ${afterEqAgain2}; w4-back equals shell ${backEq}`);
+  w4 = { ok: okW4, keys: { open: WR_OPEN, typed: W4_TYPED, find1: k4.find1, two: W4_TWO, go: W4_GO, again1: k4.again1, again2: k4.again2, find2: k4.find2, zzz: W4_ZZZ, close: CLOSEKEYS, enter: [ENTER] },
+    vars: { open: vOpen, typed: vTyped, fdlg: vFdlg, found: vFound, again: vAgain, again2: vAgain2, fdlg2: vFdlg2, notfound: vNotfound, after: vAfter, discard: vDisc },
+    kprog: { open: open.K_PROG, typed: typed.K_PROG, fdlg: fdlg.K_PROG, found: found.K_PROG, again: again.K_PROG, again2: again2.K_PROG, fdlg2: fdlg2.K_PROG, notfound: notfound.K_PROG, after: after.K_PROG, discard: disc.K_PROG, back: back.K_PROG },
+    backEqShell: backEq, afterEqAgain2 };
+} else console.log('w4 session: skipped (the build has no Write W4 symbols)');
 const kcKeys = { tabIcon: KC_OPEN[0][1], enter: KC_OPEN[1][1], q: KC_Q, ss: KC_SS, radio: KC_RADIO, close: CLOSEKEYS };
 
 writeFileSync(join(outDir, 'keys.json'), JSON.stringify({ seq: SEQ.map((s) => s[0]), afterKey, expect: EXPECT, kprog, kc: kcKeys, kcKprog: { kc: kc.K_PROG, q: kcq.K_PROG, ss: kcss.K_PROG, radio: kcr.K_PROG, back2: back2.K_PROG }, back2EqShell,
-  wr: { open: WR_OPEN, typed: WR_TYPED, edit: WR_EDIT, close: CLOSEKEYS, enter: [ENTER], text: WR_PARA, vars: { open: wrOpenV, typed: wrTypedV, edit: wrEditV }, kprog: { open: wrOpen.K_PROG, typed: wrTyped.K_PROG, edit: wrEdit.K_PROG, dialog: wrDlg.K_PROG, back: wrBack.K_PROG }, backEqShell: wrBackEqShell }, w2, w3 }) + '\n');
+  wr: { open: WR_OPEN, typed: WR_TYPED, edit: WR_EDIT, close: CLOSEKEYS, enter: [ENTER], text: WR_PARA, vars: { open: wrOpenV, typed: wrTypedV, edit: wrEditV }, kprog: { open: wrOpen.K_PROG, typed: wrTyped.K_PROG, edit: wrEdit.K_PROG, dialog: wrDlg.K_PROG, back: wrBack.K_PROG }, backEqShell: wrBackEqShell }, w2, w3, w4 }) + '\n');
 console.log('display after each key: ' + afterKey.map(([k, s]) => `${k}:"${s}"`).join(' '));
 const backEqShell = same(rd_('back'), rd_('shell'));
 console.log(`back screen equals shell screen byte for byte: ${backEqShell}`);
@@ -308,7 +364,7 @@ const ok = shellUp && shellSettled && shell.K_PROG === 0 && calcUp && calcSettle
   !same(rd_('shell'), rd_('calc')) && !same(rd_('calc'), rd_('typed')) &&
   kcUp && kcSettled && kc.K_PROG === 2 && kcqSettled && kcq.K_PROG === 2 && kcssSettled && kcss.K_PROG === 2 && kcrSettled && kcr.K_PROG === 2 &&
   back2Up && back2Settled && back2.K_PROG === 0 &&
-  ['kc', 'kc-q', 'kc-ss', 'kc-radio'].every((n, i, a) => i === 0 || !same(rd_(n), rd_(a[i - 1]))) && wrOk && (w2 === null || w2.ok) && (w3 === null || w3.ok);
+  ['kc', 'kc-q', 'kc-ss', 'kc-radio'].every((n, i, a) => i === 0 || !same(rd_(n), rd_(a[i - 1]))) && wrOk && (w2 === null || w2.ok) && (w3 === null || w3.ok) && (w4 === null || w4.ok);
 console.log(`key caps session: kc/kc-q/kc-ss/kc-radio K_PROG ${kc.K_PROG}/${kcq.K_PROG}/${kcss.K_PROG}/${kcr.K_PROG}, back2 K_PROG ${back2.K_PROG}, back2 equals shell ${back2EqShell}`);
 console.log(`${ok ? 'PASS' : 'FAIL'}: desk5 reference: shell up after ${framesToShell} frames (settled ${shellSettled}), calc "${calc.display}" K_PROG ${calc.K_PROG}, typed "${typed.display}" (expected "${EXPECT}") K_PROG ${typed.K_PROG}, ` +
   `back K_PROG ${back.K_PROG} = shell ${backEqShell}, rendered-vs-RAM mismatches ${mismatch}; written to ${outDir}`);
