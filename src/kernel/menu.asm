@@ -283,14 +283,27 @@ mb_enrot:
 ; ===========================================================================================================================
 ; mbar_draw (18.3): the ink bar and the titles in paper.
 mbar_draw:
+    IFDEF LOOK_MAC
+    xor a                               ; LOOK 3.1: the line (0, 7, 512, 1) in ink,
+    ld de,7 * 256 + 1
+    call w_bandfill
+    ld a,1
+    ld de,7
+    call w_bandfill                     ; paper (0, 0, 512, 7); GA+2 stays 0 for the titles
+    ELSE
     xor a
     ld de,8
     call w_bandfill                     ; (0, 0, 512, 8); GA+2 stays 0 for the titles
+    ENDIF
     ld a,(MB_N)
     or a
     ret z
     ld b,a
+    IFDEF LOOK_MAC
+    xor a                               ; the titles in ink
+    ELSE
     ld a,2
+    ENDIF
     call G_SETOP
 .t:
     push bc
@@ -326,6 +339,21 @@ mb_open:
     call G_SAVERECT
     call mb_gadd                        ; paper, frame
     call w_boxga
+    IFDEF LOOK_MAC
+    call mb_gadd                        ; LOOK 3.1: no top line (the bar's line is the top edge): paper (x + 1, 8, W - 2, 1)
+    ld hl,(GA)
+    inc hl
+    ld (GA),hl
+    ld hl,(GA+4)
+    dec hl
+    dec hl
+    ld (GA+4),hl
+    ld hl,1
+    ld (GA+6),hl
+    call w_clearga
+    xor a
+    call G_SETOP                        ; the shadow below is ink
+    ENDIF
     call mb_gadd                        ; the shadow: (x + W, 10, 2, H - 1) and (x + 2, 8 + H, W, 1)
     dec hl
     ld (GA+6),hl
@@ -416,7 +444,11 @@ mb_open:
     call P_UNSHIELD
 ; mb_titlex: the selected menu's title box XORed, shielded.  Clobbers AF, BC, DE, HL; GA.
 mb_titlex:
+    IFDEF LOOK_MAC
+    ld de,7                             ; LOOK 3.1: rows 0-6, the line stays
+    ELSE
     ld de,8
+    ENDIF
     call w_band                         ; (0, 0, 512, 8), then its x and width
     ld hl,(MC_BX)
     ld (GA),hl

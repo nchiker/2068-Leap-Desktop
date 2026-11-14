@@ -722,16 +722,27 @@ cw_draw:
     call G_FILL
     xor a
     call G_SETOP
+    IFDEF LOOK_MAC
+    ld bc,2 * 256 + 2           ; LOOK 3.3: the box on the left, frame (x + 10, y + 2, 11, 5)
+    ld de,11 * 256 + 5
+    ELSE
     ld bc,1 * 256 + 2
     ld de,13 * 256 + 5
+    ENDIF
     call cw_ga
     jp G_FRAME
 
-; cw_ga: GA = (x + w - 19 + B, y + C, D, E) of the window IX.  Clobbers AF, HL.
+; cw_ga: GA = (x + w - 19 + B, y + C, D, E) of the window IX (LOOK_MAC: (x + 8 + B, y + C, D, E)).  Clobbers AF, HL.
 cw_ga:
     push de
     ld l,(ix+View_x)
     ld h,(ix+View_x+1)
+    IFDEF LOOK_MAC
+    ld e,b
+    ld d,0
+    add hl,de
+    ld e,8
+    ELSE
     ld e,(ix+View_w)
     ld d,(ix+View_w+1)
     add hl,de
@@ -739,6 +750,7 @@ cw_ga:
     ld d,0
     add hl,de
     ld de,-19
+    ENDIF
     add hl,de
     ld (GA),hl
     ld a,(ix+View_y)
@@ -794,7 +806,7 @@ cw_event:
     call cw_xor
     jp b_post                   ; closed by the user: E_CMD, C = the window's View_id
 
-; cw_in: BC = x, DE = y -> carry when inside the box (x + w - 19, y + 1, 15, 7).  Clobbers AF, HL.
+; cw_in: BC = x, DE = y -> carry when inside the box (x + w - 19, y + 1, 15, 7); LOOK_MAC (x + 8, y + 1, 15, 7).  Clobbers AF, HL.
 cw_in:
     push bc
     push de
@@ -827,7 +839,8 @@ cw_in:
     or a
     ret
 
-; cw_xor: the pressed look toggled: XOR fill (x + w - 17, y + 3, 11, 3), the clip the whole screen, shielded.
+; cw_xor: the pressed look toggled: XOR fill (x + w - 17, y + 3, 11, 3) (LOOK_MAC (x + 11, y + 3, 9, 3)), the clip the whole
+; screen, shielded.
 cw_xor:
     push bc
     push de
@@ -839,8 +852,13 @@ cw_xor:
     ld hl,192
     ld (GA+6),hl
     call G_SETCLIP
+    IFDEF LOOK_MAC
+    ld bc,3 * 256 + 3           ; LOOK 3.3: (x + 11, y + 3, 9, 3)
+    ld de,9 * 256 + 3
+    ELSE
     ld bc,2 * 256 + 3
     ld de,11 * 256 + 3
+    ENDIF
     call cw_ga
     call P_SHIELD
     ld a,2

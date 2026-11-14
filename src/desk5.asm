@@ -2,6 +2,7 @@
 ; in DOCK 2-3, launched at boot.  No test code beyond the sentinel return and a send for the tests.
 
     DEVICE NOSLOT64K
+    DEFINE LOOK_MAC             ; the Mac OS 1.0 style look (docs/LOOK.md): desk5 only
 
 PORT_HSR    EQU $F4
 PORT_SCLD   EQU $FF
@@ -14,6 +15,7 @@ V_FRAMES    EQU $E080           ; word: frame interrupts
 V_SHADOW_FF EQU $E082
 V_SHADOW_F4 EQU $E083
 RESULT      EQU $FF00
+DESK_STR    EQU $E090           ; 64 bytes, zero: desk_draw's string of code 0 (LOOK 9).  Boot clears it; nothing writes it.
 
 KARENA_BASE EQU $F500
 KARENA_END  EQU $FB00
@@ -176,5 +178,14 @@ K_PROGS:                        ; the programs (SHELL 10.3): 0 the shell, 1 Calc
     INCLUDE "apps/write.asm"     ; program 3 (docs/WRITE.md)
     INCLUDE "apps/files.asm"    ; the FS_ calls (docs/FILES.md)
     ASSERT $ <= $8000
+
+; LOOK 9: the 8x8 glyph of code 0 (blank, never drawn) becomes the desk's 25% tile: FONTP plane k, byte 128 (GLYPH8 + 0).
+    ORG GLYPH8
+    DUP 4
+        DB $88
+        ORG $ + 255
+        DB $22
+        ORG $ + 255
+    EDUP
 
     SAVEBIN "mem.bin", 0, 65536

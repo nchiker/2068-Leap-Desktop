@@ -1461,6 +1461,203 @@ w_meets:
     cp c                        ; carry when y0 < y + h
     ret
 
+    IFDEF LOOK_MAC
+; desk_draw (docs/LOOK.md 9): the 25% grey, as text.  The 8x8 glyph of code 0 is the tile ($88, $22, ...; desk5.asm patches
+; FONTP), DESK_STR is 64 zero bytes (RAM that boot clears and nothing writes), and G_TEXT8 draws the cells of character rows
+; 1-23 that lie wholly inside the clip; the desk is drawn under a clip of whole cells.  Clobbers AF, BC, DE, HL; GA.
+desk_draw:
+    xor a
+    call G_SETOP                ; opaque, ink = the tile's bits
+    ld hl,DESK_STR
+    ld (GA+4),hl
+    ld hl,64
+    ld (GA+6),hl
+    ld l,h
+    ld (GA),hl                  ; column 0
+    inc l
+    ld (GA+2),hl                ; row 1
+.row:
+    call G_TEXT8
+    ld hl,GA+2
+    inc (hl)
+    ld a,(hl)
+    cp 24
+    jr c,.row
+    ret
+
+; window_draw (LOOK 3.2): (x, y, w, h) the window's rectangle; the face is (x, y, w - 2, h - 1), the shadow fills the last two
+; columns and the last row.  Paper over the whole rectangle first (so the shadow's two corners are paper, which is what the
+; 25% desk has there: LOOK 9), then the lines of W_LINES in ink (the stripes too when active), then the title, centred, in ink
+; (active: on a paper gap in the stripes), then the children.  W_ACT = 0 active, 1 inactive (cw_draw reads it).
+window_draw:
+    call w_isfront              ; a window that W_FRONT returns is open
+    ld a,h
+    or l
+    ld b,9                      ; active: the six lines and three stripes
+    jr z,.act
+    ld a,1
+    ld b,6
+.act:
+    ld (W_ACT),a
+    push bc
+    ld a,1
+    call G_SETOP
+    call w_gaview
+    call G_FILL
+    xor a
+    call G_SETOP
+    pop bc
+    ld de,W_LINES
+.line:                          ; DE -> (dx, dy, dw, dh); a negative value v means v + w (dx, dw) or v + h (dy, dh)
+    push bc
+    ld c,(ix+View_w)
+    ld b,(ix+View_w+1)
+    ld a,(de)
+    inc de
+    call .rel
+    ld a,l
+    add a,(ix+View_x)
+    ld l,a
+    ld a,h
+    adc a,(ix+View_x+1)
+    ld h,a
+    ld (GA),hl
+    call .relh
+    add a,(ix+View_y)
+    ld (GA+2),a
+    ld a,(de)
+    inc de
+    call .rel
+    ld (GA+4),hl
+    call .relh
+    ld (GA+6),a
+    push de
+    call G_FILL
+    pop de
+    pop bc
+    djnz .line
+    ld l,(ix+Window_title)      ; the title: n' = the codes whose PROP6_W sum is <= w - 66
+    ld h,(ix+Window_title+1)
+    ld a,h
+    or a
+    jp z,group_draw
+    ld b,(hl)                   ; n
+    inc hl
+    ld (GA+4),hl
+    push hl
+    ld l,(ix+View_w)
+    ld h,(ix+View_w+1)
+    ld de,-66
+    add hl,de
+    ex de,hl                    ; DE = the room
+    pop hl                      ; HL = the codes
+    ld c,0                      ; C = the codes that fit
+    bit 7,d
+    jr nz,.tn
+    inc b
+    jr .next
+.tw:
+    push hl
+    ld l,(hl)
+    ld h,PROP6_W >> 8
+    ld l,(hl)
+    ld a,e
+    sub l
+    ld e,a
+    pop hl
+    jr nc,.fits
+    dec d
+    jp m,.tn
+.fits:
+    inc c
+    inc hl
+.next:
+    djnz .tw
+.tn:
+    ld l,c
+    ld h,0
+    ld (GA+6),hl
+    call G_TEXTW                ; HL = tw
+    ld b,h
+    ld c,l
+    ld l,(ix+View_w)
+    ld h,(ix+View_w+1)
+    dec hl
+    dec hl
+    or a
+    sbc hl,bc
+    srl h
+    rr l
+    ld e,(ix+View_x)
+    ld d,(ix+View_x+1)
+    add hl,de                   ; HL = tx = x + (w - 2 - tw) / 2
+    ld a,(W_ACT)
+    or a
+    jr nz,.text                 ; inactive: no stripes, no gap
+    ld a,b
+    or c
+    jr z,.text                  ; no codes: no gap
+    push hl
+    ld de,(GA+4)
+    push de
+    ld de,(GA+6)
+    push de
+    ld de,-6
+    add hl,de
+    ld (GA),hl                  ; the gap: (tx - 6, y + 1, tw + 12, 7), paper
+    ld hl,12
+    add hl,bc
+    ld (GA+4),hl
+    ld l,7
+    ld (GA+6),hl                ; (tw + 12 < 256: H = 0)
+    ld a,(ix+View_y)
+    inc a
+    ld (GA+2),a
+    ld a,1
+    call G_SETOP
+    call G_FILL
+    xor a
+    call G_SETOP
+    pop hl
+    ld (GA+6),hl
+    pop hl
+    ld (GA+4),hl
+    pop hl
+.text:
+    ld (GA),hl
+    ld a,(ix+View_y)
+    ld (GA+2),a
+    call G_TEXTP
+    jp group_draw
+.relh:                          ; A = the next table byte, a negative one + h.  Clobbers F.
+    ld a,(de)
+    inc de
+    or a
+    ret p
+    add a,(ix+View_h)
+    ret
+.rel:                           ; A = a table byte, BC = w -> HL = A sign-extended, + w when negative.  Clobbers F.
+    ld l,a
+    ld h,0
+    or a
+    ret p
+    dec h
+    add hl,bc
+    ret
+
+; W_LINES: window_draw's ink fills (dx, dy, dw, dh), each as .line reads it.  The first six always, the three stripes when active.
+W_LINES:
+    DB 0, 0, -2, 1              ; the top: (x, y, w - 2, 1)
+    DB 0, 8, -2, 1              ; the separator: (x, y + 8, w - 2, 1)
+    DB 0, -2, -2, 1             ; the bottom: (x, y + h - 2, w - 2, 1)
+    DB 0, 0, 1, -1              ; the left side: (x, y, 1, h - 1)
+    DB -3, 1, 3, -2             ; the right side and the shadow beside it: (x + w - 3, y + 1, 3, h - 2)
+    DB 2, -1, -2, 1             ; the shadow under: (x + 2, y + h - 1, w - 2, 1)
+    DB 2, 2, -6, 1              ; the stripes: (x + 2, y + r, w - 6, 1), r = 2, 4, 6
+    DB 2, 4, -6, 1
+    DB 2, 6, -6, 1
+
+    ELSE
 ; desk_draw: paper over (0, 8, 512, 184).
 desk_draw:
     ld a,1
@@ -1572,6 +1769,8 @@ window_draw:
     add a,(ix+View_y)
     ld (GA+2),a
     jp G_FILL
+
+    ENDIF
 
 ; w_garight: GA's x += IX's w - 1 (from a rectangle's left side to its right one).  Clobbers DE, HL.
 w_garight:

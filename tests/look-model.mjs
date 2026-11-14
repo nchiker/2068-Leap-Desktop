@@ -99,7 +99,7 @@ export const ARROW_NOW = [            // src/gfx6/pointer.asm P_ARROW today
 // The Mac arrow (QuickDraw's black arrow: 8 rows widening by one pixel, a notch, a tail two pixels wide going down and right),
 // widened 1.5 times so that it keeps its shape on mode 6's pixels, which are twice as tall as they are wide.
 export const ARROW_MAC = [
-  '#o..............', '###o............', '####o...........', '######o.........', '#######o........', '#########o......', '##########o.....', '############o...',
+  '##o.............', '###o............', '####o...........', '######o.........', '#######o........', '#########o......', '##########o.....', '############o...',
   '########ooooo...', '###oo###o.......', '##oo.o###o......', 'oo...o###o......', '......o###o.....', '......o###o.....', '.......ooo......', '................',
 ];
 export function drawArrow(g, art, px, py) {
