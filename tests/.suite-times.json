@@ -1,0 +1,22 @@
+{
+  "al-a1": 3,
+  "tk-perf": 5.2,
+  "fs-f1": 3,
+  "kc-k1": 22.5,
+  "tk-t3": 24.4,
+  "tk-t2": 38.4,
+  "shell-s1": 39.4,
+  "wr-w3": 16.6,
+  "wr-demo": 4.5,
+  "calc-c1": 68.1,
+  "kern-dclick": 14.2,
+  "tk-t1": 75.4,
+  "web-smoke": 13.8,
+  "shell-perf": 14.2,
+  "boot-snapshot": 1.2,
+  "calc-perf": 50.3,
+  "wr-w4": 98.5,
+  "wr-w1": 176,
+  "wr-w2": 175.6,
+  "wr-perf": 128
+}

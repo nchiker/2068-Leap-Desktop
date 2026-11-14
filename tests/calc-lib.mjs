@@ -13,7 +13,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { ROOT } from '../tools/build.mjs';
-import { boot, M, Z } from './lib.mjs';
+import { boot, M, Z, bootSkip as L_bootSkip } from './lib.mjs';
 import { parseSym, readDisp } from './wm-lib.mjs';
 import { makeWatch } from './bank-lib.mjs';
 import { Gfx6Model, OP_SET, OP_CLR, OP_XOR } from './gfx6-model.mjs';
@@ -78,7 +78,7 @@ export function bootDesk5(opts = {}) {
     return rd0(addr);
   };
   let prev = rd16(m, S.V_FRAMES);
-  const env = { m, S, w, load, vf, wr, sp, frames: 0, direct: false };
+  const env = { m, S, w, load, vf, wr, sp, frames: L_bootSkip(m), direct: false };   // S2: frames counted from reset, as a cold boot
   env.frame = () => {
     M.runFrame(m); env.frames++;
     const cur = rd16(m, S.V_FRAMES);

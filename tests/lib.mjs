@@ -6,6 +6,8 @@ import { pathToFileURL } from 'node:url';
 import { ROOT } from '../tools/build.mjs';
 
 const TSRUN = join(ROOT, 'tsrun');
+import { bootedMachine, bootSkip } from './fast-boot.mjs';
+export { bootSkip };
 export const M = await import(pathToFileURL(join(TSRUN, 'machine.js')).href);
 export const Z = await import(pathToFileURL(join(TSRUN, 'z80.js')).href);
 export const FRAME_T = M.tStatesPerFrame;          // 58,688 on TSRun
@@ -29,17 +31,24 @@ export function videoOff(m) {
 
 // TESTSPEED S2 measure: TS_BOOTS=1 prints how many machines this process booted (and the frames it ran in total) when it exits.
 export const bootStats = { boots: 0 };
-if (process.env.TS_BOOTS === '1') process.on('exit', () => console.error(`TS_BOOTS ${bootStats.boots}`));
+if (process.env.TS_BOOTS === '1') { process.on('exit', () => console.error(`TS_BOOTS ${bootStats.boots}`)); process.on('SIGTERM', () => process.exit(143)); }
 
 /** New stock TS2068 (stock ROMs) with the DCK inserted and reset. opts.video: false turns screen drawing off (videoOff); default true. */
 export function boot(dck, opts = {}) {
+  bootStats.boots++;
+  // TESTSPEED S2: a machine with video off is restored from the process's shared ROM-boot snapshot (tests/fast-boot.mjs) unless TS_COLDBOOT=1;
+  // bootSkip(m) is the number of boot frames it skipped (0 for a cold boot), so callers count frames from reset.
+  if (opts.video === false && process.env.TS_COLDBOOT !== '1') {
+    const m = bootedMachine(new Uint8Array(dck), { video: false });
+    videoOff(m);
+    return m;
+  }
   const m = M.createMachine(new Uint8Array(9).fill(0x1F), new Uint8Array(2).fill(0xFF));
   const must = (e) => { if (e) throw new Error(e); };
   must(M.setHomeRom(m, new Uint8Array(readFileSync(join(TSRUN, 'roms/ts2068-0.rom')))));
   must(M.setExRom(m, new Uint8Array(readFileSync(join(TSRUN, 'roms/ts2068-1.rom')))));
   must(M.insertDock(m, new Uint8Array(dck)));
   M.resetMachine(m);
-  bootStats.boots++;
   if (opts.video === false) videoOff(m);
   return m;
 }

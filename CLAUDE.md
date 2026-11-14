@@ -181,6 +181,7 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
   - judging results.
 - **The main model re-checks before telling the owner something is done:** it reads the agent's logs and re-runs the suite it
   changed.
+- **Test speed is done (2026-11-14, `docs/TESTSPEED.md` 8-11):** `node tools/runtests.mjs --compare <good run's log dir>` runs all 20 suites in a pool (about 210 s, was 1,505 s); the tsrun pin is `6ccf56e`; `desk5` suites run with drawing off (`boot(dck, { video: false })`, `TS_VIDEO=1` turns it on) and from the shared ROM-boot snapshot (`TS_COLDBOOT=1` boots cold). A test that reads `m.pixels` must ask for `{ video: true }`.
 - **One `desk5` build at a time;** do not run suites while a build changes `build/desk5`.
 - **Use a LeapG git worktree** for code that would rebuild under a running suite (see Working method).
 
@@ -196,8 +197,7 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
   needs `build/kern4`.
 
 **Next, in order (all owner-approved):**
-1. **Test speed (`docs/TESTSPEED.md`)**, each step checked against the baseline; every pass line, check count and T-state
-   row must be identical.
+1. **Test speed (`docs/TESTSPEED.md`): DONE (S1-S4).** The steps below are kept for the record.
    - **S3:** move the `tsrun` pin to `6ccf56e`, the fork's main. Copy Arcade's `tests/tsrun-ay-silent.mjs` from
      `~/Projects/Leap-IDE`, read only, with a `docs/PROVENANCE.md` entry. Keep the fork's rules, TESTSPEED 6.
    - **S1:** screen drawing off (`M.setVideoOn(m, false)`), with a guard on every `m.pixels` read.

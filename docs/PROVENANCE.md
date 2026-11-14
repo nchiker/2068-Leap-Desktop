@@ -10,6 +10,7 @@ changed. Leap V2 (`~/2068-Leap`) is frozen.
 | `src/font.inc` | `~/Projects/Leap-IDE/arcade/runtime/v2/font.inc`, itself generated from `~/2068-Leap/kernel/graphics/graphics.asm` `FONT_TABLE` (Leap V2, MIT) by `arcade/tools/gen-font.mjs` | Leap-IDE `fead962`; 2068-Leap `29356c7` | `86124c45869ae676` | no |
 | `src/spike6.asm` `live_input` (the joystick read only) | `~/Projects/Leap-IDE/arcade/runtime/v3/api.asm` `RT_STICK` (itself Leap V2's `BUILTIN_FN_STICK`) | Leap-IDE `b81f8fd` | (a routine, not a file) | yes: no `DI` / `EI` (the demo's ISR never selects an AY register), result bits rearranged to the demo's u d l r f, ORed with the keys |
 | `tests/tsrun-ay-silent.mjs` | `~/Projects/Leap-IDE/tests/tsrun-ay-silent.mjs` (nchiker/2068-Leap-IDE), the proof of TSRun's closed-form silent AY (`6ccf56e`) | Leap-IDE `b4cdf2d` | `2fc3cf9dac1416b0` | no |
+| `tests/fast-boot.mjs` | `~/Projects/Leap-IDE/arcade/tests/fast-boot.mjs` (nchiker/2068-Leap-IDE): the stock ROM booted once per process and restored per machine (TESTSPEED S2) | Leap-IDE `18b36ed` | `6e5264ab7480a48f` | yes: `TSRUN` path `../tsrun` (was `../../tsrun`) |
 
 ## Submodules
 

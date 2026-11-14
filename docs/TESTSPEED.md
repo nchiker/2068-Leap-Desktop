@@ -139,3 +139,26 @@ Every suite passes. Wall and CPU time are in seconds; the machine was shared wit
 - **Where `wr-w1`'s time goes (profile):** Z80 emulation 45 %; `runCall` (`tests/tk-lib.mjs`, one `runZ80` call per instruction plus its
   hooks) 18 %; the memory watch (`makeWatch` `check`) 8 %; `dispatch` 8 %. The Notepad suites gain from parallelism (S4), not from
   drawing. A cheaper `runCall` is a harness change outside this slice and is not planned.
+
+## 10. S2 done (2026-11-14): boot once, restore per machine
+
+- **Measured first (`TS_BOOTS=1`):** a `bootDesk5` costs 0.17-0.2 s, so boot-once pays only in a suite with many boots: `wr-w4` makes 154
+  boots, `fs-f1` 20, `wr-w3` 30; the others 1-9. The stock ROM runs 97 of a desk5 boot's 142 frames before it first writes port
+  `$F4` / `$FF` (found dynamically, not hard-coded); those 97 are the part shared by every cartridge.
+- **What changed:** `tests/fast-boot.mjs` (Arcade's, `docs/PROVENANCE.md`) snapshots the ROM boot once per process. `boot(dck, { video: false })`
+  restores a machine from it, unless `TS_COLDBOOT=1`; machines with drawing on boot cold, as before. `bootDesk5` starts `env.frames`
+  at `bootSkip(m)`, so frame counts printed by the suites are from reset, as a cold boot's.
+- **Proof:** `tests/boot-snapshot.mjs` (5 checks): the complete state of a cold-booted and a restored machine (every non-function field,
+  RAM included) is equal at the snapshot frame, 50 and 200 frames later; two restored machines share no memory.
+- **Result (report):** `wr-w4` 37.6 s to 30.4 s CPU (-19 %), `wr-w3` 7.2 to 6.2; the logs of both are identical cold and restored.
+
+## 11. S4 done (2026-11-14): the parallel runner, and the whole run
+
+- **`tools/runtests.mjs`:** `node tools/runtests.mjs [--jobs N] [--log DIR] [--compare DIR] [suite ...]` runs the 20 suites (the 19 and
+  `boot-snapshot`) in a pool, longest first from `tests/.suite-times.json`, logs in `build/test-logs/<time>/`, and with `--compare`
+  checks each log against a reference directory (ignoring the timing lines, elapsed seconds and `web-smoke`'s frame counts). It builds
+  nothing and stops with exit 2 if a prebuilt cartridge is missing. `web-smoke` reruns alone once if it fails in the pool.
+- **The whole run, S1 + S2 + S3 + S4, 6 jobs:** **20 of 20 pass, 210 s wall**, against **1,505 s** at the baseline (section 7); every log is
+  identical to section 8's (`--compare`: same for all 19). The longest suite, `wr-w1`, is now the floor: 176 s wall under 6 jobs.
+- **Use it for every regression run:** `node tools/runtests.mjs --compare <dir of a good run>`. The perf suites' T-state rows are counted, not timed,
+  so they are the same under load; wall-clock checks are not (section 5).
