@@ -88,8 +88,11 @@ if (demoOk) {
     tree.resetLog();
     L.moveTo(env, x, y); env.frames_(1);
     vfModel += gapFrames; tree.vf = vfModel;
+    const t0 = m.ram[S.K_RTAIL];
     m.mouse.buttons = L.MOUSE_LEFT; env.frames_(3);
-    tree.dispatch({ t: M.E.DOWN, px: x, py: y });
+    // the double-click is the kernel's (WRITE 14.9): the flag of the E_DOWN the ISR queued, read from the ring (tests/kern-dclick.mjs judges the flag itself)
+    let dbl = false; for (let t = t0; t !== m.ram[S.K_RTAIL]; t = (t + 4) & 0xFF) { const a = S.K_RING + (t & 0x3F); if (m.ram[a] === 3) dbl = (m.ram[a + 3] & 4) !== 0; }
+    tree.dispatch({ t: M.E.DOWN, px: x, py: y, dbl });
     m.mouse.buttons = L.MOUSE_UP; env.frames_(3);
     tree.dispatch({ t: M.E.UP, px: x, py: y });
     const posts = tree.posts.slice();
@@ -164,7 +167,7 @@ if (demoOk) {
     click(list.x + 20, list.y, 100, 'click on the frame row');
     // the pointer must leave no trace: a drag across the List (press, move, release) changes nothing but the selection on press
     L.moveTo(env, list.x + 10, linePt(1)[1]); m.mouse.buttons = L.MOUSE_LEFT; env.frames_(2);
-    tree.vf = (vfModel += 100); tree.dispatch({ t: M.E.DOWN, px: rd16(m, S.K_PX), py: m.ram[S.K_PY] });
+    tree.vf = (vfModel += 100); tree.dispatch({ t: M.E.DOWN, px: rd16(m, S.K_PX), py: m.ram[S.K_PY], dbl: false });
     L.moveTo(env, list.x + 60, linePt(4)[1]); tree.dispatch({ t: M.E.MOVE, px: rd16(m, S.K_PX), py: m.ram[S.K_PY] });
     m.mouse.buttons = L.MOUSE_UP; env.frames_(3); tree.dispatch({ t: M.E.UP, px: rd16(m, S.K_PX), py: m.ram[S.K_PY] });
     check('press on line 1, move to line 4, release');

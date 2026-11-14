@@ -240,9 +240,13 @@ if (ONLY.includes(3)) {
         const j = rng.pick(sh), gap = rng.pick([0, 3, 10, 19, 20, 21, 22, 40]);
         st.dbl++;
         const nPosts = st.posts;
-        click(itemPoint(l, j), undefined, 0);
-        if (M2.listShown(l, j)) click(itemPoint(l, j), gap, 0);
-        if (rng.chance(0.4) && M2.listShown(l, j)) click(itemPoint(l, j), rng.pick([1, 5, 20]), 0);     // a third click starts again
+        // the presses are mostly within a few pixels of each other (the kernel flags a press at most 8 across and 4 down from the one before, WRITE 14.9), on the same item
+        const p1 = itemPoint(l, j), geo = M2.listGeom(l), ylo = geo.LY0 + geo.P * (j - l.top), clampTo = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+        const near = (p) => [clampTo(p[0] + rng.int(-9, 9), l.x + 1, l.x + l.w - 2), clampTo(p[1] + rng.int(-5, 5), ylo, ylo + geo.P - 1)];
+        click(p1, undefined, 0);
+        let p2 = p1;
+        if (M2.listShown(l, j)) { p2 = rng.chance(0.75) ? near(p1) : itemPoint(l, j); click(p2, gap, 0); }
+        if (rng.chance(0.4) && M2.listShown(l, j)) click(rng.chance(0.75) ? near(p2) : itemPoint(l, j), rng.pick([1, 5, 20]), 0);     // a third click: not flagged after a double-click, so it starts again
         st.dblPosts += st.posts - nPosts;
       } else if (r < 0.60) {                                                       // E_SCROLL straight to a List, DE -> a record that is not K_EV
         const l = rng.pick(lists.filter(enabled)); st.scroll++;
@@ -385,7 +389,7 @@ if (ONLY.includes(5)) {
 }
 
 // ===========================================================================================================================
-// 6. The double click: 20 frames and not 21, the third click starts again, other lines and other Lists, a press on a blank line, other controls in between (10.3 Pointer)
+// 6. The double click: 20 frames and not 21, the third click starts again, other lines and other Lists, a press on a blank line, other controls in between (10.3 Pointer as amended by WRITE 14.9 item 2: the kernel's flag plus the List's own same-List / same-item / selection test)
 if (ONLY.includes(6)) {
   const env = T.bootParked({ rng }); envs.push(env);
   T.needSyms(env, T.NEEDED2);
@@ -430,7 +434,7 @@ if (ONLY.includes(6)) {
     // a press on a Check in between: the memory stays (the last E_DOWN taken by a List)
     press(A, 5, 6000, false, 'Check: A');
     { vf = 6003; const p = X.pointIn(rng, chk); X.feedEv(env, tree, sec, { t: M.E.DOWN, px: p[0], py: p[1], vf }, ctxOf('Check press')); X.feedEv(env, tree, sec, { t: M.E.UP, px: p[0], py: p[1] }, ctxOf('Check release')); }
-    press(A, 5, 6006, true, 'Check: A again');
+    press(A, 5, 6006, false, 'Check: A again (the press before it was on the Check, far away: the kernel does not flag it; WRITE 14.9)');
     // the item must be selected for the post: a selection by the keys in between breaks it
     press(A, 4, 7000, false, 'keys: A line 4');
     X.feedEv(env, tree, sec, { t: M.E.KEY, key: 10 }, ctxOf('key DOWN'));            // the selection moves to item 5
@@ -476,5 +480,27 @@ if (ONLY.includes(9)) {
     T.clearTree(env, tree);
   }
   sec.end(`${n} presses on the first line`);
+}
+// ===========================================================================================================================
+// 9b. WRITE 14.9 item 2 with 10.1: the double-click flag is data 3 bit 2 of the E_DOWN record the List is handed, through DE ("A List reads every event through DE"), not K_EV's
+if (ONLY.includes(9) || ONLY.includes('9b')) {
+  const env = T.bootParked({ rng }); envs.push(env);
+  T.needSyms(env, T.NEEDED2);
+  const sec = new Sec('9b List double-click flag read through DE: with K_EV holding a record whose data 3 bit 2 is the opposite of the record DE points to, the List follows DE (a flagged DE record on the selected, remembered item posts E_CMD; an unflagged one does not)');
+  let n = 0, posts = 0;
+  for (let ti = 0; ti < 30 && sec.nf < 6; ti++) {
+    const tree = randTree2(), A = tree.nodes().find((q) => q.id === 150);
+    if (!X.openTree(env, tree, sec, `window ${ti}`)) break;
+    if (A.count < 1) { T.clearTree(env, tree); continue; }
+    const p = [A.x + 10, M2.listGeom(A).LY0 + 1];
+    const flagged = ti % 2 === 0;
+    // press 1: not flagged, K_EV garbage with bit 2 SET: selects the item and remembers it
+    X.sendDirect(env, tree, sec, `window ${ti}: press 1 (unflagged in DE, flagged in K_EV)`, A, { t: M.E.DOWN, px: p[0], py: p[1], vf: 9000 + 100 * ti, dbl: false }, { garb: [0xA5, 0x5A, 0x33, 0x77] });
+    // press 2 on the same item: DE says flagged / not, K_EV says the opposite
+    const r = X.sendDirect(env, tree, sec, `window ${ti}: press 2 (${flagged ? 'flagged in DE, unflagged in K_EV' : 'unflagged in DE, flagged in K_EV'})`, A, { t: M.E.DOWN, px: p[0], py: p[1], vf: 9002 + 100 * ti, dbl: flagged }, { garb: flagged ? [0xA5, 0x5A, 0x33, 0x73] : [0xA5, 0x5A, 0x33, 0x77] });
+    n++; if (r) { posts += r.posts.length; sec.ok(r.posts.length === (flagged ? 1 : 0), () => `window ${ti}: press 2 ${flagged ? 'flagged in the record DE points to' : 'unflagged in the record DE points to'}: ${r.posts.length} E_CMD posted, want ${flagged ? 1 : 0} (K_EV held the opposite flag)`); }
+    T.clearTree(env, tree);
+  }
+  sec.end(`${n} second presses, ${posts} E_CMD posted`);
 }
 finish();

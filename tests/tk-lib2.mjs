@@ -156,13 +156,14 @@ export function afterStep(env, tree, sec, r, ctx, before, o = {}) {
   return sec.nf === nf0;
 }
 const L_cov = (rects) => coverage(rects);
-export const describeEv = (ev) => (ev.t === M.E.KEY ? `key ${ev.key}` : ev.t === M.E.SCROLL ? `E_SCROLL ${ev.val}` : `${['', '', 'MOVE', 'DOWN', 'UP'][ev.t]} (${ev.px}, ${ev.py})${ev.vf !== undefined ? ' vf ' + ev.vf : ''}`);
+export const describeEv = (ev) => (ev.t === M.E.KEY ? `key ${ev.key}` : ev.t === M.E.SCROLL ? `E_SCROLL ${ev.val}` : `${['', '', 'MOVE', 'DOWN', 'UP'][ev.t]} (${ev.px}, ${ev.py})${ev.vf !== undefined ? ' vf ' + ev.vf : ''}${ev.dbl ? ' DOUBLE' : ''}`);
 /** One event through K_DISPATCH, then afterStep.  ev: { t, px, py, vf? } | { t: E.KEY, key }.  Returns the run, or null when the call failed. */
 export function feedEv(env, tree, sec, ev, ctx, o = {}) {
   const { S } = env;
   const before = T.readDisp(env.m);
   T.drainEvents(env);
-  T.setEv(env, ev.t === M.E.KEY ? [M.E.KEY, ev.key, 0, 0] : T.ptRec(ev.t, ev.px, ev.py, ev.t !== M.E.UP));
+  if (ev.t === M.E.DOWN && ev.dbl === undefined) ev.dbl = ev.vf !== undefined && tree.kd ? tree.kd.press(ev.vf, ev.px, ev.py) : false;      // the kernel's double-click flag (WRITE 14.9): decided by its rule from the test's frame number
+  T.setEv(env, ev.t === M.E.KEY ? [M.E.KEY, ev.key, 0, 0] : T.ptRec(ev.t, ev.px, ev.py, ev.t !== M.E.UP, ev.t === M.E.DOWN && ev.dbl));
   if (ev.vf !== undefined) { T.setVframes(env, ev.vf & 0xFFFF); tree.vf = ev.vf & 0xFFFF; }
   tree.resetLog();
   let r;
@@ -197,8 +198,9 @@ export const stk = { draw: 0, event: 0, drawWhat: '', eventWhat: '' };
 export function sendDirect(env, tree, sec, ctx, node, ev, o = {}) {
   const { m, S } = env;
   const rec = ev.t === M.E.KEY ? [M.E.KEY, ev.key, 0, 0] : ev.t === M.E.SCROLL ? [M.E.SCROLL, ev.val, ev.barId || 0, 0] : [ev.t, 0, 0, 0];
-  if (ev.t === M.E.DOWN || ev.t === M.E.MOVE || ev.t === M.E.UP) { const p = T.ptRec(ev.t, ev.px, ev.py, ev.t !== M.E.UP); for (let i = 0; i < 4; i++) rec[i] = p[i]; }
-  T.setEv(env, process.env.KEVSAME || o.kevSame ? rec : [0xA5, 0x5A, 0x33, 0x77]);   // KEVSAME=1 (diagnostic): K_EV holds the record too, to tell a List that reads K_EV from one that reads DE
+  if (ev.t === M.E.DOWN && ev.dbl === undefined) ev.dbl = ev.vf !== undefined && tree.kd ? tree.kd.press(ev.vf, ev.px, ev.py) : false;      // the kernel's double-click flag (WRITE 14.9): decided by its rule from the test's frame number
+  if (ev.t === M.E.DOWN || ev.t === M.E.MOVE || ev.t === M.E.UP) { const p = T.ptRec(ev.t, ev.px, ev.py, ev.t !== M.E.UP, ev.t === M.E.DOWN && ev.dbl); for (let i = 0; i < 4; i++) rec[i] = p[i]; }
+  T.setEv(env, process.env.KEVSAME || o.kevSame ? rec : (o.garb || [0xA5, 0x5A, 0x33, 0x73]));   // KEVSAME=1 (diagnostic): K_EV holds the record too, to tell a List that reads K_EV from one that reads DE
   for (let i = 0; i < 4; i++) m.ram[SCR_REC + i] = rec[i];
   if (ev.vf !== undefined) { T.setVframes(env, ev.vf & 0xFFFF); tree.vf = ev.vf & 0xFFFF; }
   const before = T.readDisp(m);

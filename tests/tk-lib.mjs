@@ -227,7 +227,8 @@ export const nodeAt = (tree, addr) => (tree.win.addr === addr ? tree.win : tree.
 // ---------------------------------------------------------------------------------------------------------------------------------------------
 // Events
 export function setEv(env, rec) { for (let i = 0; i < 4; i++) env.m.ram[env.S.K_EV + i] = rec[i] || 0; }
-export const ptRec = (t, px, py, held = 0) => [t, px & 255, py & 255, ((px >> 8) & 1) | (held ? 2 : 0)];
+/** A pointer record: data 3 = x bit 8, bit 1 the button held, bit 2 the kernel's double-click flag (E_DOWN only; WRITE 14.9 item 1). */
+export const ptRec = (t, px, py, held = 0, dbl = 0) => [t, px & 255, py & 255, ((px >> 8) & 1) | (held ? 2 : 0) | (dbl ? 4 : 0)];
 export function ringPut(env, rec) {
   const { m, S } = env, tail = m.ram[S.K_RTAIL], a = S.K_RING + (tail & 0x3F);
   for (let i = 0; i < 4; i++) m.ram[a + i] = rec[i] || 0;

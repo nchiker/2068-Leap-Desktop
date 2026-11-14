@@ -25,6 +25,7 @@
 //  R5. V_FRAMES differences are taken mod 65,536; the tests keep clear of the wrap.
 import { fileURLToPath } from 'node:url';
 import * as M from './tk-model.mjs';
+import { KDcAbs } from './kdc-model.mjs';
 import { Gfx6Model, OP_SET, OP_CLR, OP_XOR } from './tk-model.mjs';
 
 export const FF = 0xFF;
@@ -127,15 +128,19 @@ export function listKey(tree, l, code) {
   if (code === KEY.ENTER) { if (l.sel !== FF) { tree.post(l); return true; } return false; }
   return false;
 }
-/** E_DOWN at (px, py) (10.3 Pointer); `mem` = { list, item, vf } is the one click memory, vf = V_FRAMES now.  Always consumed. */
-export function listDown(tree, l, px, py, vf, mem) {
+/**
+ * E_DOWN at (px, py) (10.3 Pointer as amended by WRITE 14.9 item 2); `dbl` = the kernel's double-click flag (data 3 bit 2); `mem` = { list, item } is the one click memory (TK_LCV, TK_LCI).
+ * A List posts E_CMD on an E_DOWN with the flag set when it is the same List, on the same item, and that item is the selection (the memory is then cleared); otherwise the item is selected and the
+ * List and the item remembered.  Always consumed.
+ */
+export function listDown(tree, l, px, py, dbl, mem) {
   const geo = listGeom(l);
   let j = null;
   if (py >= geo.LY0) { const k = Math.floor((py - geo.LY0) / geo.P); if (k < geo.n && l.top + k < l.count) j = l.top + k; }
   if (j === null) { mem.list = null; return true; }                           // a press elsewhere in the List clears the memory
-  if (mem.list === l && mem.item === j && ((vf - mem.vf) & 0xFFFF) <= 20 && j === l.sel) { tree.post(l); mem.list = null; return true; }
+  if (dbl && mem.list === l && mem.item === j && j === l.sel) { tree.post(l); mem.list = null; return true; }
   listSelect(tree, l, j);
-  mem.list = l; mem.item = j; mem.vf = vf;
+  mem.list = l; mem.item = j;
   return true;
 }
 /** E_SCROLL from the bar, data 1 = value (10.3): top' = min(value, max(0, count - n)); a full draw when it differs.  The bar is not told.  Consumed. */
@@ -203,8 +208,9 @@ export function fieldSetText(tree, f, codes) {
 export class TkTree2 extends M.TkTree {
   constructor(win, kids) {
     super(win, kids);
-    this.mem = { list: null, item: 0, vf: 0 };      // the click memory (one for all Lists)
-    this.vf = 0;                                    // V_FRAMES at the next E_DOWN
+    this.mem = { list: null, item: 0 };             // the click memory (one for all Lists)
+    this.vf = 0;                                    // V_FRAMES at the next E_DOWN (no longer read by a List: the kernel's flag decides, WRITE 14.9)
+    this.kd = new KDcAbs();                         // the kernel's double-click rule, for the tests that inject E_DOWN records (frames = the tests' `vf`)
     this.optDraws = [];                             // draws that may be absent (R2)
     this.lineBands = new Map(); this.fullSet = new Set();   // per List: the items drawn alone (one-line draws) and whether it was drawn in full, in this step
   }
@@ -223,7 +229,7 @@ export class TkTree2 extends M.TkTree {
   listEvent(l, ev) {
     switch (ev.t) {
       case M.E.KEY: return listKey(this, l, ev.key);
-      case M.E.DOWN: return listDown(this, l, ev.px, ev.py, this.vf, this.mem);
+      case M.E.DOWN: return listDown(this, l, ev.px, ev.py, ev.dbl, this.mem);
       case M.E.UP: return true;
       case M.E.MOVE: return this.capture === l;
       case M.E.SCROLL: return listScroll(this, l, ev.val);
@@ -294,22 +300,26 @@ export function selfTest(log = false, out = []) {
     t.mem.list = l; listSetItems(t, l, items('x', 'y'));
     eq('TK_SETITEMS: sel $FF, top 0, memory cleared, bar max max(0, 2 - 5) = 0 page 5', [l.sel, l.top, l.count, t.mem.list, l.bar.max, l.bar.page], [FF, 0, 2, null, 0, 5]);
   }
-  // -- pointer: the double click is 20 frames and not 21; a click on the selected line within 20 posts E_CMD, a third click starts again
+  // -- pointer (WRITE 14.9 item 2): the kernel's flag says "double-click"; the List adds "the same List, the same item, and that item is the selection"
   {
     const l = { kind: 'List', id: 2, x: 10, y: 20, w: 80, h: 47, flags: 1, items: items(...'abcdefghij'), count: 10, sel: FF, top: 0, bar: null };
     const t = mkTree([l]), line = (k) => 21 + 9 * k + 3;
-    listDown(t, l, 20, line(2), 100, t.mem);
+    listDown(t, l, 20, line(2), false, t.mem);
     eq('click on line 2 selects item 2', [l.sel, t.posts.length], [2, 0]);
-    t.resetLog(); listDown(t, l, 20, line(2), 120, t.mem);
-    eq('second click 20 frames later: E_CMD, memory cleared', [t.posts, t.mem.list], [[{ id: 2, slot: 3 }], null]);
-    t.resetLog(); listDown(t, l, 20, line(2), 121, t.mem);
-    eq('a third click selects again (no post)', [t.posts.length, t.mem.list === l], [0, true]);
-    t.resetLog(); listDown(t, l, 20, line(2), 142, t.mem);
-    eq('second click 21 frames later: no post (selects again)', [t.posts.length, t.mem.vf], [0, 142]);
-    t.resetLog(); listDown(t, l, 20, line(3), 150, t.mem); listDown(t, l, 20, line(2), 152, t.mem);
-    eq('a click on another line in between: no post', t.posts.length, 0);
-    eq('click below the last item line / on the frame row: clears the memory', (() => { listDown(t, l, 20, 20, 160, t.mem); return t.mem.list; })(), null);
-    eq('a click on an item that is not shown (past count) is not an item', (() => { const l2 = { ...l, count: 2, sel: FF, top: 0 }; const t2 = mkTree([l2]); listDown(t2, l2, 20, line(4), 1, t2.mem); return [l2.sel, t2.draws.length, t2.mem.list]; })(), [FF, 0, null]);
+    t.resetLog(); listDown(t, l, 20, line(2), true, t.mem);
+    eq('a flagged press on the same item (the selection): E_CMD, memory cleared', [t.posts, t.mem.list], [[{ id: 2, slot: 3 }], null]);
+    t.resetLog(); listDown(t, l, 20, line(2), false, t.mem);
+    eq('the next press (unflagged: the kernel never flags the press after a double-click) selects again (no post)', [t.posts.length, t.mem.list === l], [0, true]);
+    t.resetLog(); listDown(t, l, 20, line(2), false, t.mem);
+    eq('an unflagged press on the same item: no post', [t.posts.length, t.mem.item], [0, 2]);
+    t.resetLog(); listDown(t, l, 20, line(3), false, t.mem); listDown(t, l, 20, line(2), true, t.mem);
+    eq('a flagged press on another item than the remembered one: no post (selects it)', [t.posts.length, l.sel], [0, 2]);
+    eq('click below the last item line / on the frame row: clears the memory', (() => { listDown(t, l, 20, 20, false, t.mem); return t.mem.list; })(), null);
+    eq('a flagged press after the memory is cleared selects only', (() => { t.resetLog(); listDown(t, l, 20, line(2), true, t.mem); return [t.posts.length, t.mem.list === l]; })(), [0, true]);
+    // the item must be the selection: a key moves the selection away from the remembered item
+    t.mem.list = l; t.mem.item = 4; l.sel = 5; t.resetLog(); listDown(t, l, 20, line(4), true, t.mem);
+    eq('a flagged press on the remembered item that is not the selection: no post, the item is selected', [t.posts.length, l.sel], [0, 4]);
+    eq('a click on an item that is not shown (past count) is not an item', (() => { const l2 = { ...l, count: 2, sel: FF, top: 0 }; const t2 = mkTree([l2]); listDown(t2, l2, 20, line(4), false, t2.mem); return [l2.sel, t2.draws.length, t2.mem.list]; })(), [FF, 0, null]);
   }
   // -- Field: the first-adjusted rule worked by hand.  '0' is 7 pixels wide; a Field w = 60 gives A = 55.
   {
