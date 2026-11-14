@@ -85,6 +85,7 @@ G_SETOP:
 
 ; ---------------------------------------------------------------------------------------------------------------------
 ; G_ROWADDR: A = y (0..191) -> HL = ROWTAB[y] (row y, byte column 0, file 1).  Clobbers AF.
+    IFNDEF G_LEAN
 G_ROWADDR:
     ld l,a
     ld h,ROWTAB>>9
@@ -94,6 +95,7 @@ G_ROWADDR:
     ld h,(hl)
     ld l,a
     ret
+    ENDIF
 
 ; G_ADDR: HL = x (0..511), E = y (0..191) -> HL = the byte holding pixel (x, y), A = its mask ($80 >> (x AND 7)).  Clobbers F, DE.
 G_ADDR:
@@ -204,6 +206,7 @@ G_HLINE:
     ld (GA_H),hl
     jr G_FILL
 
+    IFNDEF G_LEAN
 G_VLINE:
     ld (GA_X),hl
     ld (GA_Y),de
@@ -211,6 +214,7 @@ G_VLINE:
     ld hl,1
     ld (GA_W),hl
     jr G_FILL
+    ENDIF
 
 ; ---------------------------------------------------------------------------------------------------------------------
 ; G_FRAME: GA = x, y, w, h -> the outline in the draw op, each pixel once: top row, bottom row (h >= 2), then the left and right
@@ -963,6 +967,7 @@ endname:
 ; above its base; an interrupt during the fill pushes into bytes just below SP, which the fill writes next, so they heal.  Those
 ; 32 bytes take any interrupt's pushes (ISR depth <= 32 bytes, section 12.2) and are cleared with ordinary stores after SP is
 ; restored.  Clobbers AF, BC, DE, HL.
+    IFNDEF G_LEAN
 G_CLS:
     ld (G_SAVESP),sp
     ld hl,0
@@ -994,6 +999,7 @@ G_CLS:
     ENDR
     djnz .lo
     ret
+    ENDIF
 
     INCLUDE "gfx6/text.asm"
     INCLUDE "gfx6/s3.asm"

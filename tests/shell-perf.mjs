@@ -32,8 +32,14 @@ H.needSyms(S, H.SHELL_NEEDED);
   const code = S.K_PROGS - S.K_LAUNCH;                                  // K_LAUNCH, K_QUIT; K_PROGS is the cartridge's table that follows
   const nprog = 3, table = 2 * nprog;                                   // a word per program: the shell, Calculator, Key Caps
   row('the launcher\'s bytes in the pool (K_PROGS - K_LAUNCH: K_LAUNCH and K_QUIT; EST 90)', code, 150, `K_LAUNCH ${hex(S.K_LAUNCH)}, K_QUIT ${hex(S.K_QUIT)}, K_PROGS ${hex(S.K_PROGS)}; with the ${nprog}-word program table ${code + table}`);
-  const pool = (S.K_PROGS + table) - S.TK_CODE;
-  row('step 5\'s pool growth so far: the toolkit and the launcher (TK_CODE .. the end of the K_PROGS table); BANKING 6.1 bounds the whole step at 3,400', pool, 3400, `TK_CODE ${hex(S.TK_CODE)} .. ${hex(S.K_PROGS + table)}: toolkit ${S.TK_END - S.TK_CODE} + TK_END..K_LAUNCH ${S.K_LAUNCH - S.TK_END} + launcher with table ${code + table}`);
+  // SIZE 2: the pool's FREE bytes (the always-mapped chunks), read from the build, replace step 5's growth bound (BANKING 6.1: 3,400). The reserve is for step 6.
+  const c01 = 0x4000 - S.TK2_END;                                       // chunks 0-1: from TK2_END to $4000
+  let t = S.K_CODE; while (t > 0x8000 && load.mem[t - 1] === 0) t--;
+  const c4 = S.K_CODE - t;                                              // chunk 4: the zero run below the kernel (the kernel starts at $9E00 since SIZE 1 S1)
+  const c5 = 0xC000 - (S.K_PROGS + table);                              // chunk 5: from the end of the K_PROGS table to $C000
+  const free = c01 + c4 + c5, RESERVE = 1000;
+  row('the pool\'s free bytes (chunks 0-1 TK2_END..$4000, chunk 4 below the kernel, chunk 5 after the K_PROGS table); SIZE 2', free, null, `${free}: chunks 0-1 ${c01} (TK2_END ${hex(S.TK2_END)}), chunk 4 ${c4}, chunk 5 ${c5} (K_PROGS table ends ${hex(S.K_PROGS + table)})`);
+  row('the pool\'s free bytes short of the 1,000-byte reserve for step 6 (SIZE 2: must be 0)', Math.max(0, RESERVE - free), 0, `free ${free}, reserve ${RESERVE}`);
   row('the shell\'s bytes in DOCK 2-3 (S_END - S_START: code, image, icons; EST 1,100)', S.S_END - S.S_START, 1600, `S_START ${hex(S.S_START)}, S_END ${hex(S.S_END)}; the image is ${S.S_IMG_LEN} of them`);
   row('Calculator\'s bytes in DOCK 2-3 (C_END - C_START), for reference (CALCULATOR 7: <= 2,500)', S.C_END - S.C_START, 2500);
   row('Key Caps\' bytes in DOCK 2-3 (KC_END - KC_START; KEYCAPS 4: <= 1,225, what Controls took)', S.KC_END - S.KC_START, 1225);
@@ -61,6 +67,7 @@ H.needSyms(S, H.SHELL_NEEDED);
     }
     if (o === 0xED) return [0x43, 0x4B, 0x53, 0x5B, 0x63, 0x6B, 0x73, 0x7B].includes(rb(a + 1)) ? 4 : 2;
     if (o === 0xCB) return 2;
+    if (o === 0xEF) return 3;                       // RST $28 (KFAR) is followed by a DW target: an address byte such as $F3 is not a DI
     if (imm16.has(o)) return 3;
     if (imm8.has(o)) return 2;
     return 1;

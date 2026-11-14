@@ -152,6 +152,7 @@ K_POST:
     or a
     ret
 
+    IFNDEF K_NOWARP
 ; K_WARP: HL = x, DE = y (signed words) -> clamped; the next K_POLL moves the input's pointer there.  Clobbers AF, HL.
 K_WARP:
     xor a
@@ -170,6 +171,7 @@ K_WARP:
     ld (K_WREQ),a
     pop de
     ret
+    ENDIF
 
 ; k_clamp: HL = a signed word -> HL = it clamped to 0 .. DE.  Clobbers AF, DE.
 k_clamp:
@@ -220,6 +222,11 @@ K_POLL:
     dec (hl)
 .dc:
     ENDIF
+    IFDEF K_NOWARP
+    ld a,(K_MOUSE)              ; 1. the mouse (desk5 never warps the pointer: no K_WARP, no warp block; docs/SIZE.md 1 S4)
+    or a
+    call nz,k_mouse
+    ELSE
     ld hl,(K_MOUSE)             ; L = the mouse on, H = a warp pending
     ld a,h
     or l
@@ -239,6 +246,7 @@ K_POLL:
     ld a,(K_MOUSE)              ; 1b. the mouse
     or a
     call nz,k_mouse
+    ENDIF
 .keys:
     xor a                       ; 2. keyboard: all half-rows at once
     in a,($FE)

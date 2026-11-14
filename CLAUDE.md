@@ -203,7 +203,7 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
    - **S1:** screen drawing off (`M.setVideoOn(m, false)`), with a guard on every `m.pixels` read.
    - **S2:** boot once, where it pays.
    - **S4:** the parallel runner.
-2. **The safe pool changes (`docs/SIZE.md` 1),** about +1,055 bytes:
+2. **The safe pool changes (`docs/SIZE.md` 1): DONE with `List` made a build switch (SIZE 6-7): the pool has 2,121 bytes free (was 930), the free-space measure is in `shell-perf`.** Kept for the record, about +1,055 bytes:
    - the kernel at `$9E00`;
    - `ROWTAB` at `$0200`;
    - `G_CLS`, `G_VLINE`, `G_ROWADDR` and `K_WARP` left out of `desk5`;

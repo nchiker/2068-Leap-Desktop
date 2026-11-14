@@ -4,6 +4,9 @@
     DEVICE NOSLOT64K
     DEFINE LOOK_MAC             ; the Mac OS 1.0 style look (docs/LOOK.md): desk5 only
     DEFINE K_DCLICK             ; E_DOWN's data 3 bit 2 marks a double-click (docs/WRITE.md 14.9): desk5 only
+    DEFINE G_LEAN               ; G_CLS, G_VLINE and G_ROWADDR are left out (no program uses them; docs/SIZE.md 1 S3): desk5 only
+    DEFINE K_NOWARP             ; K_WARP and K_POLL's warp block are left out (docs/SIZE.md 1 S4): desk5 only
+    DEFINE MASKS_SHARED         ; LMASK / RMASK are the first 8 bytes of LMASKP / RMASKP (docs/SIZE.md 1 S5): desk5 only
 
 PORT_HSR    EQU $F4
 PORT_SCLD   EQU $FF
@@ -146,10 +149,10 @@ ISR_BODY:
     ei
     ret
 
-    INCLUDE "gfx6/gfx6.asm"
-
-    ALIGN 512
+    ALIGN 512                   ; docs/SIZE.md 1 S2: ROWTAB at $0200, in front of gfx6 (the pad before it is 72 bytes, not 404)
     INCLUDE "gfx6/tables.inc"
+
+    INCLUDE "gfx6/gfx6.asm"
 
     INCLUDE "kernel/kernel1.asm"
     INCLUDE "kernel/tk2.asm"    ; the toolkit's List and Field (docs/TOOLKIT.md 10.1: chunk 5 is full)
@@ -160,9 +163,9 @@ ISR_BODY:
     ASSERT RMASKP == LMASKP + 256 && (LMASKP & $FF) == 0
     ASSERT PROP6_I == PROP6_W + 256 && (PROP6_W & $FF) == 0 && (FONTP & $FF) == 0
     ASSERT SHL == SHR + 256 && (SHR & $FF) == 0 && PROP6_K == PROP6_A2 + 256 && GLYPH8 == FONTP + 128
-    ASSERT $ <= $A000           ; chunk 4 only
+    ASSERT $ <= $9E00           ; chunk 4: the tables, then the kernel's first two pages (docs/SIZE.md 1 S1)
 
-    ORG $A000                   ; DOCK chunk 5: the kernel
+    ORG $9E00                   ; the kernel: DOCK chunk 4's tail and chunk 5 (K_FAR maps $8000-$BFFF as K)
     INCLUDE "kernel/kernel.asm"
     INCLUDE "kernel/tk.asm"     ; the toolkit (docs/TOOLKIT.md)
     INCLUDE "tk-classes.inc"
