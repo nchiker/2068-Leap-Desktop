@@ -248,5 +248,10 @@ section 8. Step 5's pool growth stands at about 3,186 of 3,400 (214 left).
 **The test page** (owner, 2026-11-14) scales the screen to a whole multiple of 640 x 480 (`web/main.js` `fitScreen`). At a
 fractional size the 25% grey showed moire stripes; the owner saw this in the browser.
 
-**Still to do:** the cross-emulator runs (ZEsarUX and Fuse, `desk5`) on the new look, and the owner's try.
+**Cross-emulator (2026-11-14; Haiku ran them, and the main model checked the logs):**
+- ZEsarUX 13.0: `zesarux-desk5.py`, **131 of 131** rows. Every screen equals TSRun's new-look screen byte for byte, through the
+  shell, Calculator, Controls, Notepad and the W2 / W3 sessions.
+- Fuse 1.9.1: `fuse-desk5.sh`, **6 of 6**. The settled boot screen equals TSRun's.
+
+**Still to do:** the owner's try.
 

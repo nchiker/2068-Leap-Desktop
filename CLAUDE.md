@@ -121,6 +121,6 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
     (`node tools/look-mock.mjs`); `tests/look-model.mjs` is the reference model.
   - **L1 built and tested on TSRun (2026-11-14, LOOK 10):** pool +157 (step 5 growth about 3,186 of 3,400); every `desk5`
     suite passes. The window draw / open / raise bounds are the measured figures (owner: about +25,000 T, 7 ms). The test
-    page scales by whole multiples (no moire on the grey). Still to do: the ZEsarUX / Fuse `desk5` runs, the owner's try.
+    page scales by whole multiples (no moire on the grey). ZEsarUX 131 of 131, Fuse 6 of 6. Still to do: the owner's try.
 - **Owner (2026-11-13):** W3 tried in the browser and accepted. Program 3 is now shown as **Notepad** (icon, "Leap" menu,
   title "Notepad: name", alerts); the code, `docs/WRITE.md` and the `WR_` symbols keep the name Write (WRITE 13.10).
