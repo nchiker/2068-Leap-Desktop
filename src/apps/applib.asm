@@ -174,7 +174,7 @@ AL_NAMEDLG:
     ld ix,(AL_FLD)
     ret
 
-; AL_TITLE: IX = a window, HL -> a prefix (1 or more codes), DE -> a name (1 or more codes), BC -> a 40-byte buffer: the buffer
+; AL_TITLE: IX = a window, HL -> a prefix, DE -> a name (either may be empty), BC -> a 40-byte buffer: the buffer
 ; = the prefix and the name (a length byte, at most 39 codes), the window's title word -> it.  With carry set on entry, the
 ; title row (x, y, w, 8) is also made dirty (W_INVAL).  Clobbers AF, BC, DE, HL.
 AL_TITLE:
@@ -191,11 +191,11 @@ AL_TITLE:
     ld c,(hl)
     ld b,0
     inc hl
-    ldir                        ; the prefix's codes
+    call al_ldir                ; the prefix's codes
     pop hl
     ld c,(hl)
     inc hl
-    ldir                        ; the name's codes
+    call al_ldir                ; the name's codes
     pop af
     ret nc
     ld l,(ix+View_x)
@@ -211,6 +211,14 @@ AL_TITLE:
     ld h,b
     ld (GA+6),hl
     KFAR W_INVAL
+    ret
+
+; al_ldir: LDIR of C codes (B = 0); none when C = 0.
+al_ldir:
+    inc c
+    dec c
+    ret z
+    ldir
     ret
 
 ; AL_EXTNAME: HL -> a name (a length byte, at most 30 codes), DE -> an extension (4 codes): added when the name has no "." and
