@@ -84,15 +84,22 @@ const wantFlag = (prev, frame, x, y) => !!prev && !prev.flag && frame - prev.fra
 function editItemKeys(env, doc, item) {
   const en = doc.editEnabled(), order = [1, 2, 3, 4, 5, 6].filter((i) => en[WM.ITEM_IDX[i]]), steps = order.indexOf(item);
   if (steps < 0) throw new Error(`editItemKeys: the model has item ${item} disabled`);
-  Q.key(env, K.MENU); Q.key(env, K.RIGHT); for (let i = 0; i < steps; i++) Q.key(env, K.DOWN); Q.key(env, K.ENTER);
+  Q.key(env, K.MENU); doc.run = null;        // CONTRACT? the MENU key reaches the focused text view first and is not consumed there (WINDOWS 7: it bubbles up to the desk): "any other key ends the run" (11.5)
+  Q.key(env, K.RIGHT); for (let i = 0; i < steps; i++) Q.key(env, K.DOWN); Q.key(env, K.ENTER);
 }
+/** The Edit menu by the pointer (press on "Edit", move to the item, release): no key reaches the text view, so the UP / DOWN run is not touched by the opening (14.9 item 6). */
+function editItemMouse(env, doc, item) {
+  if (!doc.editEnabled()[WM.ITEM_IDX[item]]) throw new Error(`editItemMouse: the model has item ${item} disabled`);
+  W.editMenu(env, WM.ITEM_IDX[item]);
+}
+const editItem = (env, doc, item, via = 'keys') => (via === 'mouse' ? editItemMouse(env, doc, item) : editItemKeys(env, doc, item));
 /** Keys into the dialog's Field, the model's Field following. */
 function fieldKeys(env, f, cs) { for (const c of cs) { Q.key(env, c); W3.fieldTyped(f, c); } }
 /** The Field's text replaced by `text` (DELETE the old, type the new). */
 function fieldSet(env, f, text) { fieldKeys(env, f, [...f.buf.map(() => K.DELETE), ...(typeof text === 'string' ? codes(text) : text)]); }
 /** "Find..." from the menu: the dialog opens with F in the Field (caret at the end); returns the Field model. */
-function openFind(env, sec, ctx) {
-  editItemKeys(env, env.st.doc, 5); Q.settle(env, 8);
+function openFind(env, sec, ctx, via = 'keys') {
+  editItem(env, env.st.doc, 5, via); Q.settle(env, 8);
   const f = W3.newSaveField(env.st.doc.find);
   Q.check(env, sec, `${ctx}: the Find dialog`, { dk: 3, field: f });
   return f;
@@ -126,15 +133,15 @@ function finishFind(env, sec, ctx, f, how = 'enter', dismissHow = 'enter') {
   return { found: false };
 }
 /** Find...: the dialog, the Field set to `text` (null: keep F), finished. */
-function doFind(env, sec, ctx, text, how = 'enter', dismissHow = 'enter') {
-  const f = openFind(env, sec, ctx);
+function doFind(env, sec, ctx, text, how = 'enter', dismissHow = 'enter', via = 'keys') {
+  const f = openFind(env, sec, ctx, via);
   if (text !== null) { fieldSet(env, f, text); Q.settle(env, 12); Q.check(env, sec, `${ctx}: the text typed`, { dk: 3, field: f }); }
   return finishFind(env, sec, ctx, f, how, dismissHow);
 }
 /** Find again by the menu keys (item 6, enabled when F is not empty); "Not found." dismissed. */
-function doAgain(env, sec, ctx, dismissHow = 'enter') {
+function doAgain(env, sec, ctx, dismissHow = 'enter', via = 'keys') {
   const doc = env.st.doc;
-  editItemKeys(env, doc, 6); Q.settle(env, 40);
+  editItem(env, doc, 6, via); Q.settle(env, 40);
   const r = doc.search(doc.find);
   if (r.found) { Q.check(env, sec, `${ctx}: Find again (found at ${r.pos})`, { dk: 0 }); return { found: true, pos: r.pos }; }
   dismiss(env, sec, `${ctx}: Find again, not found`, 'Not found.', dismissHow);
@@ -486,20 +493,12 @@ if (cartOk && has('3')) {
   Q.keyDoc(env, K.DELETE); Q.settle(env, 20); want('after DELETE', 0xFFFF);
   press(env, p[0], p[1]); Q.settle(env, 20);
   Q.keyDoc(env, 13); Q.settle(env, 20); want('after ENTER', 0xFFFF);
-  // Cut and Paste
-  Q.keyDoc(env, 18); for (let i = 0; i < 3; i++) Q.keyDoc(env, K.LEFT); Q.settle(env, 20);
-  press(env, 40, 34); Q.settle(env, 20); sec.ok(lck() !== 0xFFFF, 'E_DOWN set it');
-  Q.keyDoc(env, 18); Q.keyDoc(env, K.RIGHT); Q.keyDoc(env, K.RIGHT); Q.settle(env, 20);
-  editItemKeys(env, st.doc, 2); st.doc.menuItem(2); Q.settle(env, 20);
-  const afterCopy = lck();
-  press(env, 40, 34); Q.settle(env, 20);
+  // Cut and Paste: a press, MARK and two RIGHTs (a selection of 2), Cut; a press; Paste
+  press(env, 40, 34); Q.settle(env, 20); sec.ok(lck() !== 0xFFFF, 'an E_DOWN sets it');
   Q.keyDoc(env, 18); Q.keyDoc(env, K.RIGHT); Q.keyDoc(env, K.RIGHT); Q.settle(env, 20);
   editItemKeys(env, st.doc, 1); st.doc.menuItem(1); Q.settle(env, 20); want('after Cut', 0xFFFF);
-  press(env, 40, 34); Q.settle(env, 20); sec.ok(lck() !== 0xFFFF || true, '');
+  press(env, 40, 34); Q.settle(env, 20); sec.ok(lck() !== 0xFFFF, 'an E_DOWN sets it again');
   editItemKeys(env, st.doc, 3); st.doc.menuItem(3); Q.settle(env, 20); want('after Paste', 0xFFFF);
-  press(env, 30, 34); Q.settle(env, 20);
-  editItemKeys(env, st.doc, 4); st.doc.menuItem(4); Q.settle(env, 20);
-  void afterCopy;
   Q.check(env, sec, 'LCK: state after the sequence', { dk: 0 });
   // New
   press(env, 30, 34); Q.settle(env, 20); doNew(env, sec, 'LCK New'); want('after New', 0xFFFF);
@@ -651,11 +650,15 @@ if (cartOk && has('5')) {
       Q.check(env, sec, `R${trial} ${op}: the run is live`, { dk: 0 });
       sec.ok(st.doc.run !== null, 'model: a run is live');
       let r;
-      if (op === 'cancel') r = doFind(env, sec, `R${trial} Find... Cancel`, null, 'cancel');
-      else if (op === 'esc') r = doFind(env, sec, `R${trial} Find... ESC`, 'abc', 'esc');
-      else if (op === 'empty') { st.doc.find = st.doc.find.length ? st.doc.find : []; r = doFind(env, sec, `R${trial} an empty Find`, ''); }
-      else if (op === 'notfound') r = doFind(env, sec, `R${trial} Not found`, 'zzzqqq');
-      else r = doFind(env, sec, `R${trial} found`, textOf(st.doc.codes.filter((c) => c !== 13).slice(0, 40).slice(st.doc.L > 60 ? 10 : 0, st.doc.L > 60 ? 14 : 4)));
+      if (op === 'cancel') r = doFind(env, sec, `R${trial} Find... Cancel`, null, 'cancel', 'enter', 'mouse');
+      else if (op === 'esc') r = doFind(env, sec, `R${trial} Find... ESC`, 'abc', 'esc', 'enter', 'mouse');
+      else if (op === 'empty') { st.doc.find = st.doc.find.length ? st.doc.find : []; r = doFind(env, sec, `R${trial} an empty Find`, '', 'enter', 'enter', 'mouse'); }
+      else if (op === 'notfound') r = doFind(env, sec, `R${trial} Not found`, 'zzzqqq', 'enter', 'enter', 'mouse');
+      else {
+        let F = null;
+        for (let t = 0; t < 200 && !F; t++) { const n = rng.int(2, 6), a0 = rng.int(0, Math.max(0, st.doc.L - n)), c = st.doc.codes.slice(a0, a0 + n); if (c.length === n && !c.includes(13) && st.doc.findPos(c) >= 0) F = c; }
+        r = doFind(env, sec, `R${trial} found`, textOf(F || codes('the')), 'enter', 'enter', 'mouse');
+      }
       if (op !== 'found') sec.ok(st.doc.run !== null, () => `R${trial} ${op}: the model lost the run (contract 14.9 item 6)`);
       else sec.ok(r.found === true ? st.doc.run === null : true, 'a match ends the run');
       // the next vertical moves: DOWN, DOWN, UP: the machine follows the model (a lost run would differ in the first)
@@ -738,14 +741,14 @@ if (cartOk && has('7')) {
   const env = Q.bootW3({ rng }); envs.push(env);
   W.parkDirect(env);
   const { m, S } = env, st = { di: 0, worst: 0, what: '' };
-  const note = (r, what) => { st.di += r.di; if (r.stack > st.worst) { st.worst = r.stack; st.what = what; } sec.ok(r.di === 0, () => `${what}: ${r.di} DI`); sec.ok(r.badSp === undefined, () => `${what}: SP ${hex(r.badSp)} after the return`); sec.ok(r.stack <= 128, () => `${what}: stack ${r.stack} bytes (bound 128)`); sec.ok((r.preserved || []).length === 0, () => `${what}: registers not preserved: ${(r.preserved || []).join(',')}`); };
+  const note = (r, what, regs = false) => { st.di += r.di; if (r.stack > st.worst) { st.worst = r.stack; st.what = what; } sec.ok(r.di === 0, () => `${what}: ${r.di} DI`); sec.ok(r.badSp === undefined, () => `${what}: SP ${hex(r.badSp)} after the return`); sec.ok(r.stack <= 128, () => `${what}: stack ${r.stack} bytes (bound 128)`); if (regs) sec.ok((r.preserved || []).length === 0, () => `${what}: registers not preserved: ${(r.preserved || []).join(',')}`); };      // IX / IY / the alternate set: kept by K_DISPATCH (a method call, OBJECTS_EVENTS 3); WR_MENU and the dialog's command are Write's own handlers: the contract does not say, so only the stack and DI are judged
   const typeK = (cs) => { for (const c of cs) W.dispatch(env, W.keyRec(c), {}); };
   const dkcmd = (id) => { T.setEv(env, [E.CMD, id, 0, 0]); return T.runCall(env, S.wr_dkcmd, { a: m.ram[S.WR_DK] }, { map: 'A', ints: true }); };
   typeK(codes('the quick brown fox jumps over the lazy dog. The end.'));
-  const doc = new WM.Doc(codes('the quick brown fox jumps over the lazy dog. The end.'), 55);
+  const doc = new WM.Doc(codes('the quick brown fox jumps over the lazy dog. The end.'), 55); doc.changed = true;
   // a flagged E_DOWN pair through K_DISPATCH: the first press, then the flagged one on the same code
-  let r = W.dispatch(env, W.ptRec(E.DOWN, 60, 34, 1), { ints: true }); note(r, 'E_DOWN (first press)'); W.dispatch(env, W.ptRec(E.UP, 60, 34, 0), { ints: true });
-  r = W.dispatch(env, [E.DOWN, 60, 34, 2 | 4], { ints: true }); note(r, 'E_DOWN (flagged, a double-click)'); W.dispatch(env, W.ptRec(E.UP, 60, 34, 0), { ints: true });
+  let r = W.dispatch(env, W.ptRec(E.DOWN, 60, 34, 1), { ints: true }); note(r, 'E_DOWN (first press)', true); W.dispatch(env, W.ptRec(E.UP, 60, 34, 0), { ints: true });
+  r = W.dispatch(env, [E.DOWN, 60, 34, 2 | 4], { ints: true }); note(r, 'E_DOWN (flagged, a double-click)', true); W.dispatch(env, W.ptRec(E.UP, 60, 34, 0), { ints: true });
   doc.press(60, 34, false); doc.press(60, 34, true);
   const sd = W.stateDiff(env, doc), s2 = W.stateDiff2(env, doc);
   sec.ok(sd.doc.length + s2.sel.length === 0, () => `after the double-click: ${sd.doc[0] || s2.sel[0]}`);
