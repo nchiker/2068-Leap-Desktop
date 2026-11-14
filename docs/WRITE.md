@@ -713,7 +713,13 @@ A `Dialog` (128, 64, 256, 64), a `Label` at (144, 76, 224, 9) with the message, 
 
 ### 13.9 As built (2026-11-13)
 
-**W3 is done on TSRun** (ZEsarUX's row, 13.7 item 5, is still to run). The owner has not yet tried it.
+**W3 is done on TSRun and ZEsarUX.** The owner tried it in the browser and accepted it (13.10).
+
+**ZEsarUX's row (13.7 item 5), 2026-11-13:** `tools/xemu/desk5-ref.mjs` session 8 and `tools/xemu/zesarux-desk5.py` give
+**131 of 131** rows (95 before; Sonnet, re-run by the main model). Neither emulator has a bridge (TSRun's reference runs with no
+host, so port `$6F` reads `$FF`). From the shell: Write, "abc", MENU, DOWN x2, ENTER (Save...), DELETE x8, "t1", ENTER gives
+"The file could not be saved." Every screen and the W3 variables equal TSRun's byte for byte. After OK the screen equals the
+one before Save...; the document, the name "Untitled", the title and `WR_CHG` are unchanged. Discard then returns to the shell.
 
 **Bytes:** Write 6,418 in DOCK 2-3 (W2 5,564: W3 +854, over the **EST** +600-800; 582 left under 7,000 for double-click and
 Find). Its image 535 (<= 1,024). `files.asm` 181 (FILES **EST** 250-350). Pool growth 0.

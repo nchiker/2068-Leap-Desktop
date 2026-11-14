@@ -16,6 +16,10 @@ DOWN + ENTER = Copy, move, MENU + RIGHT + ENTER = Paste, SS+Q, ENTER: rows per c
 (6) the Write session (docs/WRITE.md 8 item 7; steps and keys from keys.json "wr"): TAB x2 (the Write icon), ENTER (K_PROG = 3): "wr-open"; a typed wrapping paragraph (SYMBOL SHIFT
 characters included) and short lines, about 20 lines so that the view scrolls: "wr-typed"; UP x4, LEFT, DELETE, x: "wr-edit"; SS+Q (discard dialog): "wr-dialog"; ENTER (Discard):
 "wr-back" (K_PROG 0, = "shell").  Extra rows: the document variables WR_NL, WR_TOP, WR_GS, WR_GE, WR_CHG = TSRun's after each of the first three.
+(8) the W3 session (WRITE 13.7 item 5; keys from keys.json "w3", skipped when the reference has none; ZEsarUX has no file bridge, as TSRun with no host attached: the FS_ calls give status 0): TAB x2, ENTER
+(K_PROG 3): "w3-open"; "abc": "w3-typed"; MENU, DOWN x2, ENTER (File > Save...): "w3-dialog"; DELETE x8, "t1": "w3-name"; ENTER (Save fails): "w3-alert"; ENTER (OK): "w3-after"; SS+Q: "w3-discard";
+ENTER (Discard): "w3-back" (= "shell").  Rows: every settled screen = TSRun's, K_PROG = TSRun's, the W3 variables (document codes, WR_NAME, WR_TITLE, WR_CHG, WR_DK, dialogs made) = TSRun's; on ZEsarUX itself the
+alert screen differs from the Save dialog screen, "w3-after" = "w3-typed" (as TSRun), and the document, name and WR_CHG after the alert are those before "Save...".
 Rows: the settled screens "shell", "calc", "typed", "back" = TSRun's .bin byte for byte; "back" = "shell"; K_PROG after each step = TSRun's;
 the display string "0" after the launch and after each key = TSRun's, the typed one "740.7"; per key K_NOW shows the keys down; the pointer
 K_PX, K_PY = TSRun's; DOCK chunks 0-5 (memory zone 19) = the DCK after the run.
@@ -378,6 +382,75 @@ def main():
             wait_frames(30)
             cur = w2settle("w2-back", "Discard quit to the shell, K_PROG 0", 300, None, up, nb)
             results.append(("\"w2-back\" screen = \"shell\" screen on ZEsarUX itself", cur == shell_cur, "equal" if cur == shell_cur else "differ"))
+
+        # 8. the W3 session (WRITE 13.7 item 5): no file bridge, so "Save..." ends in the alert and nothing else changes
+        w3 = refk.get("w3")
+        if not w3:
+            print("  SKIP  the W3 session: the reference has no W3 data (the build has no Write W3 symbols)")
+        else:
+            w3names = ("w3-open", "w3-typed", "w3-dialog", "w3-name", "w3-alert", "w3-after", "w3-discard", "w3-back")
+            w3ref = {n: (refdir / f"{n}.bin").read_bytes() for n in w3names}
+            w3refj = {n: json.loads((refdir / f"{n}.json").read_text()) for n in w3names}
+            w3got = {}
+
+            def w3vars():
+                v = wvars()
+                gs, ge = v["WR_GS"], v["WR_GE"]
+                buf, gb = (int.from_bytes(rd(c, Z(S[n]), 2), "little") for n in ("WR_BUF", "WR_GB"))
+                v["DOC"] = rd(c, Z(buf), gs).hex() + "|" + rd(c, Z(gb), 0x1400 - ge).hex()
+                nl = rd(c, Z(S["WR_NAME"]), 1)[0]
+                v["NAME"] = rd(c, Z(S["WR_NAME"]), 1 + min(nl, 30)).hex()
+                tl = rd(c, Z(S["WR_TITLE"]), 1)[0]
+                v["TITLE"] = rd(c, Z(S["WR_TITLE"]), 1 + min(tl, 41)).hex()
+                v["WR_DK"] = rd(c, Z(S["WR_DK"]), 1)[0]
+                v["SDLG_MADE"] = int.from_bytes(rd(c, Z(S["WR_SDLG"]), 2), "little") != 0
+                v["ADLG_MADE"] = int.from_bytes(rd(c, Z(S["WR_ADLG"]), 2), "little") != 0
+                return v
+
+            def w3settle(tag, label, extra, vkey=None, up=True, nb=0):
+                ok, cur, used = settle(extra)
+                res = compare(f"settled \"{tag}\" screen = TSRun's {tag} ({label})", cur, w3ref[tag], tag)
+                results.append((res[0], res[1] and ok and up, res[2] + f"; settled {ok} after {used} more frames" + (f"; K_PROG reached after {nb} frame stops" if nb else "")))
+                results.append((f"K_PROG after \"{tag}\" = TSRun's", kprog() == w3refj[tag]["K_PROG"], f"{kprog()}, TSRun {w3refj[tag]['K_PROG']}"))
+                if vkey:
+                    v = w3vars()
+                    w3got[vkey] = v
+                    results.append((f"W3 variables (document codes, WR_NAME, WR_TITLE, WR_CHG, WR_DK, dialogs made, counters) after \"{tag}\" = TSRun's", v == w3["vars"][vkey], f"{v}, TSRun {w3['vars'][vkey]}"))
+                w3got[tag] = cur
+                return cur
+
+            k3 = w3["keys"]
+            run_keys("W3: TAB x2 to the Write icon", k3["open"][:2])
+            run_keys("W3: ENTER opens Write", k3["open"][2:])
+            up, nb = until_prog(3)
+            wait_frames(30)
+            w3settle("w3-open", "Write as opened, K_PROG 3", 300, "open", up, nb)
+            run_keys("W3: \"abc\" typed", k3["typed"])
+            w3settle("w3-typed", "three codes typed", 120, "typed")
+            run_keys("W3: MENU, DOWN x2, ENTER (File > Save...)", k3["save"])
+            w3settle("w3-dialog", "the Save dialog", 120, "dialog")
+            run_keys("W3: DELETE x8, t, 1 (the name)", k3["name"])
+            w3settle("w3-name", "the name typed in the Field", 120, "name")
+            run_keys("W3: ENTER (Save: no host, so the alert)", k3["go"])
+            w3settle("w3-alert", "the alert \"The file could not be saved.\"", 120, "alert")
+            run_keys("W3: ENTER (OK)", k3["go"])
+            w3settle("w3-after", "the alert dismissed", 120, "after")
+            run_keys("W3: SS+Q (discard dialog)", [("SS+Q", k3["close"])])
+            wait_frames(30)
+            w3settle("w3-discard", "the discard dialog, K_PROG 3", 300, "discard")
+            run_keys("W3: ENTER (Discard)", [("ENTER", k3["enter"])])
+            up, nb = until_prog(0)
+            wait_frames(30)
+            cur = w3settle("w3-back", "Discard quit to the shell, K_PROG 0", 300, None, up, nb)
+            results.append(("\"w3-back\" screen = \"shell\" screen on ZEsarUX itself", cur == shell_cur, "equal" if cur == shell_cur else "differ"))
+            results.append(("W3 on ZEsarUX itself: the alert screen differs from the Save dialog screen (and from the name-typed screen)",
+                            w3got["w3-alert"] != w3got["w3-dialog"] and w3got["w3-alert"] != w3got["w3-name"], "differ" if w3got["w3-alert"] != w3got["w3-dialog"] else "equal"))
+            results.append(("W3 on ZEsarUX itself: \"w3-after\" screen = \"w3-typed\" screen (the alert closed, nothing else changed; as TSRun: " + str(w3["afterEqTyped"]) + ")",
+                            (w3got["w3-after"] == w3got["w3-typed"]) == w3["afterEqTyped"], "equal" if w3got["w3-after"] == w3got["w3-typed"] else "differ"))
+            va, vt = w3got["after"], w3got["typed"]
+            results.append(("W3 on ZEsarUX itself: after the alert the document, its name, the title and WR_CHG (still set) are as before \"Save...\"; the alert showed (WR_DK 2), then closed (0)",
+                            all(va[k] == vt[k] for k in ("DOC", "NAME", "TITLE", "WR_CHG", "WR_NL", "WR_TOP", "WR_GS", "WR_GE")) and va["WR_CHG"] == 1 and w3got["alert"]["WR_DK"] == 2 and va["WR_DK"] == 0,
+                            f"typed {vt}, after {va}, alert WR_DK {w3got['alert']['WR_DK']}"))
 
         c.command("set-memory-zone 19")
         dock_bad = {}

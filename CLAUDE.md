@@ -108,13 +108,17 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
     services before W3". Contract `docs/FILES.md` (owner approved, 2026-11-12).
   - **Order (owner, 2026-11-12):** W3 (Open / Save), then double-click and Find in Write, then
     Paint in mode 6 (mono, MacPaint-style; colour waits for the mode 2 graphics). Fonts and styles in Write: not planned.
-- **W3 is done on TSRun (2026-11-13):** the bridge, `web/fshost.js`, the page, `src/apps/files.asm`, Write's Open and Save
-  (`docs/WRITE.md` 13.9, `docs/FILES.md` 10). Still to do: ZEsarUX's row (13.7 item 5: no bridge, Save shows the alert), the
-  owner's try (done: accepted). The TSRun commits `d9302b8` and `b4dc564` are pushed to the fork (2026-11-13).
+- **W3 is done (2026-11-13):** the bridge, `web/fshost.js`, the page, `src/apps/files.asm`, Write's Open and Save
+  (`docs/WRITE.md` 13.9, `docs/FILES.md` 10); ZEsarUX 131 of 131 (no bridge: Save shows the alert); the owner accepted it.
+  The TSRun commits `d9302b8` and `b4dc564` are pushed to the fork (2026-11-13).
 - **Look slice (owner, 2026-11-13), after W3:** a Mac OS 1.0 style, no more than: a white menu bar (black text, a line under,
   the selected title inverted), striped active title bars with the title centred, the close box on the left, a grey (dithered)
   desktop, 1-pixel drop shadows on windows and menus, and a Mac-style arrow pointer. Our own bitmaps, not Apple's. Start with a
   contract and PNG mock-ups from the JS models (current beside proposed) for the owner. gfx6 has no pattern fill yet; the pool
   has about 371 bytes of step 5's growth left (DOCK 6 under R is an option for drawing code).
+  - **Contract drafted, waiting for the owner's choice (2026-11-13):** `docs/LOOK.md`, mock-ups in `docs/look/`
+    (`node tools/look-mock.mjs`), draft model `tests/look-model.mjs`. Choices (LOOK 6): the look as a whole; the desk (25% grey
+    with today's drag outline, recommended; or 50% with a pattern-XOR outline, since today's XOR outline vanishes on 50%); the arrow;
+    scope (`desk5` only through `LOOK_MAC`, recommended). Nothing is built yet.
 - **Owner (2026-11-13):** W3 tried in the browser and accepted. Program 3 is now shown as **Notepad** (icon, "Leap" menu,
   title "Notepad: name", alerts); the code, `docs/WRITE.md` and the `WR_` symbols keep the name Write (WRITE 13.10).

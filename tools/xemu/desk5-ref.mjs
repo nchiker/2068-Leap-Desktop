@@ -19,6 +19,11 @@
 //      typed: "w2-typed"; MARK (SYMBOL SHIFT + E), UP, UP, LEFT, LEFT select across lines: "w2-sel"; MENU (CAPS SHIFT + 9), RIGHT (CS + 8): the "Edit" menu open, Cut highlighted: "w2-menu"; DOWN (Copy), ENTER:
 //      "w2-copy" (the clipboard filled, the selection kept); RIGHT (the caret to the selection's end), ENTER, MENU, RIGHT (Paste is the first enabled item), ENTER: "w2-paste"; SYMBOL SHIFT + Q: "w2-dialog";
 //      ENTER (Discard): "w2-back" (= "shell").  Extra data per checkpoint: WR_AN, WR_MK, WR_CLN, the Edit entry's enable word (MB_ENT + ME_SIZE + ME_EN) and the clipboard's bytes.
+//   8. (docs/WRITE.md 13.7 item 5; only when the build has the W3 symbols WR_NAME, WR_SDLG, WR_ADLG, WR_DK, FS_OPEN) the W3 session, with NO file bridge (m.host unset: TSRun's port $6F reads $FF, as ZEsarUX's does; the FS_ calls
+//      then give status 0): from the shell, TAB x2, ENTER (K_PROG 3): "w3-open"; "abc" typed: "w3-typed"; MENU (CAPS SHIFT + 9), DOWN x2 (File: New, Open..., Save...), ENTER: "w3-dialog" (the Save dialog, its Field
+//      holding "Untitled"); DELETE x8, "t1": "w3-name"; ENTER (Save: FS_OPEN fails): "w3-alert" (the alert "The file could not be saved."); ENTER (OK): "w3-after" (the document, its name "Untitled" and WR_CHG unchanged: the screen
+//      is reported against "w3-typed"); SYMBOL SHIFT + Q: "w3-discard" (the discard dialog); ENTER (Discard): "w3-back" (K_PROG 0, = "shell").  Extra data per checkpoint: the document's codes (hex), WR_NAME (length byte and codes, hex),
+//      WR_TITLE (hex), WR_CHG, WR_DK (the dialog open: 0 none, 1 Save, 2 the alert), whether WR_SDLG / WR_ADLG are made (non-zero), and the document counters of 6.
 // Per checkpoint NAME: NAME.bin (display RAM: $4000-$57FF then $6000-$77FF, 12,288 bytes), NAME.pbm (rendered 512x192, P4, 1 = ink),
 // NAME.json (display string, K_PROG, V_FRAMES, K_PX, K_PY, frame counts).  Also keys.json (the typed keys, display string after each key,
 // K_PROG after each step) for the other runners.
@@ -248,10 +253,51 @@ if (['WR_AN', 'WR_MK', 'WR_CLN', 'WR_MENU', 'MB_ENT', 'ME_SIZE', 'ME_EN'].every(
   w2 = { ok: okW2, keys: { open: WR_OPEN, typed: W2_TYPED, sel: W2_SEL, menu: W2_MENU, copy: W2_COPY, move: W2_MOVE, paste: W2_PASTE, close: CLOSEKEYS, enter: [ENTER] },
     vars: { open: vOpen, typed: vTyped, sel: vSel, menu: vMenu, copy: vCopy, paste: vPaste }, kprog: { open: open.K_PROG, typed: typed.K_PROG, sel: sel.K_PROG, menu: menu.K_PROG, copy: copy.K_PROG, paste: paste.K_PROG, dialog: dlg.K_PROG, back: back.K_PROG }, backEqShell: backEq };
 } else console.log('w2 session: skipped (the build has no Write W2 symbols)');
+// 8. the W3 session (WRITE 13.7 item 5): no bridge, so "Save..." ends in the alert and nothing else changes
+let w3 = null;
+if (['WR_NAME', 'WR_SDLG', 'WR_ADLG', 'WR_DK', 'WR_TITLE', 'WR_GB', 'WR_BUF', 'FS_OPEN'].every((n) => S[n] !== undefined)) {
+  const MENUK = keymap.get(16) ?? [CS, [4, 1]];
+  const W3_TYPED = typeText('abc');
+  const W3_SAVE = [['MENU', MENUK], ['DOWN', DOWN], ['DOWN', DOWN], ['ENTER', [ENTER]]];
+  const W3_NAME = [...Array(8).fill(['DELETE', DELETE]), ...typeText('t1')];
+  const W3_GO = [['ENTER', [ENTER]]];
+  const hex = (a, n) => Buffer.from(m.ram.subarray(a, a + n)).toString('hex');
+  const vars3 = () => {
+    const gs = rd16(m, S.WR_GS), ge = rd16(m, S.WR_GE), buf = rd16(m, S.WR_BUF), gb = rd16(m, S.WR_GB);
+    return { ...wrvars(), DOC: hex(buf, gs) + '|' + hex(gb, 0x1400 - ge), NAME: hex(S.WR_NAME, 1 + Math.min(m.ram[S.WR_NAME], 30)), TITLE: hex(S.WR_TITLE, 1 + Math.min(m.ram[S.WR_TITLE], 41)),
+      WR_DK: m.ram[S.WR_DK], SDLG_MADE: rd16(m, S.WR_SDLG) !== 0, ADLG_MADE: rd16(m, S.WR_ADLG) !== 0 };
+  };
+  const hostNone = m.host === null || m.host === undefined;
+  pressSeq(WR_OPEN.slice(0, 2));
+  press(WR_OPEN[2][1]);
+  const up = untilProg(3);
+  run(30);
+  const open = dump('w3-open', settle(300)); const vOpen = vars3();
+  pressSeq(W3_TYPED); const typed = dump('w3-typed', settle(120)); const vTyped = vars3();
+  pressSeq(W3_SAVE); const dlg = dump('w3-dialog', settle(120)); const vDlg = vars3();
+  pressSeq(W3_NAME); const name = dump('w3-name', settle(120)); const vName = vars3();
+  pressSeq(W3_GO); const alert = dump('w3-alert', settle(120)); const vAlert = vars3();
+  pressSeq(W3_GO); const after = dump('w3-after', settle(120)); const vAfter = vars3();
+  press(CLOSEKEYS); const discSettled = (run(30), settle(300)); const disc = dump('w3-discard', discSettled); const vDisc = vars3();
+  press([ENTER]); const backUp = untilProg(0); run(30); const backSettled = settle(300); const back = dump('w3-back', backSettled);
+  const backEq = same(rd_('w3-back'), rd_('shell'));
+  const afterEqTyped = same(rd_('w3-after'), rd_('w3-typed'));
+  const names = ['w3-open', 'w3-typed', 'w3-dialog', 'w3-name', 'w3-alert'];
+  const distinct = names.every((n, i) => i === 0 || !same(rd_(n), rd_(names[i - 1])));
+  const textHex = Buffer.from('abc').toString('hex');
+  const nameU = Buffer.from('\x08Untitled', 'latin1').toString('hex');
+  const okW3 = hostNone && up && [open, typed, dlg, name, alert, after, disc].every((x) => x.K_PROG === 3) && backUp && backSettled && back.K_PROG === 0 && backEq && distinct && afterEqTyped &&
+    vTyped.DOC === `${textHex}|` + '' && vTyped.NAME === nameU && vTyped.WR_CHG === 1 && vDlg.WR_DK === 1 && vDlg.SDLG_MADE && vAlert.WR_DK === 2 && vAlert.ADLG_MADE && vAlert.NAME === nameU &&
+    vAfter.WR_DK === 0 && vAfter.DOC === vTyped.DOC && vAfter.NAME === nameU && vAfter.WR_CHG === 1 && vDisc.WR_CHG === 1;
+  console.log(`w3 session (m.host unset: ${hostNone}): typed ${JSON.stringify(vTyped)}, alert ${JSON.stringify(vAlert)}, after ${JSON.stringify(vAfter)}; w3-after equals w3-typed ${afterEqTyped}; w3-back equals shell ${backEq}`);
+  w3 = { ok: okW3, keys: { open: WR_OPEN, typed: W3_TYPED, save: W3_SAVE, name: W3_NAME, go: W3_GO, close: CLOSEKEYS, enter: [ENTER] },
+    vars: { open: vOpen, typed: vTyped, dialog: vDlg, name: vName, alert: vAlert, after: vAfter, discard: vDisc },
+    kprog: { open: open.K_PROG, typed: typed.K_PROG, dialog: dlg.K_PROG, name: name.K_PROG, alert: alert.K_PROG, after: after.K_PROG, discard: disc.K_PROG, back: back.K_PROG }, backEqShell: backEq, afterEqTyped };
+} else console.log('w3 session: skipped (the build has no Write W3 symbols)');
 const ctlKeys = { tabIcon: CTL[0][1], enter: CTL[1][1], list: LISTSEQ, field: FIELDSEQ, status: STATUSSEQ, close: CLOSEKEYS };
 
 writeFileSync(join(outDir, 'keys.json'), JSON.stringify({ seq: SEQ.map((s) => s[0]), afterKey, expect: EXPECT, kprog, ctl: ctlKeys, ctlKprog: { ctl: ctl.K_PROG, list: list.K_PROG, field: field.K_PROG, status: status.K_PROG, back2: back2.K_PROG }, back2EqShell,
-  wr: { open: WR_OPEN, typed: WR_TYPED, edit: WR_EDIT, close: CLOSEKEYS, enter: [ENTER], text: WR_PARA, vars: { open: wrOpenV, typed: wrTypedV, edit: wrEditV }, kprog: { open: wrOpen.K_PROG, typed: wrTyped.K_PROG, edit: wrEdit.K_PROG, dialog: wrDlg.K_PROG, back: wrBack.K_PROG }, backEqShell: wrBackEqShell }, w2 }) + '\n');
+  wr: { open: WR_OPEN, typed: WR_TYPED, edit: WR_EDIT, close: CLOSEKEYS, enter: [ENTER], text: WR_PARA, vars: { open: wrOpenV, typed: wrTypedV, edit: wrEditV }, kprog: { open: wrOpen.K_PROG, typed: wrTyped.K_PROG, edit: wrEdit.K_PROG, dialog: wrDlg.K_PROG, back: wrBack.K_PROG }, backEqShell: wrBackEqShell }, w2, w3 }) + '\n');
 console.log('display after each key: ' + afterKey.map(([k, s]) => `${k}:"${s}"`).join(' '));
 const backEqShell = same(rd_('back'), rd_('shell'));
 console.log(`back screen equals shell screen byte for byte: ${backEqShell}`);
@@ -260,7 +306,7 @@ const ok = shellUp && shellSettled && shell.K_PROG === 0 && calcUp && calcSettle
   !same(rd_('shell'), rd_('calc')) && !same(rd_('calc'), rd_('typed')) &&
   ctlUp && ctlSettled && ctl.K_PROG === 2 && listSettled && list.K_PROG === 2 && fieldSettled && field.K_PROG === 2 && statusSettled && status.K_PROG === 2 &&
   back2Up && back2Settled && back2.K_PROG === 0 &&
-  ['ctl', 'list', 'field', 'status'].every((n, i, a) => i === 0 || !same(rd_(n), rd_(a[i - 1]))) && wrOk && (w2 === null || w2.ok);
+  ['ctl', 'list', 'field', 'status'].every((n, i, a) => i === 0 || !same(rd_(n), rd_(a[i - 1]))) && wrOk && (w2 === null || w2.ok) && (w3 === null || w3.ok);
 console.log(`controls session: ctl/list/field/status K_PROG ${ctl.K_PROG}/${list.K_PROG}/${field.K_PROG}/${status.K_PROG}, back2 K_PROG ${back2.K_PROG}, back2 equals shell ${back2EqShell}`);
 console.log(`${ok ? 'PASS' : 'FAIL'}: desk5 reference: shell up after ${framesToShell} frames (settled ${shellSettled}), calc "${calc.display}" K_PROG ${calc.K_PROG}, typed "${typed.display}" (expected "${EXPECT}") K_PROG ${typed.K_PROG}, ` +
   `back K_PROG ${back.K_PROG} = shell ${backEqShell}, rendered-vs-RAM mismatches ${mismatch}; written to ${outDir}`);
