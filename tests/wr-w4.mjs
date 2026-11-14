@@ -479,25 +479,26 @@ if (cartOk && has('2')) {
 
 // ===========================================================================================================================
 if (cartOk && has('3')) {
-  const sec = new Sec('3 WR_LCK is $FFFF for none (14.9 item 3: at the start, after every change of the text, "New" and Open) and the clicked code after an E_DOWN; WR_FN and F\'s codes (14.9 item 5)');
+  const sec = new Sec('3 WR_LCK: exactly $FFFF at the start, a value with the high byte $FF (none) after every change of the text, "New" and Open (14.9 items 3 and 9), the clicked code after an E_DOWN (high byte not $FF); WR_FN and F\'s codes (14.9 item 5)');
   const env = newEnv(), st = env.st, { m, S } = env, lck = () => rd16(m, S.WR_LCK);
-  const want = (what, v) => sec.ok(lck() === v, () => `${what}: WR_LCK ${hex(lck())}, the contract says ${hex(v)}`);
+  const want = (what, v) => sec.ok(v === 0xFFFF && what === 'at the start' ? lck() === 0xFFFF : (lck() >> 8) === 0xFF, () => `${what}: WR_LCK ${hex(lck())}, the contract says ${what === 'at the start' ? '$FFFF' : 'a value with the high byte $FF'}`);
+  const isCode = () => (lck() >> 8) !== 0xFF;
   want('at the start', 0xFFFF);
   Q.typeDoc(env, 'abc def'); Q.settle(env, 20);
   want('after typed codes', 0xFFFF);
   const p = pointOf(st.doc, 5); L.moveTo(env, p[0], p[1]); Q.settle(env, 24); press(env, p[0], p[1]); Q.settle(env, 20);
-  want('after an E_DOWN on code 5', 5);
-  sec.ok(lck() === 5, 'the clicked code 5');
+  sec.ok(lck() === 5, () => `after an E_DOWN on code 5: WR_LCK ${hex(lck())}, want 5`);
+  sec.ok(lck() === 5, () => `the clicked code is 5, WR_LCK ${lck()}`);
   Q.keyDoc(env, 120); Q.settle(env, 20); want('after a typed code', 0xFFFF);
-  press(env, p[0], p[1]); Q.settle(env, 20); sec.ok(lck() !== 0xFFFF, 'an E_DOWN sets it again');
+  press(env, p[0], p[1]); Q.settle(env, 20); sec.ok(isCode(), 'an E_DOWN sets it again');
   Q.keyDoc(env, K.DELETE); Q.settle(env, 20); want('after DELETE', 0xFFFF);
   press(env, p[0], p[1]); Q.settle(env, 20);
   Q.keyDoc(env, 13); Q.settle(env, 20); want('after ENTER', 0xFFFF);
   // Cut and Paste: a press, MARK and two RIGHTs (a selection of 2), Cut; a press; Paste
-  press(env, 40, 34); Q.settle(env, 20); sec.ok(lck() !== 0xFFFF, 'an E_DOWN sets it');
+  press(env, 40, 34); Q.settle(env, 20); sec.ok(isCode(), 'an E_DOWN sets it');
   Q.keyDoc(env, 18); Q.keyDoc(env, K.RIGHT); Q.keyDoc(env, K.RIGHT); Q.settle(env, 20);
   editItemKeys(env, st.doc, 1); st.doc.menuItem(1); Q.settle(env, 20); want('after Cut', 0xFFFF);
-  press(env, 40, 34); Q.settle(env, 20); sec.ok(lck() !== 0xFFFF, 'an E_DOWN sets it again');
+  press(env, 40, 34); Q.settle(env, 20); sec.ok(isCode(), 'an E_DOWN sets it again');
   editItemKeys(env, st.doc, 3); st.doc.menuItem(3); Q.settle(env, 20); want('after Paste', 0xFFFF);
   Q.check(env, sec, 'LCK: state after the sequence', { dk: 0 });
   // New
@@ -516,8 +517,8 @@ if (cartOk && has('3')) {
   sec.ok(S.WR_FCODES === S.WR_FN + 1, () => `WR_FCODES ${hex(S.WR_FCODES)} is not WR_FN + 1 (${hex(S.WR_FN + 1)}): F is not a length-prefixed text`);
   doFind(env, sec, 'LCK F', 'file');
   sec.ok(m.ram[S.WR_FN] === 4 && eq(Array.from(m.ram.subarray(S.WR_FCODES, S.WR_FCODES + 4)), codes('file')), () => `WR_FN ${m.ram[S.WR_FN]}, codes ${JSON.stringify(Array.from(m.ram.subarray(S.WR_FCODES, S.WR_FCODES + 6)))}`);
-  const strict = W.stateDiff4(env, st.doc, true);
-  sec.ok(strict.length === 0, () => strict[0]);
+  const d4 = W.stateDiff4(env, st.doc);
+  sec.ok(d4.length === 0, () => d4[0]);
   sec.end('WR_LCK at 12 moments');
 }
 

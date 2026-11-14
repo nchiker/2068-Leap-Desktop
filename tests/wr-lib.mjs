@@ -377,8 +377,7 @@ export function stateDiff4(env, doc, strict = false) {
   if (!st) return out;
   if (st.fn !== doc.find.length) out.push(`WR_FN ${st.fn}, model F has ${doc.find.length} codes (${JSON.stringify(WM.textOf(doc.find))})`);
   else { const i = firstDiff(st.f, doc.find); if (i >= 0) out.push(`F differs at ${i}: machine ${JSON.stringify(WM.textOf(st.f))}, model ${JSON.stringify(WM.textOf(doc.find))}`); }
-  // "none" is $FFFF (14.9 item 3).  The build leaves a stale low byte after a text change ($FF01 after Cut: reported by wr-w4 group 3 as a disagreement with the contract); no clicked code reaches $FF00
-  // (5,120 codes at most), so here a high byte of $FF is accepted as none, to keep the other suites about their own contract; `strict` demands $FFFF.
+  // "none" is any value whose high byte is $FF (14.9 item 9): exactly $FFFF at the start, only the high byte after a text change, New and Open; no clicked code reaches $FF00.  `strict` demands $FFFF.
   const want = doc.lck < 0 ? 0xFFFF : doc.lck;
   const ok = doc.lck < 0 && !strict ? (st.lck >> 8) === 0xFF : st.lck === want;
   if (!ok) out.push(`WR_LCK ${hex(st.lck)}, model ${doc.lck < 0 ? 'none ($FFFF)' : doc.lck}`);

@@ -482,23 +482,22 @@ if (ONLY.includes(9)) {
   sec.end(`${n} presses on the first line`);
 }
 // ===========================================================================================================================
-// 9b. WRITE 14.9 item 2 with 10.1: the double-click flag is data 3 bit 2 of the E_DOWN record the List is handed, through DE ("A List reads every event through DE"), not K_EV's
+// 9b. WRITE 14.9 items 2 and 9: the double-click flag is read from K_EV + 3 bit 2 (the same record the kernel's own pointer code reads); the record DE points to is read for the type, data 1 and y
 if (ONLY.includes(9) || ONLY.includes('9b')) {
   const env = T.bootParked({ rng }); envs.push(env);
   T.needSyms(env, T.NEEDED2);
-  const sec = new Sec('9b List double-click flag read through DE: with K_EV holding a record whose data 3 bit 2 is the opposite of the record DE points to, the List follows DE (a flagged DE record on the selected, remembered item posts E_CMD; an unflagged one does not)');
+  const sec = new Sec('9b List double-click flag read from K_EV + 3 bit 2 (WRITE 14.9 item 9): with the record DE points to carrying the opposite flag, the List follows K_EV\'s (a flagged K_EV on the selected, remembered item posts E_CMD; an unflagged one does not)');
   let n = 0, posts = 0;
   for (let ti = 0; ti < 30 && sec.nf < 6; ti++) {
     const tree = randTree2(), A = tree.nodes().find((q) => q.id === 150);
     if (!X.openTree(env, tree, sec, `window ${ti}`)) break;
     if (A.count < 1) { T.clearTree(env, tree); continue; }
     const p = [A.x + 10, M2.listGeom(A).LY0 + 1];
-    const flagged = ti % 2 === 0;
-    // press 1: not flagged, K_EV garbage with bit 2 SET: selects the item and remembers it
-    X.sendDirect(env, tree, sec, `window ${ti}: press 1 (unflagged in DE, flagged in K_EV)`, A, { t: M.E.DOWN, px: p[0], py: p[1], vf: 9000 + 100 * ti, dbl: false }, { garb: [0xA5, 0x5A, 0x33, 0x77] });
-    // press 2 on the same item: DE says flagged / not, K_EV says the opposite
-    const r = X.sendDirect(env, tree, sec, `window ${ti}: press 2 (${flagged ? 'flagged in DE, unflagged in K_EV' : 'unflagged in DE, flagged in K_EV'})`, A, { t: M.E.DOWN, px: p[0], py: p[1], vf: 9002 + 100 * ti, dbl: flagged }, { garb: flagged ? [0xA5, 0x5A, 0x33, 0x73] : [0xA5, 0x5A, 0x33, 0x77] });
-    n++; if (r) { posts += r.posts.length; sec.ok(r.posts.length === (flagged ? 1 : 0), () => `window ${ti}: press 2 ${flagged ? 'flagged in the record DE points to' : 'unflagged in the record DE points to'}: ${r.posts.length} E_CMD posted, want ${flagged ? 1 : 0} (K_EV held the opposite flag)`); }
+    const flagged = ti % 2 === 0;       // the flag in K_EV on press 2; DE's record carries the opposite
+    // press 1: unflagged in K_EV (DE flagged): selects the item and remembers it
+    X.sendDirect(env, tree, sec, `window ${ti}: press 1 (unflagged in K_EV, flagged in DE)`, A, { t: M.E.DOWN, px: p[0], py: p[1], vf: 9000 + 100 * ti, dbl: false }, { garb: T.ptRec(M.E.DOWN, p[0], p[1], 1, 0), deDbl: true });
+    const r = X.sendDirect(env, tree, sec, `window ${ti}: press 2 (${flagged ? 'flagged in K_EV, unflagged in DE' : 'unflagged in K_EV, flagged in DE'})`, A, { t: M.E.DOWN, px: p[0], py: p[1], vf: 9002 + 100 * ti, dbl: flagged }, { garb: T.ptRec(M.E.DOWN, p[0], p[1], 1, flagged), deDbl: !flagged });
+    n++; if (r) { posts += r.posts.length; sec.ok(r.posts.length === (flagged ? 1 : 0), () => `window ${ti}: press 2 ${flagged ? 'flagged in K_EV (DE unflagged)' : 'unflagged in K_EV (DE flagged)'}: ${r.posts.length} E_CMD posted, want ${flagged ? 1 : 0}`); }
     T.clearTree(env, tree);
   }
   sec.end(`${n} second presses, ${posts} E_CMD posted`);

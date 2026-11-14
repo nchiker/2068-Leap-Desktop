@@ -199,7 +199,7 @@ export function sendDirect(env, tree, sec, ctx, node, ev, o = {}) {
   const { m, S } = env;
   const rec = ev.t === M.E.KEY ? [M.E.KEY, ev.key, 0, 0] : ev.t === M.E.SCROLL ? [M.E.SCROLL, ev.val, ev.barId || 0, 0] : [ev.t, 0, 0, 0];
   if (ev.t === M.E.DOWN && ev.dbl === undefined) ev.dbl = ev.vf !== undefined && tree.kd ? tree.kd.press(ev.vf, ev.px, ev.py) : false;      // the kernel's double-click flag (WRITE 14.9): decided by its rule from the test's frame number
-  if (ev.t === M.E.DOWN || ev.t === M.E.MOVE || ev.t === M.E.UP) { const p = T.ptRec(ev.t, ev.px, ev.py, ev.t !== M.E.UP, ev.t === M.E.DOWN && ev.dbl); for (let i = 0; i < 4; i++) rec[i] = p[i]; }
+  if (ev.t === M.E.DOWN || ev.t === M.E.MOVE || ev.t === M.E.UP) { const p = T.ptRec(ev.t, ev.px, ev.py, ev.t !== M.E.UP, ev.t === M.E.DOWN && (o.deDbl !== undefined ? o.deDbl : ev.dbl)); for (let i = 0; i < 4; i++) rec[i] = p[i]; }      // o.deDbl: the flag of the record DE points to, when a test makes it differ from K_EV's (WRITE 14.9 item 9: the flag is read from K_EV + 3)
   T.setEv(env, process.env.KEVSAME || o.kevSame ? rec : (o.garb || [0xA5, 0x5A, 0x33, 0x73]));   // KEVSAME=1 (diagnostic): K_EV holds the record too, to tell a List that reads K_EV from one that reads DE
   for (let i = 0; i < 4; i++) m.ram[SCR_REC + i] = rec[i];
   if (ev.vf !== undefined) { T.setVframes(env, ev.vf & 0xFFFF); tree.vf = ev.vf & 0xFFFF; }
