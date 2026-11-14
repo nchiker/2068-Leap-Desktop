@@ -20,6 +20,7 @@ const VERBOSE = argv.includes('--verbose');
 const rng = L.makeRng(SEED);
 const C = checks('kc-k1');
 const FRAME_T = 58688;
+const KEY_T = 61000;   // KEYCAPS 8 (owner, 2026-11-14): a single key's redraw ends within about one frame; several keys at once are reported
 const SETTLE = 24;                                          // frames after an input before the screen is compared (a plane change redraws the 42 caps over about 12 frames, KEYCAPS 7; SPACE on a focused radio adds the radio and the status line)
 console.log(`seed ${SEED} (rerun with --seed ${SEED}); random keys ${NKEYS}, random radio actions ${NRADIO}`);
 
@@ -313,13 +314,14 @@ function g5() {
       sec.ok(bad.length === 0, () => `${tag}: ${bad.length} display byte(s) written outside the changed caps' fills and the status line, first (y ${bad[0] >> 6}, byte col ${bad[0] & 63})`);
       let capBytes = 0; for (const c of r.changed) { const f = K.fillRect(c); for (const b of KL.rectBytes(f.x, f.y, f.w, f.h)) if (r.wr.has(b)) capBytes++; }
       sec.ok(capBytes > 0, () => `${tag}: no write inside the changed cap(s)`);
-      sec.ok(r.d1 === null, () => `${tag}: outside the status line, the screen after the first frame: ${r.d1}`);
+      if (r.changed.length === 1) sec.ok(r.d1 === null, () => `${tag}: outside the status line, the screen after the first frame: ${r.d1}`);
+      else if (r.d1 !== null) sec.note(`${tag} (${r.changed.length} caps): the screen after the first frame is not yet complete (KEYCAPS 8: reported): ${r.d1}`);
       if (r.changed.length === 1) sec.ok(r.d2 === null, () => `${tag}: the screen after the second frame: ${r.d2}`);
       sec.ok(r.dEnd === null, () => `${tag}: the screen after the frames it takes: ${r.dEnd}`);
       sec.ok(!!r.per && r.kbDraws.length === 1, () => `${tag}: ${r.kbDraws.length} W_DRAWVIEW(s) of the keyboard in the frame's busy period`);
       if (r.per && r.kbDraws.length === 1) {
         const kd = r.kbDraws[0], done = kd.t1 - r.per.t0;
-        if (r.changed.length === 1) sec.ok(done < FRAME_T, () => `${tag}: the keyboard's redraw ends ${done} T after the interrupt, past the frame (${FRAME_T})`);
+        if (r.changed.length === 1) sec.ok(done <= KEY_T, () => `${tag}: the keyboard's redraw ends ${done} T after the interrupt, past the bound (${KEY_T})`);
         else sec.note(`${tag} (${r.changed.length} caps in one frame): the keyboard's redraw takes ${(kd.t1 - kd.t0).toLocaleString('en')} T and ends ${done.toLocaleString('en')} T after the interrupt (${FRAME_T} per frame)`);
         if (r.changed.length === 1) { capD.push(kd.t1 - kd.t0); capDone.push(done); (dir === 'down' ? down : up).push(r.per.t1 - r.per.t0); }
         if (dir === 'down') { sec.ok(r.lblDraws.length === r.typed.length, () => `${tag}: ${r.lblDraws.length} W_DRAWVIEW(s) of the status line, want ${r.typed.length} (one a typed code)`); if (r.lblDraws[0] && r.changed.length === 1) statD.push(r.lblDraws[0].t1 - r.lblDraws[0].t0); }
@@ -520,9 +522,9 @@ function g8() {
   row('the redraw after a key goes down, the frame\'s wake from HALT (ISR entry) to the loop\'s next HALT, worst of 8 keys, T-states', mx(down), null, `${down.join(', ')}; an idle frame's busy period ${mx(idle)} T; one frame is ${FRAME_T} T = ${(mx(down) / FRAME_T).toFixed(2)} frames`);
   row('  of it, the keyboard\'s W_DRAWVIEW in mode 1 (the changed cap only), worst of 8, T-states', mx(capD), null, `${capD.join(', ')}; it ends ${mx(capEnd)} T after the interrupt`);
   row('  of it, the status line\'s W_DRAWVIEW, worst of 8, T-states', mx(statD), null, statD.join(', '));
-  row('the keyboard\'s redraw ends before the next frame interrupt (T after the interrupt)', mx(capEnd), FRAME_T - 1);
+  row('a single key: the keyboard\'s redraw ends within about one frame (T after the interrupt; KEYCAPS 8)', mx(capEnd), KEY_T);
   row('the redraw after a key goes up (the cap only: ISR entry to HALT), worst of 8, T-states', mx(up), null, `${up.join(', ')}; ${(mx(up) / FRAME_T).toFixed(2)} frames`);
-  row('the redraw after a key goes up leaves the loop halted before the next interrupt (busy < one frame)', mx(up), FRAME_T - 1);
+  row('the redraw after a key goes up: busy period, ISR entry to HALT (KEYCAPS 8: within about one frame)', mx(up), KEY_T);
   // the plane change: the whole keyboard, frames until the screen is complete
   { const out = []; for (const sh of [K.KCS, K.KSS]) { const tr = KL.traceLoop(env2); env2.sim.hold([sh]); L.setKeys(env2.m, [sh]); let fr = 0; for (; fr < 30; fr++) { env2.frame(); if (KL.diffDisp(KL.readDisp(env2.m), K.toDisp(env2.sim.screen()), L.pointerMask(env2.m, env2.S)) === null) { fr++; break; } } const per = KL.periodsOf(tr.stop()); out.push([K.KEYNAMES[sh], fr, per.reduce((a, p) => a + p.t1 - p.t0, 0)]); env2.sim.hold([]); L.setKeys(env2.m, []); env2.frames_(16); }
     row('the whole keyboard redrawn for a plane change (CAPS SHIFT / SYMBOL SHIFT down): frames until the screen is complete', Math.max(...out.map((o) => o[1])), null, out.map((o) => `${o[0]}: ${o[1]} frames, ${o[2].toLocaleString('en')} T of busy periods`).join('; ')); }

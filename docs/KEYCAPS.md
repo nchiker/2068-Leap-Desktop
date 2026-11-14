@@ -164,3 +164,12 @@ approved mock-ups are `docs/keycaps/kc3-*.png`, made with `node tools/kc-mock.mj
 **As built:** Key Caps is **1047** bytes, image 219, against the 1,225 bytes Controls took. The screens match the mock-ups
 on TSRun: plain, CAPS SHIFT with `1`, BREAK, and the Symbol Shift radio with `E`.
 
+## 8. The speed of a key change (owner, 2026-11-14: "keycaps speed is fine - no effort needs to be spent on this")
+
+- **A single key going down or up:** the keyboard's redraw (mode 1) ends within about one frame, **<= 61,000 T** after the
+  frame interrupt. It measured 55,057 T for most keys and 60,575 T for ENTER, the widest cap. The busy period after a key
+  goes up has the same bound.
+- **Several keys changing in one frame:** reported only, for example about 67,000 T for three.
+- **The full redraw** after a change of plane, about 11-12 frames, is reported only.
+- **No more work on Key Caps' speed.**
+
