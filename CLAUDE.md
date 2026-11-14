@@ -164,6 +164,7 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
   - the test-speed slice (TESTSPEED; TSRun's pin moves to 6ccf56e under TESTSPEED 6's rules);
   - the safe pool changes, the free-space measure and Notepad's faster search (`docs/SIZE.md` 1-3);
   - the ZEsarUX runs (W4's Find session; Key Caps in `zesarux-desk5.py`);
-  - then Paint, starting with the DOCK 6 graphics library (SIZE 4).
+  - then Paint, starting with the DOCK 6 graphics library (SIZE 4); then the 15-tile Puzzle (owner, 2026-11-14: "we would
+    do paint first, then puzzle"; EST about 500-600 bytes plus about 200 in the shell).
 - **Owner (2026-11-13):** W3 tried in the browser and accepted. Program 3 is now shown as **Notepad** (icon, "Leap" menu,
   title "Notepad: name", alerts); the code, `docs/WRITE.md` and the `WR_` symbols keep the name Write (WRITE 13.10).

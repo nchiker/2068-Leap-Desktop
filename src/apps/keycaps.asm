@@ -72,6 +72,10 @@ kc_poll:
     ld de,KC_DOWN
     ld c,8
     ldir
+    ld hl,KC_DOWN
+    ld de,KC_CHG
+    ld c,8
+    ldir                        ; KC_CHG = a copy of KC_DOWN
     pop bc
     ld hl,KC_P
     ld a,(hl)
@@ -91,6 +95,16 @@ kc_poll:
     djnz .l
     ret
 .keys:
+    ld hl,KC_OLD                ; KC_CHG = the keys that changed: one test a cap in mode 1
+    ld de,KC_CHG
+    ld b,8
+.x:
+    ld a,(de)                   ; (KC_CHG starts as a copy of KC_DOWN)
+    xor (hl)
+    ld (de),a
+    inc hl
+    inc de
+    djnz .x
     ld a,1
 .draw:
     ld (KC_MODE),a
@@ -225,7 +239,7 @@ kc_draw:
     ld (KC_RP),hl
     ld a,(KC_MODE)
     or a
-    jr nz,.down
+    jp nz,.down
     KFAR G_SETOP                ; SET (A = 0)
     call kc_ga
     ld hl,(KC_W)                ; (KC_H follows KC_W: H = 0 below)
@@ -235,16 +249,29 @@ kc_draw:
     ld l,a
     ld (GA+6),hl
     KFAR G_FRAME
-    ld a,(KC_K)
+    ld a,(KC_K)                 ; e = half-row * 8 + bit
     ld c,$80
     or a
     jr z,.lbl                   ; CAPS SHIFT
     inc c
-    cp 36
+    cp 57
     jr z,.lbl                   ; SYMBOL SHIFT
     ld c,3
-    cp 40
+    cp $40
     jr z,.lbl                   ; BREAK: "Brk"
+    ld c,a                      ; the KEYMAP index k = 5 x half-row + bit
+    rra
+    rra
+    rra
+    and $1F
+    ld b,a
+    add a,a
+    add a,a
+    add a,b
+    ld b,a
+    ld a,c
+    and 7
+    add a,b
     ld e,a
     ld d,0
     ld hl,KEYMAP
@@ -290,19 +317,25 @@ kc_draw:
     ld h,0
     ld (GA+2),hl
     KFAR G_TEXTP
-.down:
-    ld hl,KC_DOWN               ; mode 0: down; mode 1: changed
-    call kc_kdn
-    ld c,a
+.down:                          ; mode 0: down; mode 1: changed (KC_CHG; BREAK from both states)
+    ld hl,KC_DOWN
     ld a,(KC_MODE)
     or a
-    jr z,.t
+    jr z,.d0
+    ld a,(KC_K)
+    cp $40
+    jr z,.brk
+    ld hl,KC_CHG
+.d0:
+    call kc_kdn
+    jr .t
+.brk:
+    call kc_kdn
+    ld c,a
     ld hl,KC_OLD
     call kc_kdn
     xor c
-    ld c,a
 .t:
-    ld a,c
     or a
     jr z,.next
     ld a,2
@@ -344,11 +377,11 @@ kc_ga:
     ld h,0
     ld (GA+2),hl
     ret
-; kc_kdn: HL -> 8 half-row bytes: A = $FF when key KC_K is down there, else 0.  Key 40 (BREAK) is down when keys 0 (CAPS SHIFT)
-; and 35 (SPACE) both are.  Clobbers F, B, DE.
+; kc_kdn: HL -> 8 half-row bytes: A = $FF when the key of KC_K (e = half-row x 8 + bit) is down there, else 0.  BREAK ($40) is
+; down when CAPS SHIFT (0) and SPACE (56) both are.  Clobbers F, B, DE.
 kc_kdn:
     ld a,(KC_K)
-    cp 40
+    cp $40
     jr nz,kc_kbit
     push hl
     xor a
@@ -356,15 +389,19 @@ kc_kdn:
     pop hl
     or a
     ret z
-    ld a,35
-; kc_kbit: A = a key index, HL -> 8 half-row bytes -> A = $FF when its bit is set, else 0.  Clobbers F, B, HL.
+    ld a,56
+; kc_kbit: A = e, HL -> 8 half-row bytes -> A = $FF when e's bit is set, else 0.  Clobbers F, B, DE, HL.
 kc_kbit:
-    cp 5
-    jr c,.bit
-    sub 5
-    inc hl
-    jr kc_kbit
-.bit:
+    ld b,a
+    rra
+    rra
+    rra
+    and $1F
+    ld e,a
+    ld d,0
+    add hl,de
+    ld a,b
+    and 7
     ld b,a
     ld a,(hl)
     inc b
@@ -374,19 +411,20 @@ kc_kbit:
     sbc a,a
     ret
 
-; KEYCAPS 2: the TS2068's rows (tsrun/keyboard.js's board): y, the first cap's x, the caps' height, then each cap's key index k
-; (the KEYMAP index; 40 is BREAK, CAPS SHIFT + SPACE) and width, $FF; 0 ends.  Caps are 2 pixels apart.
+; KEYCAPS 7: the TS2068's rows (tsrun/keyboard.js's board): y, the first cap's x, the caps' height, then each cap's key as
+; e = half-row x 8 + bit (the KEYMAP index is 5 x half-row + bit; $40 is BREAK, CAPS SHIFT + SPACE) and its width, $FF; 0 ends.
+; Caps are 2 pixels apart.
 KC_ROWS:
     DB 54, 40, 18
-    DB 15, 36, 16, 36, 17, 36, 18, 36, 19, 36, 24, 36, 23, 36, 22, 36, 21, 36, 20, 36, $FF
+    DB 24, 36, 25, 36, 26, 36, 27, 36, 28, 36, 36, 36, 35, 36, 34, 36, 33, 36, 32, 36, $FF
     DB 76, 49, 18
-    DB 10, 36, 11, 36, 12, 36, 13, 36, 14, 36, 29, 36, 28, 36, 27, 36, 26, 36, 25, 36, $FF
+    DB 16, 36, 17, 36, 18, 36, 19, 36, 20, 36, 44, 36, 43, 36, 42, 36, 41, 36, 40, 36, $FF
     DB 98, 58, 18
-    DB 5, 36, 6, 36, 7, 36, 8, 36, 9, 36, 34, 36, 33, 36, 32, 36, 31, 36, 30, 70, $FF
+    DB 8, 36, 9, 36, 10, 36, 11, 36, 12, 36, 52, 36, 51, 36, 50, 36, 49, 36, 48, 70, $FF
     DB 120, 40, 18
-    DB 0, 43, 1, 36, 2, 36, 3, 36, 4, 36, 39, 36, 38, 36, 37, 36, 36, 36, 40, 36, 0, 43, $FF
+    DB 0, 43, 1, 36, 2, 36, 3, 36, 4, 36, 60, 36, 59, 36, 58, 36, 57, 36, $40, 36, 0, 43, $FF
     DB 142, 128, 14
-    DB 35, 254, $FF
+    DB 56, 254, $FF
     DB 0
 KC_SLAST:   DB "Last key: "
 KC_SCODE:   DB " (code "
@@ -466,6 +504,7 @@ KC_SEL:     DB 0                ; the checked radio's plane
 KC_P:       DB 0                ; the plane and the keys down the keyboard is drawn with
 KC_DOWN:    DS 8, 0
 KC_OLD:     DS 8, 0             ; the keys down before (kc_poll, KC_MODE 1)
+KC_CHG:     DS 8, 0             ; the keys that changed (KC_OLD xor KC_DOWN, made by kc_poll)
 KC_MODE:    DB 0
 KC_RP:      DW 0
 KC_X:       DW 0
@@ -476,5 +515,5 @@ KC_K:       DB 0
     ENT
 KC_IMG_LEN  EQU $ - KC_IMG
     ASSERT PROG_IMG + KC_IMG_LEN <= AL_RAM && (CL_KeyCaps >> 8) == ((CL_KeyCaps + 11) >> 8)
-    ASSERT (KC_STAT >> 8) == ((KC_STAT + 26) >> 8) && KC_H == KC_W + 1
+    ASSERT (KC_STAT >> 8) == ((KC_STAT + 26) >> 8) && KC_H == KC_W + 1 && KC_CHG == KC_OLD + 8
 KC_END:
