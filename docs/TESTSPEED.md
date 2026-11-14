@@ -114,3 +114,13 @@ Every suite passes. Wall and CPU time are in seconds; the machine was shared wit
 - **Where the time goes:** the Notepad suites (`wr-w1` to `wr-w4` and `wr-perf`) take 1,073 s, 71 % of the run, and
   `kern-dclick` another 147 s. S1 to S4 aim at these first.
 - **Check counts per group:** each suite's log prints them. A step is judged against the same logs rerun, group by group.
+
+## 8. S3 done (2026-11-14): the pin is `6ccf56e`
+
+- **Pin and proof test:** `tsrun` moved from `b4dc564` to `6ccf56e` (a fast-forward on the fork's main). `tests/tsrun-ay-silent.mjs`
+  is copied from Leap-IDE (`docs/PROVENANCE.md`): **114,916 passed, 0 failed**.
+- **Every suite passes with identical pass lines and counts** (all 19, and `desk5-ref`: shell up after 92 frames, mismatches 0).
+  The four perf suites' logs, run on `b4dc564` and on `6ccf56e`, are **identical line for line**, every T-state row included.
+- **Time (report):** CPU summed over the 19 suites **794 s, against 1,251 s** at the baseline (-37 %). Per suite, CPU
+  baseline to now: `wr-w4` 304 to 138, `wr-w2` 204 to 106, `wr-perf` 185 to 101, `kern-dclick` 123 to 51, `wr-w1` 107 to 113 (the
+  one that did not gain). The suites ran four at a time this time, so the wall times are not comparable with section 7.
