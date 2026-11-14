@@ -77,6 +77,13 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
     (`tsrun` is a submodule). Give the agent that path. Remove it with `git worktree remove --force` and `git branch -D`.
     A worktree starts from a commit: commit first (or copy the uncommitted state in), and merge the agent's diff back only after
     re-running its tests in the main tree.
+- **Look for code to share (owner's standing rule, 2026-11-14).** In every contract and every slice, look for code that another
+  program has or will need, and share it instead of copying it:
+  - in the kernel, when it must be (the pool is costly, as the double-click flag in `E_DOWN` was, WRITE 14.9);
+  - otherwise in a documented library in DOCK 2-3 that programs call: `files.asm` (FILES), and the app library planned after
+    W4 (`docs/APPLIB.md`: the dialog builder, the alert, the discard dialog, the name dialog, the title).
+  Each contract says what it shares and what it could share. This follows the object model (shared classes and calls) and
+  keeps programs small.
 - Commit only when the owner asks. **Standing request (owner, 2026-11-12): commit checkpoints as the work goes** (a slice's
   code once it runs, then its tests once re-run), so that nothing is lost if a usage limit cuts a session off.
 
@@ -106,7 +113,8 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
     dialog, then a browser download; Open = the browser's file picker. Later a TS-Pico driver (ports `$0E` / `$0F`,
     `tpi:chopen` / `chrd` / `chwr` / `chclose`; `~/Projects/TS-Pico-Study`) answers the same calls. This replaces "tape
     services before W3". Contract `docs/FILES.md` (owner approved, 2026-11-12).
-  - **Order (owner, 2026-11-12):** W3 (Open / Save), then double-click and Find in Write, then
+  - **Order (owner, 2026-11-12; amended 2026-11-14):** W3 (Open / Save), then double-click and Find in Write, then the app
+    library (`docs/APPLIB.md`: Notepad's dialogs and title shared from DOCK 2-3, Notepad moved onto it unchanged), then
     Paint in mode 6 (mono, MacPaint-style; colour waits for the mode 2 graphics). Fonts and styles in Write: not planned.
 - **W3 is done (2026-11-13):** the bridge, `web/fshost.js`, the page, `src/apps/files.asm`, Write's Open and Save
   (`docs/WRITE.md` 13.9, `docs/FILES.md` 10); ZEsarUX 131 of 131 (no bridge: Save shows the alert); the owner accepted it.
