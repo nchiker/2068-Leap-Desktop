@@ -163,3 +163,28 @@ screen pixel.
 The byte bound is therefore section 4's **<= 250**. Section 3.4's 50% option and its rows in sections 4 and 5 stay as the record
 of the choice.
 
+## 9. How the desk is drawn, and the corners (owner, 2026-11-13: "put option 1 and the corner finding into the docs")
+
+**The desk is drawn as text** (amends 3.4's "pattern fill" for the build; the pixels are the same).
+- Code 127 of the 8x8 font (`src/font.inc`) is blank and nothing in Leap draws it. Under `LOOK_MAC` its glyph becomes the
+  25% tile: rows `$88, $22, $88, $22, $88, $22, $88, $22`. That data takes the place of the blank glyph, so it costs 0 bytes.
+- `desk_draw` draws character rows 1-23, each one `G_TEXT8` (column 0, row r) of 64 codes 127, opaque. `G_TEXT8` draws only
+  the cells wholly inside the clip, and the desk is always drawn under a clip of whole cells (16 x 8). The glyph's row parity
+  is the screen row's (cells start on rows that are multiples of 8), so the pattern is 3.4's exactly.
+- The 64 codes are a string in RAM, `DESK_STR` (64 bytes), filled with 127 at boot.
+- **EST** about 35 bytes (the loop about 25, the boot fill about 11).
+- **Speed:** a whole-desk repaint (1,472 cells) is **EST** about 0.3 M T, against perhaps 0.1 M T for today's paper fill.
+  It is **reported**, with the `W_UPDATE` rows of 4. A repaint of the whole desk happens at boot and when a large window
+  closes; smaller repaints scale with the cells damaged.
+
+**The corners of 3.2 step 3 cost nothing.**
+- With the 25% pattern they are always paper. Windows have x and w multiples of 16 and y and h multiples of 8.
+  - The top-right corner is columns 6-7 of a byte on an even row (`$88`: bits 1-0 clear).
+  - The bottom-left corner is columns 0-1 on an odd row (`$22`: bits 7-6 clear).
+- Checked over every legal window rectangle: 0 ink pixels.
+- `window_draw` already clears the band and the content across the whole width, and the frame and the shadow do not cover
+  the corners. So the corners need no code: step 3 is met by the paper already there.
+
+**Revised estimates (replace section 4's table rows):** desk 30-40; menu bar 10-25; `window_draw` 50-90 (no corner code);
+close box 0-5; arrow 0. **Total EST 100-170**, bound <= 250 (section 8).
+
