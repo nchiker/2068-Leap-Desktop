@@ -73,6 +73,24 @@ function step() {
   if (chunk.n > 0 && app.sfx && soundIsRunning(app.sfx)) pushSound(app.sfx, chunk);
 }
 
+// Whole-number scaling (owner, 2026-11-13).  TSRun's resizeScreen fills the slot at any size, so a frame pixel can be 1 or 2
+// display pixels wide in turn, and a one-pixel dither (the desk's grey, docs/LOOK.md) shows moire stripes.  fitScreen lets it
+// fit first (it records the pixel ratio), then sets the buffer to k x 640 by k x 480 display pixels (TSRun's 640 x 240 frame,
+// rows doubled for 4:3), k the largest whole number that fits the slot (at least 1): every frame pixel is k by 2k pixels.
+const FRAME_W = 640, VIEW_H = 480;
+function fitScreen(gfx) {
+  resizeScreen(gfx);
+  const canvas = gfx.gl.canvas, slot = canvas.parentElement, cs = getComputedStyle(slot), dpr = window.devicePixelRatio;
+  const w = (slot.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)) * dpr;
+  const h = (slot.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)) * dpr;
+  const k = Math.max(1, Math.floor(Math.min(w / FRAME_W, h / VIEW_H)));
+  if (canvas.width !== FRAME_W * k) canvas.width = FRAME_W * k;
+  if (canvas.height !== VIEW_H * k) canvas.height = VIEW_H * k;
+  canvas.style.width = `${(FRAME_W * k) / dpr}px`;
+  canvas.style.height = `${(VIEW_H * k) / dpr}px`;
+  gfx.gl.viewport(0, 0, FRAME_W * k, VIEW_H * k);
+}
+
 function onFrame(now) {
   requestAnimationFrame(onFrame);
   if (app.lastNow === 0) { app.lastNow = now; app.carryMs = FRAME_MS; }
@@ -81,7 +99,11 @@ function onFrame(now) {
   for (let ran = 0; app.carryMs >= FRAME_MS && ran < 4; ran++) { step(); app.carryMs -= FRAME_MS; }
   pollJoysticks(joystick, padIds);                   // gamepads only: keys never drive the joystick
   $('joy').textContent = padIds[0] ? `joystick: ${padLabel(padIds[0])}` : 'joystick: no gamepad';
-  if (app.gfx) drawScreen(app.gfx, m.pixels);
+  if (app.gfx) {
+    const g = app.gfx;
+    if (g.pixelRatio !== window.devicePixelRatio || g.gl.canvas.width % FRAME_W) fitScreen(g);   // a zoom, a monitor change, a lost context
+    drawScreen(g, m.pixels);
+  }
   $('status').textContent = app.error ||
     `frames ${app.frames}  $F4=${hex(m.portF4)}  $FF=${hex(m.portFF)}${app.paused ? '  paused' : ''}`;
 }
@@ -211,9 +233,9 @@ async function start() {
   initScreen(screen, { vert, frag }, (e, gfx) => {
     if (e !== null || gfx === null) { app.error = e ?? 'No graphics context'; return; }
     app.gfx = gfx;
-    resizeScreen(gfx);
+    fitScreen(gfx);
   });
-  new ResizeObserver(() => { if (app.gfx) resizeScreen(app.gfx); }).observe($('slot'));
+  new ResizeObserver(() => { if (app.gfx) fitScreen(app.gfx); }).observe($('slot'));
   initSound(FPS, (e, sfx) => {
     if (e !== null || sfx === null) { console.warn('no sound:', e); return; }
     app.sfx = sfx;
