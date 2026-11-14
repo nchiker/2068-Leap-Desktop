@@ -27,7 +27,7 @@ Rows: every settled screen = TSRun's, K_PROG = TSRun's, the W4 variables (docume
 "w4-after" = "w4-again2" on ZEsarUX itself, "w4-back" = "shell".
 Rows: the settled screens "shell", "calc", "typed", "back" = TSRun's .bin byte for byte; "back" = "shell"; K_PROG after each step = TSRun's;
 the display string "0" after the launch and after each key = TSRun's, the typed one "740.7"; per key K_NOW shows the keys down; the pointer
-K_PX, K_PY = TSRun's; DOCK chunks 0-5 (memory zone 19) = the DCK after the run.
+K_PX, K_PY = TSRun's; DOCK chunks 0-6 (memory zone 19) = the DCK after the run.
 """
 import argparse
 import json
@@ -42,7 +42,7 @@ from ts2068_debug.zrcp import ZRCPClient  # noqa: E402
 
 ZDIR = Path.home() / "Applications/ZEsarUX-13.0"
 ROOT = Path(__file__).resolve().parents[2]
-NCHUNK = 6
+NCHUNK = 7
 KEY_SS, KEY_ENTER, KEY_CAPS = 137, 129, 135
 # name: [(zesarux code, K_NOW row, bit), ...]   rows $FE $FD $FB $F7 $EF $DF $BF $7F
 # the keyboard matrix as the reference's keys.json gives it: [row, bit] -> ZEsarUX key code (rows $FE $FD $FB $F7 $EF $DF $BF $7F)
@@ -531,7 +531,7 @@ def main():
             d = rd(c, ch * 8192, 8192)
             dock_bad[ch] = sum(1 for i in range(8192) if d[i] != chunks[ch][i])
         c.command("set-memory-zone 0")
-        results.append(("DOCK chunks 0-5 identical to the DCK after the run", all(x == 0 for x in dock_bad.values()), f"differing bytes {dock_bad}"))
+        results.append(("DOCK chunks 0-6 identical to the DCK after the run", all(x == 0 for x in dock_bad.values()), f"differing bytes {dock_bad}"))
         c.close()
     finally:
         proc.terminate()

@@ -97,7 +97,7 @@ The speed-up costs about +40 bytes of DOCK 2-3 that other features could use. No
 - **Measured:** the library is 3,776 bytes (`GFX6_CODE_END` `$33BE` to `$24FE`); chunk 6 holds 4,256 of 8,192 (`$C000-$D0A0`, 480 of them the icons).
   **The pool's free bytes: 5,898** (chunks 0-1 5,102, chunk 5 796; was 2,121); `desk5` DOCK 2-3 has 4,540 + 480 = about 5,020 free.
 - **Tests:** all 20 suites pass; every log is the same as before except addresses, byte counts, and timing rows that moved by a few T (`wr-perf`'s scroll
-  rows +21 T, the crossing's mapping; `shell-s1`'s frames 3,726 to 3,718). `calc-c1`'s memory watch now sees 33,990 accesses to `$C000-$DFFF` under R (0 before).
+  rows +21 T (cause not investigated: the call now enters chunk 6); `shell-s1`'s frames 3,726 to 3,718). `calc-c1`'s memory watch now sees 33,990 accesses to `$C000-$DFFF` under R (0 before).
 - **Checked by grep:** `pointer.asm` uses none of the moved labels (it calls `G_PRESHIFT` at start, which stays); the only other callers of the moved
   routines were Check's X (replaced), the shell (`KFAR G_BLIT`) and Notepad (`KFAR G_SCROLLV`).
 - **G_LINE under R** has no `desk5` caller until Paint: `tests/g6-line.mjs` runs it from mapping A on the model's random lines.
