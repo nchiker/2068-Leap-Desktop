@@ -1,9 +1,9 @@
 "use strict";
-// kc-mock.mjs -- the mock-ups of Key Caps' second design (owner, 2026-11-14: "it resembles the Spectrum keyboard not the 2068,
-// it shows only once the key value"): the TS2068's own layout (five rows: the wide ENTER, two CAPS SHIFTs, BREAK, the SPACE
-// bar; tsrun/keyboard.js's board), each key showing its three desktop values at once (CAPS SHIFT on top when it is a function,
-// the key's legend in the middle, SYMBOL SHIFT at the bottom), the held shift's line highlighted.  Labels come from
-// src/kernel/keymap.txt.  PNGs in docs/keycaps/, 2 x 4 PNG pixels a screen pixel (as tools/look-mock.mjs).
+// kc-mock.mjs -- the mock-ups of Key Caps' second design (owner, 2026-11-14: "it resembles the Spectrum keyboard not the 2068";
+// then "simplify what is on the key legends like the current version does"): the TS2068's own layout (five rows: the wide
+// ENTER, two CAPS SHIFTs, BREAK, the SPACE bar; tsrun/keyboard.js's board), one legend a key in the plane shown, as KEYCAPS 2
+// (the radios and the held shifts pick the plane).  Labels come from src/kernel/keymap.txt.  (kc2-*.png: the three-value
+// design the owner turned down.)  PNGs in docs/keycaps/, 2 x 4 PNG pixels a screen pixel (as tools/look-mock.mjs).
 //   node tools/kc-mock.mjs [OUTDIR]
 import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -31,51 +31,55 @@ const NAMES = { 1: 'Caps', 3: 'Brk', 8: 'Left', 9: 'Right', 10: 'Down', 11: 'Up'
   16: 'Menu', 17: 'Close', 18: 'Mark', 27: 'Esc', 32: 'Space' };
 const label = (c) => (c === 0 ? '' : c >= 33 && c <= 126 ? String.fromCharCode(c) : NAMES[c] ?? '');
 
-// ---- the layout (pixels): rows of [key, width]; x starts, y tops; cap 36 x 27, gaps 2, row pitch 28 (TS2068 board proportions)
-const CAP_H = 27, Y0 = 30, PITCH = 28;
+// ---- the layout (pixels): rows of [key, width]; cap height 18, row pitch 22; gaps 2 (TS2068 board proportions, tsrun/keyboard.js)
+const CAP_H = 18, Y0 = 54, PITCH = 22;
 const ROWS = [
   { x: 40, keys: '1234567890'.split('').map((k) => [k, 36]) },
   { x: 49, keys: 'QWERTYUIOP'.split('').map((k) => [k, 36]) },
   { x: 58, keys: [...'ASDFGHJKL'.split('').map((k) => [k, 36]), ['ENTER', 70]] },
   { x: 40, keys: [['CS', 43], ...'ZXCVBNM'.split('').map((k) => [k, 36]), ['SS', 36], ['BREAK', 36], ['CS', 43]] },
 ];
-const BAR = { x: 123, y: Y0 + 4 * PITCH, w: 264, h: 18 };
-const WIN = { x: 32, y: 16, w: 448, h: 168, title: { codes: codes('Key Caps') } };
-const STATUS = { x: 48, y: 164 };
+const BAR = { x: 123, y: Y0 + 4 * PITCH, w: 264, h: 14 };
+const WIN = { x: 32, y: 24, w: 448, h: 160, title: { codes: codes('Key Caps') } };
+const RADIOS = [[48, 'Plain'], [160, 'Caps Shift'], [296, 'Symbol Shift']];
+const RADIO_Y = 40;
+const STATUS = { x: 48, y: 162 };
 
-/** The three lines of a key: [top (CAPS SHIFT), middle (the legend), bottom (SYMBOL SHIFT)]. */
-function lines(key) {
-  if (key === 'CS') return ['Caps', 'Shift', ''];
-  if (key === 'SS') return ['Symbl', 'Shift', ''];
-  if (key === 'BREAK') return ['', 'Break', ''];
-  const [p, c, s] = MAP[key];
-  const legend = key === 'ENTER' ? 'Enter' : key;
-  const top = c && c !== p && !(c >= 65 && c <= 90 && c + 32 === p) ? label(c) : '';
-  const bottom = s && s !== p ? label(s) : '';
-  return [top, legend, bottom];
+/** One key's legend in plane P (0 plain, 1 CAPS SHIFT, 2 SYMBOL SHIFT), as KEYCAPS 2 (the shift keys and BREAK fixed). */
+function legend(key, P) {
+  if (key === 'CS') return 'CS';
+  if (key === 'SS') return 'SS';
+  if (key === 'BREAK') return 'Brk';
+  return label(MAP[key][P]);
 }
 const centred = (g, x, w, ty, s) => { if (s) g.textp(x + Math.floor((w - tw(codes(s))) / 2), ty, codes(s)); };
 
-/** A screen: `held` = 'CS' | 'SS' | null (the line highlighted), `down` = the keys drawn pressed, `status` = the status text. */
-function scene({ held = null, down = [], status = 'Press a key.' }) {
+/** A radio (TOOLKIT 9's Check look, as Controls had): a 9 x 9 box, a dot when checked, the text at x + 12. */
+function radio(g, x, y, text, on) {
+  g.setOp(OP_SET); g.frame(x, y, 9, 9);
+  if (on) g.fill(x + 3, y + 3, 3, 3);
+  g.textp(x + 12, y, codes(text));
+}
+
+/** A screen: P the plane shown, `checked` the radio checked, `down` the keys drawn pressed, `status` the status text. */
+function scene({ P = 0, checked = 0, down = [], status = 'Press a key.' }) {
   const g = new Gfx6Model();
   LK.deskLook(g);
   LK.barLook(g, null, null);
   LK.macWindowLook(g, WIN, true, { closeBox: true });
+  RADIOS.forEach(([x, t], i) => radio(g, x, RADIO_Y, t, i === checked));
   ROWS.forEach((row, r) => {
     let x = row.x;
     const y = Y0 + r * PITCH;
     for (const [key, w] of row.keys) {
       g.setOp(OP_SET); g.frame(x, y, w, CAP_H);
-      lines(key).forEach((s, i) => centred(g, x, w, y + 1 + 8 * i, s));
-      const shiftKey = key === 'CS' || key === 'SS' || key === 'BREAK';
-      if (held && !shiftKey) { g.setOp(OP_XOR); g.fill(x + 1, y + 1 + 8 * (held === 'CS' ? 0 : 2), w - 2, 8); }
-      if (down.includes(key) || (held && key === held)) { g.setOp(OP_XOR); g.fill(x + 1, y + 1, w - 2, CAP_H - 2); }
+      centred(g, x, w, y + 5, legend(key, P));
+      if (down.includes(key)) { g.setOp(OP_XOR); g.fill(x + 1, y + 1, w - 2, CAP_H - 2); }
       x += w + 2;
     }
   });
   g.setOp(OP_SET); g.frame(BAR.x, BAR.y, BAR.w, BAR.h);
-  centred(g, BAR.x, BAR.w, BAR.y + 5, 'Space');
+  centred(g, BAR.x, BAR.w, BAR.y + 3, label(MAP.SPACE[P]));
   if (down.includes('SPACE')) { g.setOp(OP_XOR); g.fill(BAR.x + 1, BAR.y + 1, BAR.w - 2, BAR.h - 2); }
   g.setOp(OP_SET); g.textp(STATUS.x, STATUS.y, codes(status));
   return g;
@@ -103,8 +107,8 @@ function png(g) {
 }
 
 const SCENES = [
-  ['kc2-plain.png', { status: 'Press a key.' }],
-  ['kc2-caps.png', { held: 'CS', down: ['1'], status: 'Last key: Tab (code 14)' }],
-  ['kc2-symbol.png', { held: 'SS', down: ['E'], status: 'Last key: Mark (code 18)' }],
+  ['kc3-plain.png', { status: 'Press a key.' }],
+  ['kc3-caps.png', { P: 1, down: ['CS', '1'], status: 'Last key: Tab (code 14)' }],
+  ['kc3-symbol.png', { P: 2, checked: 2, down: ['E'], status: 'Last key: Mark (code 18)' }],
 ];
 for (const [file, opts] of SCENES) { writeFileSync(join(OUT, file), png(scene(opts))); console.log(`wrote ${join(OUT, file)}`); }
