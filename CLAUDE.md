@@ -159,12 +159,67 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
   - **Who uses it:** Notepad, the shell, Calculator and Key Caps. Notepad is 6,474 bytes. Its test is `tests/al-a1.mjs`.
 - **Key Caps (program 2, 2026-11-14), `docs/KEYCAPS.md`:** it replaces the Controls demo, whose test `tk-demo` is retired.
   Its test is `tests/kc-k1.mjs`.
-- **All 19 suites and `desk5-ref` pass on the merged build** (2026-11-14). Next:
-  - the owner tries Key Caps;
-  - the test-speed slice (TESTSPEED; TSRun's pin moves to 6ccf56e under TESTSPEED 6's rules);
-  - the safe pool changes, the free-space measure and Notepad's faster search (`docs/SIZE.md` 1-3);
-  - the ZEsarUX runs (W4's Find session; Key Caps in `zesarux-desk5.py`);
-  - then Paint, starting with the DOCK 6 graphics library (SIZE 4); then the 15-tile Puzzle (owner, 2026-11-14: "we would
-    do paint first, then puzzle"; EST about 500-600 bytes plus about 200 in the shell).
+- **Key Caps on the TS2068's layout (owner, 2026-11-14), KEYCAPS 7-8:**
+  - five rows, one legend a key in the plane shown;
+  - the mock-ups are `docs/keycaps/kc3-*.png` (`node tools/kc-mock.mjs`);
+  - 1,113 bytes, under the 1,225 bound;
+  - the owner accepted its speed: "keycaps speed is fine - no effort needs to be spent on this".
+
+## Hand-off (2026-11-14, end of the W4 / app library / Key Caps session)
+
+**Working rule, repeated because it matters (owner, 2026-11-14: "use lower cost agents for routine tasks and testing"):**
+- **Haiku runs** every test suite, baseline and regression run.
+- **Sonnet does:**
+  - the models and tests written from a contract;
+  - updates to tests after a contract change;
+  - read-only surveys and size reviews;
+  - generators and runners.
+- **The main model does only:**
+  - design and contracts;
+  - the Z80 code;
+  - debugging;
+  - judging results.
+- **The main model re-checks before telling the owner something is done:** it reads the agent's logs and re-runs the suite it
+  changed.
+- **One `desk5` build at a time;** do not run suites while a build changes `build/desk5`.
+- **Use a LeapG git worktree** for code that would rebuild under a running suite (see Working method).
+
+**State:**
+- **Branches:** `main` holds everything, and the worktrees are removed. TSRun is still at `b4dc564`, our own commit.
+- **Tests:** after the last Key Caps change, `kc-k1` passes 9 of 9. The merged build passed every suite before it (all 19 and
+  `desk5-ref`).
+- **A baseline run was in progress** at hand-off (Haiku, one suite at a time, with times). Its logs are in the old session's
+  scratchpad, which a new session cannot see. If the figures are not recorded in `docs/TESTSPEED.md`, rerun it: every suite
+  of the list below, one at a time, recording each pass line, check count, wall and CPU time.
+- **The suites:**
+  `al-a1 kc-k1 calc-c1 shell-s1 tk-t1 tk-t2 tk-t3 wr-w1 wr-w2 wr-w3 wr-w4 wr-demo fs-f1 kern-dclick web-smoke calc-perf
+  shell-perf tk-perf wr-perf`, plus `node tools/xemu/desk5-ref.mjs`. `web-smoke` needs `build/hello.dck`, and `calc-perf`
+  needs `build/kern4`.
+
+**Next, in order (all owner-approved):**
+1. **Test speed (`docs/TESTSPEED.md`)**, each step checked against the baseline; every pass line, check count and T-state
+   row must be identical.
+   - **S3:** move the `tsrun` pin to `6ccf56e`, the fork's main. Copy Arcade's `tests/tsrun-ay-silent.mjs` from
+     `~/Projects/Leap-IDE`, read only, with a `docs/PROVENANCE.md` entry. Keep the fork's rules, TESTSPEED 6.
+   - **S1:** screen drawing off (`M.setVideoOn(m, false)`), with a guard on every `m.pixels` read.
+   - **S2:** boot once, where it pays.
+   - **S4:** the parallel runner.
+2. **The safe pool changes (`docs/SIZE.md` 1),** about +1,055 bytes:
+   - the kernel at `$9E00`;
+   - `ROWTAB` at `$0200`;
+   - `G_CLS`, `G_VLINE`, `G_ROWADDR` and `K_WARP` left out of `desk5`;
+   - the masks shared.
+
+   Then the pool's free-space measure with its 1,000-byte reserve (SIZE 2), replacing step 5's growth bound in
+   `shell-perf`.
+3. **Notepad's faster search (SIZE 3).**
+4. **The ZEsarUX runs:**
+   - W4's key-driven Find session (WRITE 14.7 item 7);
+   - Key Caps in `tools/xemu/zesarux-desk5.py`: what it needs is listed in the Key Caps test agent's notes, `refk["kc"]`, the
+     checkpoints `kc`, `kc-q`, `kc-ss`, `kc-radio` and `back2`;
+   - Fuse's boot rows.
+5. **Paint:** a contract and mock-ups first. It starts with the DOCK 6 graphics library (SIZE 4): `G_LINE` with `G_ADDR`,
+   `G_BLIT` with the shell's icons, `G_SCROLLV`; Check's X as five rectangles. Then the **15-tile Puzzle** (after Paint).
+
 - **Owner (2026-11-13):** W3 tried in the browser and accepted. Program 3 is now shown as **Notepad** (icon, "Leap" menu,
   title "Notepad: name", alerts); the code, `docs/WRITE.md` and the `WR_` symbols keep the name Write (WRITE 13.10).
