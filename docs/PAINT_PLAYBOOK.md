@@ -4,6 +4,12 @@
 pool changes and the object-model audit. It gathers every decision and idea from that session and the ones before it. It is **not
 the contract**: step 1 below writes `docs/PAINT.md`, and the owner approves it before any Z80 is written.
 
+**Standing instruction (owner, 2026-11-14): "use lower cost agents for routine tasks and testing."** Pass `model` explicitly on every Agent call:
+**Haiku** runs every test suite, baseline, regression run and emulator run and reports (give it the exact command and what to report, and tell it not to
+modify files); **Sonnet** writes the reference models, the tests from a contract, generators, runners, doc updates and read-only surveys; the **main
+model** does only design and contracts, the Z80 code, debugging and judging results. **Re-check an agent's result yourself** (read its logs, re-run the
+suite it changed) before telling the owner it is done. Section 5 has the detail.
+
 **Read first, in this order:** `CLAUDE.md` (the brief, the standing rules, the hand-off), `docs/FEASIBILITY.md` (the architecture), then this
 file. Then, as the steps ask: `docs/SIZE.md`, `docs/OO_AUDIT.md`, `docs/APPLIB.md`, `docs/FILES.md`, `docs/WRITE.md` 14.9, `docs/KEYCAPS.md`
 (the best small model of a program and its contract), `docs/TESTSPEED.md` 8-11.
