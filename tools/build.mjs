@@ -28,9 +28,9 @@ export const TARGETS = {
     classes: ['src/kernel/classes.txt', 'src/kern4-classes.txt'], keymap: 'src/kernel/keymap.txt' },
   kern4demo: { src: 'src/kern4.asm', chunks: [0, 1, 4, 5], tables: true, defs: { DEMO: 1 },   // the PoC demo, section 18.6
     classes: ['src/kernel/classes.txt', 'src/kern4-classes.txt'], keymap: 'src/kernel/keymap.txt' },
-  desk5: { src: 'src/desk5.asm', chunks: [0, 1, 2, 3, 4, 5], tables: true,   // docs/CALCULATOR.md, docs/TOOLKIT.md
+  desk5: { src: 'src/desk5.asm', chunks: [0, 1, 2, 3, 4, 5, 6], tables: true,   // docs/CALCULATOR.md, docs/TOOLKIT.md
     classes: ['src/kernel/classes.txt', 'src/kernel/tk-classes.txt'], icons: 'src/apps/icons.txt', keymap: 'src/kernel/keymap.txt' },
-  desk5l: { src: 'src/desk5.asm', chunks: [0, 1, 2, 3, 4, 5], tables: true, defs: { TK_LIST: 1 },   // desk5 with the List class (docs/SIZE.md 6): tk-t2 and tk-perf's List rows
+  desk5l: { src: 'src/desk5.asm', chunks: [0, 1, 2, 3, 4, 5, 6], tables: true, defs: { TK_LIST: 1 },   // desk5 with the List class (docs/SIZE.md 6): tk-t2 and tk-perf's List rows
     classes: ['src/kernel/classes.txt', 'src/kernel/tk-classes.txt'], icons: 'src/apps/icons.txt', keymap: 'src/kernel/keymap.txt' },
   bank5: { src: 'src/kern4.asm', chunks: [0, 1, 2, 3, 4, 5, 6], tables: true, defs: { BANK5: 1 },   // docs/BANKING.md 10
     classes: ['src/kernel/classes.txt', 'src/kern4-classes.txt'], keymap: 'src/kernel/keymap.txt' },

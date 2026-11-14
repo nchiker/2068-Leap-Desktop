@@ -70,12 +70,21 @@ check_draw:
     jr z,.corners
     bit CHK_RADIO,(ix+View_flags)
     jr nz,.dot
-    ld bc,3 * 256 + 2           ; the X: (3, 2)-(9, 5), (3, 5)-(9, 2)
-    ld de,9 * 256 + 5
-    call tk_line
+    ld bc,3 * 256 + 2           ; the X: the pixels of (3, 2)-(9, 5) and (3, 5)-(9, 2) as five rectangles (docs/SIZE.md 4: G_LINE is in DOCK 6)
+    ld de,1 * 256 + 1
+    call tk_fill
+    ld bc,8 * 256 + 2
+    ld de,2 * 256 + 1
+    call tk_fill
+    ld bc,4 * 256 + 3
+    ld de,4 * 256 + 2
+    call tk_fill
+    ld bc,8 * 256 + 5
+    ld de,2 * 256 + 1
+    call tk_fill
     ld bc,3 * 256 + 5
-    ld de,9 * 256 + 2
-    call tk_line
+    ld de,1 * 256 + 1
+    call tk_fill
     jr .corners
 .dot:
     ld bc,4 * 256 + 3
@@ -121,22 +130,10 @@ check_draw:
     ld de,11 * 256 + 6
     jp tk_fill
 
-; tk_dot: one pixel at (x + B, y + C) in the op.  tk_line: the line (x + B, y + C)-(x + D, y + E).
+; tk_dot: one pixel at (x + B, y + C) in the op.
 tk_dot:
     ld de,1 * 256 + 1
     jp tk_fill
-tk_line:
-    call tk_ga
-    ld l,(ix+View_x)
-    ld h,(ix+View_x+1)
-    ld de,(GA+4)
-    add hl,de
-    ld (GA+4),hl
-    ld a,(ix+View_y)
-    ld hl,GA+6
-    add a,(hl)
-    ld (hl),a
-    jp G_LINE
 
 ; tk_ga0: GA x, y only = (x + B, y + C) (GA+4 / +6 kept).  tk_xy: HL = x + B, DE = y + C.  Clobber AF, DE, HL.
 tk_ga0:

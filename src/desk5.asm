@@ -6,6 +6,7 @@
     DEFINE K_DCLICK             ; E_DOWN's data 3 bit 2 marks a double-click (docs/WRITE.md 14.9): desk5 only
     DEFINE G_LEAN               ; G_CLS, G_VLINE and G_ROWADDR are left out (no program uses them; docs/SIZE.md 1 S3): desk5 only
     DEFINE K_NOWARP             ; K_WARP and K_POLL's warp block are left out (docs/SIZE.md 1 S4): desk5 only
+    DEFINE G_LIB6               ; G_SCROLLV, G_BLIT and G_LINE live in DOCK 6 (docs/SIZE.md 4, docs/PAINT.md 11.1): desk5 only
     DEFINE MASKS_SHARED         ; LMASK / RMASK are the first 8 bytes of LMASKP / RMASKP (docs/SIZE.md 1 S5): desk5 only
 
 PORT_HSR    EQU $F4
@@ -182,6 +183,17 @@ K_PROGS:                        ; the programs (SHELL 10.3): 0 the shell, 1 Calc
     INCLUDE "apps/keycaps.asm"  ; program 2 (docs/KEYCAPS.md)
     INCLUDE "apps/files.asm"    ; the FS_ calls (docs/FILES.md)
     ASSERT $ <= $8000
+
+; DOCK chunk 6 (mapping R; docs/SIZE.md 4): the graphics library and the data it draws from.  A program reaches it by KFAR; under R the
+; display, the cold RAM and the pool are mapped, the heap ($C000-$DFFF RAM: the program image and arena) is not.
+    ORG $C000
+G6_START:
+    INCLUDE "gfx6/s3sv.asm"     ; G_SCROLLV
+    INCLUDE "gfx6/s3bl.asm"     ; G_BLIT (uses sc_clip)
+    INCLUDE "gfx6/s3ln.asm"     ; G_LINE
+    INCLUDE "icons.inc"         ; the shell's icons (G_BLIT's set, 160 bytes each)
+G6_END:
+    ASSERT $ <= $E000
 
 ; LOOK 9: the 8x8 glyph of code 0 (blank, never drawn) becomes the desk's 25% tile: FONTP plane k, byte 128 (GLYPH8 + 0).
     ORG GLYPH8

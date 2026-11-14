@@ -158,7 +158,7 @@ function patternBox(g, sel) {
   PATS.forEach(([, pat], i) => {
     const cx = PATB.x + (i % 4) * 16, cy = PATB.y + Math.floor(i / 4) * 12;
     patRect(g, pat, cx, cy, 15, 11);
-    if (i === sel) { g.setOp(OP_XOR); g.frame(cx, cy, 15, 11); g.frame(cx + 1, cy + 1, 13, 9); }   // the 2-px inverted border
+    if (i === sel) { g.setOp(OP_SET); g.frame(cx, cy, 15, 11); g.frame(cx + 1, cy + 1, 13, 9); }   // the 2-px frame (solid ink: an XOR ring cannot be seen on a checker)
   });
 }
 function brushBox(g, sel) {
@@ -236,13 +236,15 @@ function menuScene(menuIx, hi, ptr) {
 // ---------------------------------------------------------------------------------------------------------------------------
 // The shell (PAINT 10): today's window (3 icons, 256 wide) beside the proposed one (4 icons, 320 wide, Paint the fourth).
 const PAINTICON = (() => {                                  // a palette with a thumb hole and paint dabs, a brush laid across it
-  const b = new Bmp(32, 16);
-  b.ellipse(13, 9, 12, 6).ellipse(13, 9, 11, 6);            // the palette
-  b.ellipse(7, 11, 2, 1);                                   // the thumb hole
-  [[10, 6], [14, 5], [18, 6], [8, 8]].forEach(([x, y]) => b.fill(x, y, 2, 2));   // paint dabs
-  b.line(31, 0, 22, 7).line(30, 0, 21, 7).line(29, 0, 20, 7);   // the brush: handle
-  b.fill(19, 7, 4, 1);                                      // the ferrule
-  b.line(20, 8, 17, 11).line(21, 8, 18, 11).line(19, 8, 17, 10);   // bristles
+  const b = new Bmp(32, 16), br = new Bmp(32, 16);
+  const band = (m, x0, y0, x1, y1, th) => new Gfx6Model().linePixels(x0, y0, x1, y1).forEach(([x, y]) => m.fill(x, y, 1, th));
+  b.ellipse(12, 9, 12, 6).ellipse(7, 11, 2, 1);             // the palette and its thumb hole
+  [[9, 6], [13, 5], [15, 11], [19, 12]].forEach(([x, y]) => b.fill(x, y, 2, 2));   // paint dabs
+  band(br, 31, 0, 23, 4, 3);                                // the brush: handle,
+  band(br, 22, 4, 20, 5, 4);                                // ferrule,
+  band(br, 19, 5, 14, 8, 3); band(br, 13, 8, 14, 9, 2);     // bristles
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 32; x++) if (br.get(x, y)) for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) b.set(x + i, y + j, 0);   // a paper halo
+  br.put({ set: (x, y, v) => b.set(x, y, v) }, 0, 0);
   return b;
 })();
 SH.ICONART.PAINT = Array.from({ length: 16 }, (_, y) => Array.from({ length: 32 }, (_, x) => (PAINTICON.get(x, y) ? '#' : '.')).join(''));
@@ -322,6 +324,6 @@ for (const [suffix, sx, sy] of [['', 2, 4], ['-2x', 4, 8]])
     { g: shellScene(4, 320), caption: 'Proposed: 320 wide, Paint the fourth icon (x = 48 + 64 (p - 1))', crop: [0, 0, 512, 112] },
   ], { sx, sy, stack: true });
 panels('pt1-menus.png', [
-  { g: menuScene(1, 1, [60, 30]), caption: 'File menu (New, Open..., Save..., Quit)', crop: [0, 0, 192, 96] },
-  { g: menuScene(2, 0, [70, 20]), caption: 'Edit menu (Undo, Clear)', crop: [0, 0, 192, 96] },
+  { g: menuScene(1, 1, [102, 20]), caption: 'File menu (New, Open..., Save..., Quit)', crop: [0, 0, 192, 96] },
+  { g: menuScene(2, 0, [127, 12]), caption: 'Edit menu (Undo, Clear)', crop: [0, 0, 192, 96] },
 ], { sx: 3, sy: 6, stack: false });

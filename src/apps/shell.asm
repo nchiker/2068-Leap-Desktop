@@ -247,7 +247,7 @@ S_NCALC:    DB 10, "Calculator"
 S_NCTRL:    DB 8, "Key Caps"
 S_NWRITE:   DB 7, "Notepad"
 S_NAMES:    DW S_NCALC, S_NCTRL, S_NWRITE
-S_SETS:     DW ICON_CALC, ICON_KEYS, ICON_WRITE
+S_SETS:     DW ICON_CALC, ICON_KEYS, ICON_WRITE   ; the bitmaps are in DOCK 6 (desk5.asm, docs/SIZE.md 4): G_BLIT runs under R
 S_MENUS:
     DB 1
     DW S_M1
@@ -263,7 +263,6 @@ S_ABOUT:    DW 0
 S_LAST:     DW 0                ; the icon last pressed
 S_TW:       DW 0
 S_I:        DB 0
-    INCLUDE "icons.inc"
     ENT
 S_IMG_LEN   EQU $ - S_IMG
 S_NICONS    EQU 3

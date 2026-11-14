@@ -1,4 +1,4 @@
-# Paint (contract, draft 1, 2026-11-14; for the owner's approval; no Z80 is written before it)
+# Paint (contract, 2026-11-14; **approved by the owner 2026-11-14: "accept the recommendations, start P0"**, every recommendation in section 13 taken)
 
 Program 4 of `desk5` (after the shell, Calculator, Key Caps and Notepad): **a MacPaint-style bitmap editor in mode 6, black ink on
 white paper, driven by the Kempston mouse.** Style as `docs/KEYCAPS.md` and `docs/FILES.md`: numbers are bounds or **report**
