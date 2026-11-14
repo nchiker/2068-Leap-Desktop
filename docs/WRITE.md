@@ -989,3 +989,23 @@ The owner tried the W4 build in the test page: "double click and find work in my
   every code and measured 58,846 T against the 58,000 bound (14.7). Write is then **6,992** bytes, 8 under the cap; the app
   library is planned to give bytes back.
 
+### 14.11 Bounds reset by the owner (2026-11-14)
+
+The owner: "reset to the new figures". Each bound is the W4 build's figure, rounded up to 100 T, as in 12.13.
+
+| Row | Old bound | Measured after W4 | New bound |
+|---|---|---|---|
+| A drag over the view | 366,600 | 366,949 | **367,000** |
+| DELETE of 3 lines | 850,900 | 851,184 | **851,200** |
+| Copy of 2,048 codes | 45,400 | 45,512 | **45,600** |
+| Cut of 16 lines | 1,100,900 | 1,101,446 | **1,101,500** |
+| Paste of about 1,280 codes | 1,825,600 | 1,825,626 | **1,825,700** |
+| `calc-perf`: `desk5` pool bytes beyond `kern4` | 190 (LOOK 10) | 264 | **264** |
+
+**Measured W4 rows:**
+- **Double-click:** 55,277 T (bound 58,000).
+- **"Find again" in the same line:** 42,330 T (bound 117,000).
+- **A search that finds nothing in 5,120 codes:** 1,765,049 T, alert included (report; the estimate was 0.3-0.5 M).
+- **F found at the end of 5,120 codes:** 1,999,182 T (report).
+- **Stack:** 86 bytes (bound 128).
+

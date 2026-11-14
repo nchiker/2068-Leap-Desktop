@@ -256,7 +256,7 @@ if (w2ok) {
       const r = dispPt(E.MOVE, 471, 30 + 9 * 15 + 4); dd.drag(471, 30 + 9 * 15 + 4); ts.push(r.t);
       if (i === 2) chk2(dd, 'a drag over the view');
     }
-    row('a drag over the view: anchor at line 0\'s start, E_MOVE to the end of line 15, K_DISPATCH (12.8)', Math.max(...ts), 366_600, `the owner's bound (WRITE 12.13); worst of ${ts.join(', ')}`);
+    row('a drag over the view: anchor at line 0\'s start, E_MOVE to the end of line 15, K_DISPATCH (12.8)', Math.max(...ts), 367_000, `the owner's bound (WRITE 12.13, reset after W4: 14.11); worst of ${ts.join(', ')}`);
   }
   // ---- a typed code over a selection: line 0 a whole paragraph of 70 codes, codes 20-29 selected
   {
@@ -272,24 +272,24 @@ if (w2ok) {
   {
     const d = paragraph(40); d.caret = 0; d.top = 0;
     const ts = worst(d, 'w2p40', 'DELETE of 3 lines', (dd) => keys(dd, [10, 10, 10, 10, 18, 10, 10, 10]), (dd) => { const r = key(12); dd.key(12); return r; });
-    row('DELETE of a selection of 3 whole lines (lines 4-6 of a 40-line document, top 0), E_KEY DELETE (12.8)', Math.max(...ts), 850_900, `the owner's bound (WRITE 12.13); worst of ${ts.join(', ')}`);
+    row('DELETE of a selection of 3 whole lines (lines 4-6 of a 40-line document, top 0), E_KEY DELETE (12.8)', Math.max(...ts), 851_200, `the owner's bound (WRITE 12.13, reset after W4: 14.11); worst of ${ts.join(', ')}`);
   }
   // ---- Copy of 2,048 codes
   {
     const t = new WM.Doc(WM.genText(rng, 2100, { para: 0.01 })); t.top = null;
     const prep = (dd) => { mk(dd, 4); key(18); dd.key(18); while (dd.S > 2048) { const c = dd.clone(); c.key(11); const code = c.S >= 2048 && c.caret !== dd.caret ? 11 : 8; key(code); dd.key(code); } };
     const ts = worst(t, 'w2copy', 'Copy of 2,048 codes', prep, (dd) => mk(dd, 2));
-    row('Copy of 2,048 codes: WR_MENU with E_MENU 2, 2 (12.8: EST 46 k)', Math.max(...ts), 45_400, `the owner's bound (WRITE 12.13); worst of ${ts.join(', ')}`);
+    row('Copy of 2,048 codes: WR_MENU with E_MENU 2, 2 (12.8: EST 46 k)', Math.max(...ts), 45_600, `the owner's bound (WRITE 12.13, reset after W4: 14.11); worst of ${ts.join(', ')}`);
   }
   // ---- Cut of lines 0-15 (about 1,280 codes) of a 40-line document, top 0; Paste of that clip at the start of line 5
   {
     const d = paragraph(40); d.caret = 0; d.top = 0;
     const sel16 = (dd) => { keys(dd, new Array(16).fill(10)); keys(dd, [18, ...new Array(16).fill(11)]); };   // anchor at line 16's start, the caret back at 0, top 0
     const ts = worst(d, 'w2cut', 'Cut of lines 0-15', sel16, (dd) => { if (dd.S > 2048 || dd.top !== 0) throw new Error(`set-up: S ${dd.S}, top ${dd.top}`); return mk(dd, 1); });
-    row('Cut of lines 0-15 (about 1,280 codes) of a 40-line document, top 0, WR_MENU E_MENU 2, 1 (12.8: EST about 1.1 M)', Math.max(...ts), 1_100_900, `the owner's bound (WRITE 12.13); worst of ${ts.join(', ')}; ${d.nl} lines`);
+    row('Cut of lines 0-15 (about 1,280 codes) of a 40-line document, top 0, WR_MENU E_MENU 2, 1 (12.8: EST about 1.1 M)', Math.max(...ts), 1_101_500, `the owner's bound (WRITE 12.13, reset after W4: 14.11); worst of ${ts.join(', ')}; ${d.nl} lines`);
     let clipLen = 0;
     const ts2 = worst(d, 'w2paste', 'Paste of 1,280 codes', (dd) => { sel16(dd); mk(dd, 2); keys(dd, [8, 10, 10, 10, 10, 10]); clipLen = dd.clip.length; }, (dd) => mk(dd, 3));
-    row('Paste of the clipboard (about 1,280 codes) at the start of line 5 of a 40-line document, WR_MENU E_MENU 2, 3 (12.8)', Math.max(...ts2), 1_825_600, `the owner's bound (WRITE 12.13); worst of ${ts2.join(', ')}; ${clipLen} codes`);
+    row('Paste of the clipboard (about 1,280 codes) at the start of line 5 of a 40-line document, WR_MENU E_MENU 2, 3 (12.8)', Math.max(...ts2), 1_825_700, `the owner's bound (WRITE 12.13, reset after W4: 14.11); worst of ${ts2.join(', ')}; ${clipLen} codes`);
   }
   // ---- Select all of a 5,120-code document, the caret at 0
   {
@@ -300,7 +300,7 @@ if (w2ok) {
       dispPt(E.DOWN, 27, 31); dd.click(27, 31); dispPt(E.UP, 27, 31, 0);      // px 27: r = 0, position 0 (a click at 30 would land after a glyph of 7 or more)
     };
     const ts = worst(t, 'w2all', 'Select all of 5,120 codes', prep, (dd) => { if (dd.caret !== 0 || dd.L !== WM.CAP) throw new Error(`set-up: caret ${dd.caret}, length ${dd.L}`); return mk(dd, 4); });
-    row('Select all of a 5,120-code document, the caret at 0, WR_MENU E_MENU 2, 4 (12.8)', Math.max(...ts), 1_473_900, `the owner's bound (WRITE 12.13); worst of ${ts.join(', ')}`);
+    row('Select all of a 5,120-code document, the caret at 0, WR_MENU E_MENU 2, 4 (12.8)', Math.max(...ts), 1_473_900, `the owner's bound (WRITE 12.13, reset after W4: 14.11); worst of ${ts.join(', ')}`);
   }
   // ---- W_DRAWVIEW of 16 lines, all selected
   {
@@ -309,7 +309,7 @@ if (w2ok) {
     const ts = [];
     for (let i = 0; i < 3; i++) { const r = T.runCall(env, S.W_DRAWVIEW, { ix: o.tv }, { ints: false }); ts.push(r.t); diTotal += r.di; }
     const g = W.liveDiff(env, dd, {});
-    row('W_DRAWVIEW of 16 lines of about 80 codes, all selected, focused (12.8: W1\'s 950 k plus 16 fills)', Math.max(...ts), 1_179_400, `the owner's bound (WRITE 12.13); worst of ${ts.join(', ')}; ${dd.L} codes; screen ${g === null ? 'equals the model' : 'DIFFERS: ' + g}`);
+    row('W_DRAWVIEW of 16 lines of about 80 codes, all selected, focused (12.8: W1\'s 950 k plus 16 fills)', Math.max(...ts), 1_179_400, `the owner's bound (WRITE 12.13, reset after W4: 14.11); worst of ${ts.join(', ')}; ${dd.L} codes; screen ${g === null ? 'equals the model' : 'DIFFERS: ' + g}`);
     if (g !== null) missed++;
   }
   // ---- stack

@@ -37,13 +37,13 @@ row('Calculator RAM image (C_IMG_LEN)', S.C_IMG_LEN, 512);
   // The kernel parts are the same size in both builds (K_CODE, K1_CODE: reported), so what is left is the boot code of page 0 at ENTRY (far.asm in $0068-$009D not counted:
   // BANKING 6.1): T_IDLE - ENTRY, the code that sets the machine up and, in desk5, launches Calculator (KFAR C_INIT, the arena set-up, KFAR C_MAIN).
   const k4 = join(ROOT, 'build', 'kern4', 'out.sym');
-  if (!existsSync(k4)) row('desk5 pool bytes beyond kern4\'s kernel', NaN, 190, 'build/kern4/out.sym is missing');
+  if (!existsSync(k4)) row('desk5 pool bytes beyond kern4\'s kernel', NaN, 264, 'build/kern4/out.sym is missing');
   else {
     const K = parseSym(readFileSync(k4, 'utf8'));
     const boot5 = S.T_IDLE - S.ENTRY, boot4 = K.T_IDLE - K.ENTRY;
     const kc5 = S.K_CODE_END - S.K_CODE, kc4 = K.K_CODE_END - K.K_CODE, k15 = S.K1_CODE_END - S.K1_CODE, k14 = K.K1_CODE_END - K.K1_CODE;
     const extra = (boot5 - boot4) + (kc5 - kc4) + (k15 - k14);
-    row('desk5 pool bytes beyond kern4\'s kernel (boot code ENTRY..T_IDLE + K_CODE + K1_CODE, each against kern4; 190 since the look, LOOK 10)', extra, 190,
+    row('desk5 pool bytes beyond kern4\'s kernel (boot code ENTRY..T_IDLE + K_CODE + K1_CODE, each against kern4; 264 since W4\'s double-click flag, WRITE 14.11)', extra, 264,
       `boot ${boot5} against ${boot4} (${boot5 - boot4 >= 0 ? '+' : ''}${boot5 - boot4}); K_CODE ${kc5} against ${kc4}; K1_CODE ${k15} against ${k14}; 40 estimated; far.asm not counted`);
   }
 }
