@@ -51,7 +51,7 @@ function dirty(env, p) {
       else { const b = rng.pick(L.BUTTONS), [cx, cy] = L.centre(b); L.click(env, cx, cy, 3, 4); }
     }
   } else if (p === 2) {
-    const spots = [[100, 52], [200, 52], [350, 52], [100, 70], [300, 120], [420, 140]];   // Key Caps: the three radios, caps of the keyboard
+    const spots = [[100, 44], [200, 44], [350, 44], [100, 66], [300, 128], [300, 148]];   // Key Caps (KEYCAPS 7): the three radios (y 40-48), caps of the keyboard (row 0, row 3, the SPACE bar)
     for (let i = rng.int(1, 4); i > 0; i--) { const [x, y] = rng.pick(spots); L.click(env, x, y, 3, 5); }
     if (rng.chance(0.5)) L.typeCode(env, rng.pick([32, 14, 15]));
   } else if (p === 3) {

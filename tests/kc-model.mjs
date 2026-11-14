@@ -1,5 +1,5 @@
 "use strict";
-// kc-model.mjs -- reference model of Key Caps (program 2), written from docs/KEYCAPS.md (1-3) and docs/APPLIB.md only; src/apps/keycaps.asm was not used for any expectation.
+// kc-model.mjs -- reference model of Key Caps (program 2), written from docs/KEYCAPS.md (1-3, and 7: the TS2068 layout, which replaces the window, the layout and the caps of 1-2) and docs/APPLIB.md only; src/apps/keycaps.asm was not used for any expectation.
 //   * the key indices k = 5 x half-row + bit come from src/kernel/keymap.txt's order (the contract: "the KEYMAP index (keymap.txt order)"), the layout from KEYCAPS 2's table;
 //   * `capLabel`: the label of a cap in plane P (2: the shift keys are "CS" / "SS" in every plane; code 0 none; 33-126 the character; otherwise the names table);
 //   * `statusFor`: the status line after an E_KEY (3);
@@ -19,16 +19,21 @@ export const codesOf = (s) => Array.from(s, (c) => c.charCodeAt(0));
 // The keys (KEYCAPS 2)
 /** The key names in keymap.txt order: index k = 5 x half-row + bit. */
 export const KEYNAMES = readFileSync(join(ROOT, 'src/kernel/keymap.txt'), 'utf8').split('\n').filter((l) => l.trim() && !l.trim().startsWith('#')).map((l) => l.trim().split(/\s+/)[0]);
-export const ROWS = [
-  { s: 0, names: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'] },
-  { s: 6, names: ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'] },
-  { s: 12, names: ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', 'ENTER'] },
-  { s: 0, names: ['CS', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', 'SS', 'SPACE'] },
-];
 export const kOf = (name) => KEYNAMES.indexOf(name);
-/** Every cap: { k, row, col, x, y } (x = 40 + s_r + 40 c, y = 62 + 22 r; 36 x 18). */
-export const CAPS = ROWS.flatMap((r, ri) => r.names.map((n, c) => ({ name: n, k: kOf(n), row: ri, col: c, x: 40 + r.s + 40 * c, y: 62 + 22 * ri })));
-export const KCS = 0, KSS = 36;
+export const KCS = 0, KSS = 36, KSPACE = 35, KBREAK = 40;
+/**
+ * The five rows (KEYCAPS 7, TSRun's board order): y, first x, cap height, then [name, width] a cap; the caps are 2 pixels apart.  CS appears twice (both CAPS SHIFT caps show k 0); BREAK is k 40, a cap with no
+ * KEYMAP entry (down when keys 0 and 35 both are).
+ */
+export const ROWS = [
+  { y: 54, x: 40, h: 18, caps: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'].map((n) => [n, 36]) },
+  { y: 76, x: 49, h: 18, caps: ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'].map((n) => [n, 36]) },
+  { y: 98, x: 58, h: 18, caps: [...['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'].map((n) => [n, 36]), ['ENTER', 70]] },
+  { y: 120, x: 40, h: 18, caps: [['CS', 43], ...['Z', 'X', 'C', 'V', 'B', 'N', 'M'].map((n) => [n, 36]), ['SS', 36], ['BREAK', 36], ['CS', 43]] },
+  { y: 142, x: 128, h: 14, caps: [['SPACE', 254]] },
+];
+/** Every cap: { name, k, row, col, x, y, w, h } (k 40 for BREAK). */
+export const CAPS = ROWS.flatMap((r, ri) => { let x = r.x; return r.caps.map(([n, w], c) => { const cap = { name: n, k: n === 'BREAK' ? KBREAK : kOf(n), row: ri, col: c, x, y: r.y, w, h: r.h }; x += w + 2; return cap; }); });
 export const NAMES = { 1: 'Caps', 3: 'Brk', 8: 'Left', 9: 'Right', 10: 'Down', 11: 'Up', 12: 'Del', 13: 'Enter', 14: 'Tab', 15: 'BTab', 16: 'Menu', 17: 'Close', 18: 'Mark', 27: 'Esc', 32: 'Space' };
 
 /** The label text of key code c (KEYCAPS 2): null when c is 0 or has no label. */
@@ -41,6 +46,7 @@ export function codeLabel(c) {
 export function capLabel(keymap, plane, k) {
   if (k === KCS) return 'CS';
   if (k === KSS) return 'SS';
+  if (k === KBREAK) return 'Brk';                      // KEYCAPS 7: the BREAK cap is always "Brk" (k 40 has no KEYMAP entry)
   return codeLabel(keymap[40 * plane + k]);
 }
 /** KEYCAPS 3, E_KEY: "Last key: " + the label of c (a code with no name is shown as its character) + " (code " c ")". */
@@ -49,22 +55,26 @@ export const START_STATUS = 'Press a key.';
 
 // ---------------------------------------------------------------------------------------------------------------------------
 // The pixels
-export const WIN = { x: 32, y: 32, w: 448, h: 136, title: 'Key Caps' };
-export const RADIOS = [{ x: 48, y: 48, w: 96, h: 9, text: 'Plain', id: 1 }, { x: 160, y: 48, w: 120, h: 9, text: 'Caps Shift', id: 2 }, { x: 296, y: 48, w: 136, h: 9, text: 'Symbol Shift', id: 3 }];
-export const KB = { x: 40, y: 62, w: 432, h: 88 };
-export const STAT = { x: 48, y: 154, w: 400, h: 9 };
-/** The keyboard's M_DRAW (KEYCAPS 2): the view's rectangle to paper, then the 40 caps in plane `plane`; the keys in `down` (a Set of k) XOR-filled. */
+export const WIN = { x: 32, y: 24, w: 448, h: 160, title: 'Key Caps' };      // KEYCAPS 7
+export const RADIOS = [{ x: 48, y: 40, w: 96, h: 9, text: 'Plain', id: 1 }, { x: 160, y: 40, w: 120, h: 9, text: 'Caps Shift', id: 2 }, { x: 296, y: 40, w: 136, h: 9, text: 'Symbol Shift', id: 3 }];
+export const KB = { x: 40, y: 54, w: 432, h: 102 };
+export const STAT = { x: 48, y: 162, w: 400, h: 9 };
+/** Is the cap drawn pressed?  Both CAPS SHIFT caps show k 0; BREAK is down when keys 0 and 35 both are (KEYCAPS 7). */
+export const capDown = (cap, down) => (cap.k === KBREAK ? down.has(KCS) && down.has(KSPACE) : down.has(cap.k));
+/** The pressed fill of a cap (KEYCAPS 7): (x + 1, y + 1, w - 2, h - 2). */
+export const fillRect = (c) => ({ x: c.x + 1, y: c.y + 1, w: c.w - 2, h: c.h - 2 });
+/** The caps whose pressed state differs between two sets of keys down (the ones mode 1 redraws). */
+export const changedCaps = (a, b) => CAPS.filter((c) => capDown(c, a) !== capDown(c, b));
+/** The keyboard's M_DRAW (KEYCAPS 2, 7): the view's rectangle to paper, then the 42 caps in plane `plane`; the caps of the keys in `down` (a Set of k) XOR-filled. */
 export function renderKeyboard(g, keymap, plane, down) {
   g.setOp(OP_CLR); g.fill(KB.x, KB.y, KB.w, KB.h);
   for (const c of CAPS) {
-    g.setOp(OP_SET); g.frame(c.x, c.y, 36, 18);
+    g.setOp(OP_SET); g.frame(c.x, c.y, c.w, c.h);
     const lab = capLabel(keymap, plane, c.k);
-    if (lab !== null) { const cs = codesOf(lab), tw = g.textw(cs); g.textp(c.x + Math.floor((36 - tw) / 2), c.y + 5, cs); }
-    if (down.has(c.k)) { g.setOp(OP_XOR); g.fill(c.x + 1, c.y + 1, 34, 16); }
+    if (lab !== null) { const cs = codesOf(lab), tw = g.textw(cs); g.textp(c.x + Math.floor((c.w - tw) / 2), c.y + (c.h - 8) / 2, cs); }
+    if (capDown(c, down)) { const f = fillRect(c); g.setOp(OP_XOR); g.fill(f.x, f.y, f.w, f.h); }
   }
 }
-/** The byte range (pixel rectangle) of a cap's pressed fill: (x + 1, y + 1, 34, 16). */
-export const fillRect = (c) => ({ x: c.x + 1, y: c.y + 1, w: 34, h: 16 });
 /**
  * The screen of the open window: the desk, the empty bar, the window (active, close box), the three radios (`flags`, `focus` index or -1), the keyboard, the status line.
  * st = { keymap, flags: [f1, f2, f3], focus, status (a string), plane, down, active = true, covers = [] (plain active Windows drawn over: { x, y, w, h })}.

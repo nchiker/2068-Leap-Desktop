@@ -398,7 +398,7 @@ const listTree = (cell, withBar, sel = 3, top = 0) => {
   e2.rng = rng;
   e2.frames_(30);
   const ok = L.progUp(e2, 2);
-  for (const [x, y] of [[100, 52], [200, 52], [350, 52], [100, 52]]) L.click(e2, x, y, 3, 20);
+  for (const [x, y] of [[100, 44], [200, 44], [350, 44], [100, 44]]) L.click(e2, x, y, 3, 20);   // the radios (y 40-48, KEYCAPS 7)
   for (const code of [32, 14, 32, 15, 32, 113, 65, 33]) L.typeCode(e2, code, 3, 12);
   for (const ks of [[0], [36], [0, 15], [36, 10], [0, 36, 5], [0, 1]]) { L.setKeys(m2, ks); e2.frames_(14); L.setKeys(m2, []); e2.frames_(14); }
   L.moveTo(e2, 300, 100); e2.frames_(2); m2.mouse.buttons = L.MOUSE_LEFT; e2.frames_(20); m2.mouse.buttons = L.MOUSE_UP; e2.frames_(8);   // a press on the keyboard view
