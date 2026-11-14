@@ -133,7 +133,7 @@ wr_loop:
     jr wr_loop
 
 ; WR_MENU: Write's E_MENU handler (K_EV holds the record): File (1): New (1), Open... (2), Save... (3) (13.1); Edit (2): Cut,
-; Copy, Paste, Select all (12.4).
+; Copy, Paste, Select all (12.4), Find... (5), Find again (6) (14.3).
 WR_MENU:
     xor a
     ld (WR_DRAWN),a
@@ -174,9 +174,12 @@ wr_new:
     call wr_draw
     jp wr_menen
 
-; wr_edmenu: H = an item of "Edit".  Each that takes effect ends the UP / DOWN run.
+; wr_edmenu: H = an item of "Edit".  Each that takes effect ends the UP / DOWN run (Find: only a match, in wr_selto).
 wr_edmenu:
     ld a,h
+    cp 5
+    jp z,wr_fopen
+    jp nc,wr_find
     cp 3
     jr z,.paste                 ; (a refused paste keeps the run: it changes nothing)
     xor a
@@ -188,15 +191,11 @@ wr_edmenu:
     jr z,.copy
     sub 2
     ret nz
-    ld (WR_MK),a                ; Select all: anchor 0, caret L, mark 0
+    call wr_len                 ; Select all: anchor 0, caret L, mark 0
+    ex de,hl
     ld h,a
     ld l,a
-    ld (WR_AN),hl
-    call wr_len
-    call wr_moveto
-    call wr_findcl
-    call wr_seldraw
-    jp wr_shown
+    jr wr_selto
 .copy:
     call wr_copy
     xor a
@@ -220,6 +219,18 @@ wr_edmenu:
     xor a
     ld (WR_RUN),a
     ret
+
+; wr_selto: HL = the anchor, DE = the caret: mark 0, the UP / DOWN run ended, the selection drawn, "shown" (12.4, 14.2, 14.5).
+wr_selto:
+    ld (WR_AN),hl
+    ex de,hl
+    xor a
+    ld (WR_MK),a
+    ld (WR_RUN),a
+    call wr_moveto
+    call wr_findcl
+    call wr_seldraw
+    jp wr_shown
 
 ; wr_rect: IX = a new view: x = HL, y = B, w = DE, h = C, id = A.
 wr_rect:
@@ -283,7 +294,7 @@ wr_dlg:
 
 ; wr_mkdlg: HL -> a table: a Dialog made, its views made and added; IX = the Dialog.  The table: the Dialog's x (DW), y, w (DW),
 ; h, flags, id (the View fields at 8-15, in order); then each view: its class (DW; 0 ends the table), those 8 bytes, a role
-; (bit 0 the default, bit 1 the cancel, bit 2 a Field: cap 30, kept in WR_SFLD) and the word at offset 16 (a Label's or
+; (bit 0 the default, bit 1 the cancel, bit 2 a Field: cap 30) and the word at offset 16 (a Label's or
 ; Button's text, a Field's buffer).
 wr_mkdlg:
     push hl
@@ -317,7 +328,6 @@ wr_mkdlg:
     bit 2,c
     jr z,.nf
     ld (ix+Field_cap),30
-    ld (WR_SFLD),ix
 .nf:
     push ix
     pop de
@@ -402,38 +412,201 @@ wr_alert:
     ret
 
 ; wr_sopen: "Save...": the Save dialog (13.2), made once, its Field holding the name, opened, the Field focused.
+; wr_fopen: "Find...": the same dialog as the Find dialog (14.4): its label, Field buffer and button text set, the Field holding F.
 wr_sopen:
+    ld hl,WR_PSAV
+    ld a,1
+    jr wr_tdo
+wr_fopen:
+    ld hl,WR_PFND
+    ld a,3
+; wr_tdo: HL -> 4 words: the Label's text, the Field's buffer, the Button's text, the Field's text; A = WR_DK.  The dialog's
+; first three views take the first three words (at offset 16), and it is opened with the Field focused.
+wr_tdo:
+    ld (WR_DK),a
+    push hl
     ld hl,WR_SDLG
     ld de,WR_TSAV
     call wr_dlg
+    pop hl
     push ix
+    ld e,(ix+View_child)
+    ld d,(ix+View_child+1)
+    ld b,3
+.v:
+    push de
+    pop ix
+    ld a,(hl)
+    ld (ix+16),a
+    inc hl
+    ld a,(hl)
+    ld (ix+17),a
+    inc hl
+    ld a,b
+    cp 2
+    jr nz,.nf
+    ld (WR_SFLD),ix
+.nf:
+    ld e,(ix+View_next)
+    ld d,(ix+View_next+1)
+    djnz .v
+    ld a,(hl)
+    inc hl
+    ld h,(hl)
+    ld l,a
     ld ix,(WR_SFLD)
-    ld hl,WR_NAME
     KFAR TK_SETTEXT             ; (the window is closed: nothing drawn)
     pop ix
     KFAR W_OPEN
     ld de,(WR_SFLD)
     KFAR K_SETFOCUS
-    ld a,1
-    ld (WR_DK),a
     ret
 
-; wr_dkcmd: A = the dialog open (1 Save, 2 the alert): its E_CMD (K_EV + 1 = the id).  The dialog closes; Save (1: the
-; button or ENTER in the Field) saves.
+; wr_dkcmd: A = the dialog open (1 Save, 2 the alert, 3 Find): its E_CMD (K_EV + 1 = the id).  The dialog closes; id 1 (the
+; button or ENTER in the Field) saves, or finds (14.4).
 wr_dkcmd:
-    ld b,a
+    ld c,a
     xor a
     ld (WR_DK),a
     ld ix,(WR_ADLG)
-    djnz .close
-    ld ix,(WR_SDLG)
+    bit 0,c
+    jr z,.cl
+    ld ix,(WR_SDLG)             ; Save and Find share it
+.cl:
+    push bc
     KFAR W_CLOSE
+    pop bc
     ld a,(K_EV+1)
     dec a
     ret nz                      ; Cancel
-    jr wr_save
-.close:
-    KFAR W_CLOSE
+    dec c
+    jp z,wr_save
+    dec c
+    ret z                       ; the alert's OK
+    ld hl,WR_FFB                ; "Find": an empty text changes nothing; else F = the text, "Find again" enabled, the search
+    ld a,(hl)
+    or a
+    ret z
+    ld de,WR_FN
+    ld bc,31
+    ldir
+    ld bc,$0107                 ; B = 1 enabled, C = item 7: "Find again"
+    ld a,1
+    call MB_ENABLE
+; wr_find: the search for F from the selection's end, wrapping once (14.5): a match selected and shown, else the alert.
+wr_find:
+    call wr_sel                 ; DE = p0
+    push de
+    call wr_len
+    ld a,(WR_FN)
+    ld e,a
+    ld d,0
+    or a
+    sbc hl,de                   ; L - n
+    pop de
+    jr c,.none
+    inc hl                      ; m: the starts 0 .. m - 1
+    push de                     ; p0
+    push hl                     ; m
+    ex de,hl
+    call wr_scan                ; [p0, m)
+    pop de                      ; m
+    ex (sp),hl                  ; HL = p0, (SP) = p
+    jr nc,.f1
+    call wr_min
+    ex de,hl
+    ld hl,0
+    call wr_scan                ; [0, min(p0, m))
+    pop de
+    jr nc,.found
+.none:
+    ld hl,WR_SNF
+    jp wr_alert
+.f1:
+    pop hl
+.found:
+    ld a,(WR_FN)
+    ld e,a
+    ld d,0
+    ex de,hl
+    add hl,de
+    ex de,hl
+    xor a
+    ld (WR_DRAWN),a
+    jp wr_selto
+
+; wr_scan: HL = a, DE = b: NC and HL = the first start p in [a, b) where F matches; carry when none.  Each code is tested
+; against F's first code (case folded), the gap stepped over; a candidate is checked by wr_vfy.  WR_XE: b.
+wr_scan:
+    ld (WR_XE),de
+    ex de,hl
+    or a
+    sbc hl,de                   ; the count b - a
+    jr z,.no
+    ret c                       ; (none)
+    push hl
+    ex de,hl
+    call wr_ptr
+    pop de
+    ld a,(WR_FN+1)
+    call wr_low
+    ld b,a
+.s:
+    ld a,(hl)
+    call wr_low
+    cp b
+    jr z,.cand
+.n:
+    inc hl
+    call wr_gap
+    dec de
+    ld a,d
+    or e
+    jr nz,.s
+.no:
+    scf
+    ret
+.cand:
+    push hl
+    push de
+    push bc
+    call wr_vfy
+    pop bc
+    pop de
+    pop hl
+    jr nz,.n
+    ld hl,(WR_XE)
+    sbc hl,de                   ; p = b - the count left (carry clear: Z)
+    ret
+
+; wr_vfy: HL = an address: Z when F's codes are there, letters of either case equal (14.5), the gap stepped over.  Clobbers AF,
+; BC, DE, HL.
+wr_vfy:
+    ld de,WR_FN
+    ld a,(de)
+    ld b,a
+.l:
+    inc de
+    ld a,(de)
+    call wr_low
+    ld c,a
+    ld a,(hl)
+    call wr_low
+    cp c
+    ret nz
+    inc hl
+    call wr_gap
+    djnz .l
+    xor a
+    ret
+
+; wr_low: A = a code -> A-Z made a-z.  Clobbers F.
+wr_low:
+    cp 'A'
+    ret c
+    cp 'Z' + 1
+    ret nc
+    or $20
     ret
 
 ; wr_save: the Field's name (".txt" added when it has no "." and fits), the document written as text (13.2).
@@ -653,6 +826,8 @@ WR_TALR:
     DB 16, $11, 1, 3
     DW WR_SOK
     DW 0
+WR_PSAV:    DW WR_SSVAS, WR_FBUF, WR_SSAVE, WR_NAME     ; wr_tdo: Save (13.2), Find (14.4)
+WR_PFND:    DW WR_SFND, WR_FFB, WR_SFIND, WR_FN
 WR_STXT:    DB ".txt"
 WR_STW:     DB 9, "Notepad: "
 
@@ -3030,11 +3205,20 @@ tv_event:
     ld hl,(WR_NL)
     dec hl
 .dl:
-    pop de
-    call wr_pos
+    pop de                      ; r
     pop af
     or a
-    jp z,.goto
+    jr nz,.drag
+    push hl                     ; a press: the double-click first (14.2)
+    push de
+    call wr_dbl
+    pop de
+    pop hl
+    jp c,.cons
+    call wr_pos
+    jp .goto
+.drag:
+    call wr_pos
     call wr_moveto
     call wr_findcl
     jp .ext
@@ -3073,6 +3257,156 @@ tv_event:
     pop hl
     ld (WR_BTOP),hl             ; the bar has it already
     jp .cons
+
+; wr_dbl: HL = the line pressed, DE = r: the clicked code (14.2) kept in WR_LCK.  Carry when the press is a double-click (the
+; mark 0, the kernel's flag, the same clicked code as the text view's last press, the text unchanged): the run around it
+; selected, drawn and shown.  Clobbers AF, BC, DE, HL.
+wr_dbl:
+    call wr_kat
+    ld de,(WR_LCK)
+    ld (WR_LCK),hl
+    xor a
+    sbc hl,de
+    ld a,h
+    or l
+    ret nz                      ; another code (NC)
+    inc d
+    ret z                       ; no clicked code
+    ld a,(WR_MK)
+    or a
+    ret nz
+    ld a,(K_EV+3)
+    and 4
+    ret z                       ; not a double-click
+    dec d
+    ex de,hl
+    call wr_runk
+    call wr_selto
+    scf
+    ret
+
+; wr_kat: HL = a line, DE = r = px - 27 -> HL = the clicked code (14.2): the k with tw(s, k) <= r < tw(s, k + 1), s when r < 0;
+; $FFFF when there is none (r past the last code before a 13, or an empty line).  Clobbers AF, BC, DE.
+wr_kat:
+    push de
+    push hl
+    call wr_lstart
+    ex (sp),hl
+    call wr_lt
+    pop hl                      ; s
+    pop de                      ; r
+    ld b,a
+    inc b
+.l:
+    djnz .c
+.none:
+    ld hl,$FFFF
+    ret
+.c:
+    call wr_cat
+    cp 13
+    jr z,.none                  ; a 13: none
+    push hl
+    ld h,PROP6_W >> 8
+    ld l,a
+    ld c,(hl)                   ; its advance
+    pop hl
+    bit 7,d
+    ret nz                      ; r < 0
+    ld a,d
+    or a
+    jr nz,.sub
+    ld a,e
+    cp c
+    ret c                       ; r < the advance: this code
+.sub:
+    ld a,e
+    sub c
+    ld e,a
+    jr nc,.n
+    dec d
+.n:
+    inc hl
+    jr .l
+
+; wr_runk: HL = a code's offset -> HL = the start, DE = the end of the run around it (14.2): word codes, spaces, or the code
+; alone.  Clobbers AF, BC.
+wr_runk:
+    call wr_cat
+    call wr_cls
+    ld c,a
+    push hl
+    cp 2
+    jr z,.one
+.b:
+    ld a,h
+    or l
+    jr z,.bs
+    dec hl
+    call .same
+    jr z,.b
+    inc hl
+.bs:
+    ex (sp),hl
+.f:
+    inc hl
+    push hl
+    call wr_len
+    pop de
+    or a
+    sbc hl,de
+    ex de,hl
+    jr z,.fe
+    call .same
+    jr z,.f
+.fe:
+    ex de,hl
+    pop hl
+    ret
+.one:
+    pop hl
+    ld d,h
+    ld e,l
+    inc de
+    ret
+.same:                          ; Z when the code at HL is of class C
+    call wr_cat
+    call wr_cls
+    cp c
+    ret
+
+; wr_cls: A = a code -> A = its class (14.2): 0 a word code (0-9, A-Z, a-z), 1 a space, 2 any other.  Clobbers F.
+wr_cls:
+    cp ' '
+    jr z,.sp
+    cp '0'
+    jr c,.o
+    cp '9' + 1
+    jr c,.w
+    or $20
+    cp 'a'
+    jr c,.o
+    cp 'z' + 1
+    jr c,.w
+.o:
+    ld a,2
+    ret
+.sp:
+    ld a,1
+    ret
+.w:
+    xor a
+    ret
+
+; wr_cat: HL = an offset -> A = its code.  Clobbers F.
+wr_cat:
+    push hl
+    push de
+    call wr_ptr
+    ld a,(hl)
+    pop de
+    pop hl
+    ret
 
 ; wr_pos: HL = a line, DE = r (signed) -> HL = the position in that line by TOOLKIT 10.4's rule (11.4's positions).
 wr_pos:
@@ -3226,6 +3560,7 @@ wr_twput:
 ; wr_twclr: no width kept (an edit changed the text).  Clobbers AF.
 wr_twclr:
     ld a,$FF                    ; an offset's high byte is never $FF
+    ld (WR_LCK+1),a             ; the last press's clicked code: none (14.2: the text changed)
     ld (WR_TWC + 1),a
     ld (WR_TWC + 7),a
     ld (WR_TWC + 13),a
@@ -3391,6 +3726,9 @@ WR_SLINES:  DB 48, "The file has too many lines", 13, "for Notepad (1,024)."
 WR_SASK:    DB 21, "Discard the document?"
 WR_SDISC:   DB 7, "Discard"
 WR_SCANC:   DB 6, "Cancel"
+WR_SFND:    DB 5, "Find:"
+WR_SFIND:   DB 4, "Find"
+WR_SNF:     DB 10, "Not found."
 WR_MENUS:
     DB 2
     DW WR_M1, WR_M2
@@ -3399,13 +3737,16 @@ WR_M1:
     DB 1, 0, 3, "New"
     DB 2, 0, 7, "Open..."
     DB 3, 0, 7, "Save..."
-WR_M2:                          ; 12.4: Cut, Copy, Paste disabled at the start
-    DB 2, 4, "Edit", 5
+WR_M2:                          ; 12.4: Cut, Copy, Paste disabled at the start; 14.3: Find again too
+    DB 2, 4, "Edit", 8
     DB 1, 1, 3, "Cut"
     DB 2, 1, 4, "Copy"
     DB 3, 1, 5, "Paste"
     DB 0, 2, 0
     DB 4, 0, 10, "Select all"
+    DB 0, 2, 0
+    DB 5, 0, 7, "Find..."
+    DB 6, 1, 10, "Find again"
 WR_BUF:     DW 0
 WR_GS:      DW 0
 WR_GE:      DW 0
@@ -3428,9 +3769,10 @@ WR_DLG:     DW 0
 WR_PEND:    DB 0                ; 1 quit, 2 New, 3 Open, waiting for the dialog
 WR_SDLG:    DW 0                ; W3 (13): the Save dialog, the alert, the Field, the dialog being made
 WR_ADLG:    DW 0
-WR_SFLD:    DW 0
+WR_SFLD:    DW 0                ; the Field of the dialog opened last (Save or Find)
 WR_CDLG:    DW 0
-WR_DK:      DB 0                ; the dialog open: 0 none (or the discard dialog), 1 Save, 2 the alert
+WR_DK:      DB 0                ; the dialog open: 0 none (or the discard dialog), 1 Save, 2 the alert, 3 Find
+WR_LCK:     DW $FFFF            ; W4 (14.2): the clicked code of the text view's last press ($FFFF: none)
 WR_MODE:    DB 0
 WR_MJ:      DB 0
 WR_MJ2:     DB 0
@@ -3505,14 +3847,17 @@ WR_HI:      DW 0
 WR_RCAR:    DW 0
 WR_RGE:     DW 0
 WR_RSV:     DW 0
+WR_FN:      DB 0                ; W4 (14.5): F's length; its codes follow the image (WR_FN, then them: F as a length-prefixed text)
     ENT
 WR_IMG_LEN  EQU $ - WR_IMG
 ; RAM after the image (below the arena, not copied: each is written before it is read).
-WR_TITLE    EQU PROG_IMG + WR_IMG_LEN   ; "Notepad: " and the name: a length byte and up to 39 codes (13.1, 13.10)
+WR_FCODES   EQU PROG_IMG + WR_IMG_LEN   ; F's codes, after WR_FN (14.6)
+WR_TITLE    EQU WR_FCODES + 30          ; "Notepad: " and the name: a length byte and up to 39 codes (13.1, 13.10)
 WR_NAME     EQU WR_TITLE + 40           ; the document's name: a length byte and up to 30 codes
 WR_FBUF     EQU WR_NAME + 31            ; the Save dialog's Field
 WR_PNAME    EQU WR_FBUF + 31            ; the picked name (FS_PICK)
-    ASSERT WR_PNAME + 32 <= AARENA_BASE
+WR_FFB      EQU WR_PNAME + 32           ; the Find dialog's Field (14.4)
+    ASSERT WR_FFB + 31 <= AARENA_BASE && WR_FN + 1 == WR_FCODES
     ASSERT WR_IMG_LEN <= 1024 && (CL_TextView >> 8) == ((CL_TextView + 11) >> 8)
     ASSERT WR_OCX + 3 == WR_OCV && WR_NCX + 3 == WR_NCV
 WR_END:

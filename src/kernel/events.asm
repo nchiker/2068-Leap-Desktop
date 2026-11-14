@@ -52,6 +52,9 @@ K_MLX       EQU $F0B1           ; the mouse's x counter as last read
 K_MLY       EQU $F0B2           ; its y counter
 K_MDX       EQU $F0B3           ; this frame's motion: dx (signed)
 K_MDY       EQU $F0B4           ; dy (signed, down = positive)
+K_DCN       EQU $F0B5           ; K_DCLICK: frames left in which a press may be a double-click (0: none; WRITE 14.9)
+K_DCX       EQU $F0B6           ; word: the last press's x
+K_DCY       EQU $F0B8           ; its y
 K_MOUSE     EQU $F0C4           ; the Kempston mouse: 0 off, 1 on (docs/WINDOWS.md 15.2; set with K_MSET)
 
     ASSERT (K_RING & $FF) == 0 && K_RTAIL == K_RHEAD + 1
@@ -209,6 +212,14 @@ k_enq:
 ; ---------------------------------------------------------------------------------------------------------------------------
 ; K_POLL: the input part of the frame ISR (14.3).  Called by the ISR after P_ISR, display mapped.  Clobbers AF, BC, DE, HL.
 K_POLL:
+    IFDEF K_DCLICK
+    ld hl,K_DCN                 ; 0. the double-click window closes by a frame
+    ld a,(hl)
+    or a
+    jr z,.dc
+    dec (hl)
+.dc:
+    ENDIF
     ld hl,(K_MOUSE)             ; L = the mouse on, H = a warp pending
     ld a,h
     or l
@@ -279,6 +290,47 @@ k_button:
     ld b,E_DOWN
 .ud:
     call k_pdata
+    IFDEF K_DCLICK
+    ld a,b                      ; a double-click (WRITE 14.9): a press within 20 frames of the last press that was not itself a
+    cp E_DOWN                   ; double, at most 8 pixels across and 4 down from it: data 3 bit 2
+    jr nz,.enq
+    push bc
+    ld a,d
+    and 1
+    ld h,a
+    ld l,c                      ; HL = x
+    ld bc,(K_DCX)
+    ld (K_DCX),hl
+    or a
+    sbc hl,bc
+    ld bc,8
+    add hl,bc                   ; dx + 8: 0..16 when near
+    ld bc,17
+    or a
+    sbc hl,bc
+    ld a,(K_DCY)
+    ld b,a
+    ld a,e
+    ld (K_DCY),a
+    jr nc,.far
+    sub b
+    add a,4
+    cp 9
+    jr nc,.far                  ; |dy| > 4
+    ld hl,K_DCN
+    ld a,(hl)
+    or a
+    jr z,.far                   ; the window closed
+    ld (hl),0
+    set 2,d
+    jr .dc
+.far:
+    ld a,21
+    ld (K_DCN),a
+.dc:
+    pop bc
+.enq:
+    ENDIF
     call k_enq
 .pointer:
     ld a,(K_PEND)               ; 7. hand the position to the pointer

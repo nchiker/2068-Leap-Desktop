@@ -3,6 +3,7 @@
 
     DEVICE NOSLOT64K
     DEFINE LOOK_MAC             ; the Mac OS 1.0 style look (docs/LOOK.md): desk5 only
+    DEFINE K_DCLICK             ; E_DOWN's data 3 bit 2 marks a double-click (docs/WRITE.md 14.9): desk5 only
 
 PORT_HSR    EQU $F4
 PORT_SCLD   EQU $FF

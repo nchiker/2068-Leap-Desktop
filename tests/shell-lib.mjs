@@ -20,7 +20,7 @@ export const AARENA_BASE = (S) => S.AARENA_BASE ?? 0xC400;
 export const AARENA_END = (S) => S.AARENA_END ?? 0xE000;
 
 export const needSyms = (S, list) => { const miss = list.filter((n) => S[n] === undefined); if (miss.length) throw new Error(`desk5 does not define: ${miss.join(', ')}`); };
-export const SHELL_NEEDED = ['K_PROG', 'K_PROGS', 'K_LAUNCH', 'K_QUIT', 'S_START', 'S_END', 'S_IMG', 'S_IMG_LEN', 'S_WIN', 'S_LAST', 'S_LASTF', 'S_ABOUT', 'CL_CWindow', 'CL_Icon', 'CL_Dialog', 'Dialog_default', 'Dialog_cancel',
+export const SHELL_NEEDED = ['K_PROG', 'K_PROGS', 'K_LAUNCH', 'K_QUIT', 'S_START', 'S_END', 'S_IMG', 'S_IMG_LEN', 'S_WIN', 'S_LAST', 'S_ABOUT', 'CL_CWindow', 'CL_Icon', 'CL_Dialog', 'Dialog_default', 'Dialog_cancel',
   'TK_DISPATCH', 'C_START', 'C_END', 'C_IMG_LEN', 'D_START', 'D_END', 'D_IMG_LEN', 'D_WIN', 'D_VSTR', 'D_TGT', 'D_LBL', 'K_AARENA', 'K_PN', 'K_POSTQ', 'K_PHEAD', 'K_FOCUS', 'K_CAPTURE', 'W_MODAL', 'V_FRAMES', 'K_PX', 'K_PY', 'PT_X', 'PT_Y',
   'W_SLOTS', 'K_GETEV', 'W_DRAWVIEW', 'K_ARESET', 'GCLIP', 'Window_title', 'Window_slot', 'Button_text', 'Label_text', 'Check_text', 'VScroll_value'];
 

@@ -5,7 +5,6 @@
 TK_LONE     EQU $F0ED           ; byte: 0 = a List's M_DRAW draws in full; else item + 1, drawn alone (10.3)
 TK_LCV      EQU $F0EE           ; word: the List of the last E_DOWN a List took (0: none)
 TK_LCI      EQU $F0F0           ; byte: its item
-TK_LCF      EQU $F0F1           ; word: V_FRAMES then
 TK_LY0      EQU $F0F3           ; ls_geom: the first line's top row
 TK_LP       EQU $F0F4           ; the pitch (9 or 8)
 TK_LN       EQU $F0F5           ; the lines shown
@@ -466,21 +465,15 @@ list_event:
     jr nz,.first
     cp (ix+List_sel)
     jr nz,.first
-    ld hl,(V_FRAMES)
-    ld de,(TK_LCF)
-    or a
-    sbc hl,de
-    ld de,21
-    sbc hl,de
-    jr nc,.first
+    ld a,(K_EV+3)               ; the kernel's double-click (WRITE 14.9)
+    bit 2,a
+    jr z,.first
     call .miss                  ; the second click: E_CMD, the memory cleared
     jp b_post
 .first:
     ld (TK_LCV),ix
     ld a,b
     ld (TK_LCI),a
-    ld hl,(V_FRAMES)
-    ld (TK_LCF),hl
     jr .sel
 .miss:
     ld hl,0

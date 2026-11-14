@@ -31,7 +31,7 @@ export const argNum = (name, dflt) => { const v = argVal(name, null); return v =
 export const rd16 = (m, a) => m.ram[a] | (m.ram[a + 1] << 8);
 export const F4K = 0x33, F4A = 0x3F;
 
-export const NEEDED = ['K_PROG', 'K_LAUNCH', 'K_QUIT', 'K_PROGS', 'S_WIN', 'S_START', 'S_END', 'S_LAST', 'S_LASTF', 'CL_CWindow', 'CL_Icon', 'W_SLOTS', 'W_MODAL', 'K_GETEV', 'C_KEY', 'C_DSTR', 'C_START', 'C_END', 'C_IMG', 'C_IMG_ADDR', 'C_IMG_LEN', 'C_WIN', 'C_DISP', 'K_PX', 'K_PY', 'V_FRAMES', 'V_SHADOW_F4',
+export const NEEDED = ['K_PROG', 'K_LAUNCH', 'K_QUIT', 'K_PROGS', 'S_WIN', 'S_START', 'S_END', 'S_LAST', 'CL_CWindow', 'CL_Icon', 'W_SLOTS', 'W_MODAL', 'K_GETEV', 'C_KEY', 'C_DSTR', 'C_START', 'C_END', 'C_IMG', 'C_IMG_ADDR', 'C_IMG_LEN', 'C_WIN', 'C_DISP', 'K_PX', 'K_PY', 'V_FRAMES', 'V_SHADOW_F4',
   'V_SHADOW_FF', 'T_RET', 'CL_Button', 'CL_Window', 'CL_CDisp', 'View_x', 'View_y', 'View_w', 'View_h', 'View_flags', 'View_id', 'View_child', 'View_next', 'View_parent',
   'Button_text', 'Window_title', 'K_FAR', 'K_FAR_END', 'GFX6_CODE', 'GFX6_CODE_END', 'K_ROOT', 'K_FOCUS', 'PT_X', 'PT_Y', 'W_DRAWVIEW', 'K_MSET', 'K_BTN'];
 

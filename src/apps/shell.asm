@@ -246,7 +246,7 @@ ic_draw:
     KFAR G_FILL
     ret
 
-; ic_event (10.4): a second E_DOWN on the same icon within 20 frames, or ENTER, opens it.
+; ic_event (10.4): a double-click (the kernel's flag, WRITE 14.9) on the icon last pressed, or ENTER, opens it.
 ic_event:
     ld a,(K_EV)
     cp E_DOWN
@@ -266,18 +266,11 @@ ic_event:
     or a
     sbc hl,de
     jr nz,.first
-    ld hl,(V_FRAMES)
-    ld de,(S_LASTF)
-    or a
-    sbc hl,de
-    ld de,21
-    or a
-    sbc hl,de
-    jr c,.open
+    ld a,(K_EV+3)               ; the kernel's double-click (WRITE 14.9)
+    bit 2,a
+    jr nz,.open
 .first:
     ld (S_LAST),ix
-    ld hl,(V_FRAMES)
-    ld (S_LASTF),hl
     scf
     ret
 .open:
@@ -317,7 +310,6 @@ S_M1:
 S_WIN:      DW 0
 S_ABOUT:    DW 0
 S_LAST:     DW 0                ; the icon last pressed
-S_LASTF:    DW 0                ; V_FRAMES then
 S_TW:       DW 0
 S_I:        DB 0
     INCLUDE "icons.inc"
