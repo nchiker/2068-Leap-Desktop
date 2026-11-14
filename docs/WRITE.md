@@ -779,7 +779,8 @@ from sections 1-13 and this section, never from the code.
 - **A double-click** in the text view selects the word under the pointer (14.2).
 - **"Find..."** and **"Find again"** in the "Edit" menu: a dialog asks for a text, which is searched for from the caret
   forward, wrapping once to the start; a match is selected (14.3-14.5).
-- No pool bytes, no kernel change: everything is Write's code in DOCK 2-3 and its image.
+- ~~No pool bytes, no kernel change~~ Amended (owner, 2026-11-14; 14.9): the kernel marks a double-click in `E_DOWN` for every
+  program; the rest is Write's code in DOCK 2-3 and its image.
 - Not built: replace ("Change..."), whole-word or match-case options, a triple-click, a search backwards, key shortcuts (12.10:
   none for now).
 
@@ -905,4 +906,70 @@ As the Save dialog (13.2), from the same table-driven builder:
    slower hand.
 6. **"Not found."** as the whole message. *Alternative:* the text quoted in the message, ""text" was not found." (about 30
    bytes more: the message is built in RAM).
+
+### 14.9 Amendments (owner, 2026-11-14: "should any part of double click be going in the kernel ... I'm thinking specifically of paint"; "yes")
+
+These override 14.1-14.7 where they differ. The tests are written from them.
+
+**1. The kernel's double-click flag** (`desk5` only, `DEFINE K_DCLICK`; `kern3`, `kern4`, `bank5` unchanged). Every
+`E_DOWN` the ISR queues carries **data 3 bit 2 = 1** when it is a double-click:
+- the previous `E_DOWN` (anywhere on the screen) was at most **20 frames** earlier: presses in frames f1 and f2 with
+  f2 - f1 <= 20;
+- it was at most **8 pixels across and 4 down** from it: |x2 - x1| <= 8 (9-bit x), |y2 - y1| <= 4;
+- and that previous press was **not itself a double-click**.
+
+How it is made (exact):
+- `K_DCN` ($F0B5) holds the frames left. At the start of each frame's `K_POLL` it drops by 1 when it is not 0.
+- At each press:
+  - when `K_DCN` != 0 and the press is near: the bit is set and `K_DCN` = 0;
+  - otherwise `K_DCN` = 21.
+- The press's position is always kept: `K_DCX` ($F0B6, word), `K_DCY` ($F0B8).
+- Boot clears all three: no window is open at the start.
+- Bits 0-1 of data 3 are unchanged (x bit 8, the button); bit 2 is 0 on `E_MOVE` and `E_UP`.
+
+Pool: +75 bytes in the kernel.
+
+**2. The shell's icons and `List` use the flag.** Each keeps only its own "the same thing" test:
+- **An icon opens** on an `E_DOWN` with the flag set when the icon is `S_LAST`, the icon of the shell's last press
+  (SHELL 10.4).
+- **A `List` posts its `E_CMD`** on an `E_DOWN` with the flag set when it is the same `List` (`TK_LCV`), on the same item
+  (`TK_LCI`), and that item is the selection (TOOLKIT 10.3).
+
+`S_LASTF` and `TK_LCF` are gone, and `List` is 16 pool bytes smaller, so the pool grows by **+59** in all. Step 5's growth is
+then about **3,245 of 3,400**.
+
+**3. Write's double-click (replaces 14.2's rule):**
+- **`WR_LCK`** is the clicked code of the text view's last `E_DOWN`: $FFFF for none, $FFFF at the start.
+  - Every `E_DOWN` the text view takes sets it to its clicked code, or to none; a double-click sets it too.
+  - Every change of the text sets it to none, and so do "New" and Open.
+- **A double-click** is an `E_DOWN` with the mark 0, the kernel's flag set, and a clicked code that equals `WR_LCK`.
+- **A third click** soon after has no flag, since the second was a double-click, so it is W2's click. A fourth that is near
+  and in time, on the same code, double-clicks again.
+- **`WR_LCF` is gone.**
+
+**4. Find shares the Save dialog.** There is no `WR_FDLG` and no second table. On opening, `wr_tdo` sets the dialog's first
+three views (the word at offset 16) and puts a text into the Field (`TK_SETTEXT`, caret at the end):
+
+| Opened by | Label | Field's buffer | Button | Field holds | `WR_DK` |
+|---|---|---|---|---|---|
+| Save... | "Save as:" | `WR_FBUF` | "Save" | the name | 1 |
+| Find... | "Find:" | `WR_FFB` | "Find" | F | 3 |
+
+`WR_DK` = 2 is still the alert, which has its own dialog.
+
+**5. Where F lives:**
+- **`WR_FN`** is the image's last byte: F's length, 0 at the start.
+- **F's codes** follow it, after the image (`WR_FCODES`), so `WR_FN` is F as a length-prefixed text.
+- **The Find Field's buffer** `WR_FFB` (31 bytes) follows `WR_PNAME`.
+- **"Find"** with a non-empty Field copies the 31 bytes to `WR_FN`. It then sets "Find again" enabled (`MB_ENABLE`, menu 1,
+  item 7: separators count) and searches.
+
+**6. The UP / DOWN run** ends only when a match is selected. "Find...", a Cancel, an empty "Find" and "Not found." leave it.
+
+**7. The search, as built (informative; the result is 14.5's):**
+- Each start is tested on F's first code (case folded), stepping over the gap. Each candidate is checked in full by
+  `wr_vfy`.
+- The two ranges are [p0, m) and then [0, min(p0, m)), with m = L - |F| + 1.
+
+**8. Size:** Write is **6,943** bytes (+519; the cap is 7,000). The RAM image is 591 bytes, and F and its Field are after it.
 

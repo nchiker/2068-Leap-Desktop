@@ -150,7 +150,7 @@ bytes below the return address, except the routing routines and `View`'s `M_DEST
 |---|---|---|---|
 | 1 | `E_KEY` | 1: key code (section 7); 2: bit 0 CAPS SHIFT, bit 1 SYMBOL SHIFT, bit 2 caps lock, bit 7 auto-repeat; 3: 0 | ISR |
 | 2 | `E_MOVE` | 1: x bits 0-7; 2: y; 3: bit 0 x bit 8, bit 1 button held | ISR |
-| 3 | `E_DOWN` | as `E_MOVE` | ISR |
+| 3 | `E_DOWN` | as `E_MOVE`; `desk5` (`K_DCLICK`): data 3 bit 2 = a double-click (docs/WRITE.md 14.9) | ISR |
 | 4 | `E_UP` | as `E_MOVE` | ISR |
 | 5 | `E_TIMER` | reserved | — |
 | 6, 7, 8 | `E_REDRAW`, `E_MENU`, `E_QUIT` | the poster's | `K_POST` |
