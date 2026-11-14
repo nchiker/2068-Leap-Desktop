@@ -1,17 +1,14 @@
 "use strict";
-// tk-t1.mjs -- toolkit slice T1 (Check, VScroll, the Controls demo) on the prebuilt `desk5` cartridge (build/desk5.dck, build/desk5/out.sym; never rebuilt here).
+// tk-t1.mjs -- toolkit slice T1 (Check, VScroll; the Controls demo, once group 5, was retired for Key Caps) on the prebuilt `desk5` cartridge (build/desk5.dck, build/desk5/out.sym; never rebuilt here).
 // Written from docs/TOOLKIT.md (1-7, 9), docs/WINDOWS.md (4, 5, 7, 17), docs/OBJECTS_EVENTS.md (5, 6, 14, 15) and docs/BANKING.md 10.7; never from
-// src/kernel/tk.asm or src/apps/demo.asm.  The reference is tests/tk-model.mjs; the harness is tests/tk-lib.mjs.
-//   node tests/tk-t1.mjs [--seed N] [--nlook N] [--ntree N] [--nev N] [--ntrack N] [--nset N] [--ndemo N] [--only LIST] [--verbose]
+// src/kernel/tk.asm.  The reference is tests/tk-model.mjs; the harness is tests/tk-lib.mjs.
+//   node tests/tk-t1.mjs [--seed N] [--nlook N] [--ntree N] [--nev N] [--ntrack N] [--nset N] [--only LIST] [--verbose]
 //     --nlook N   random Check and random VScroll looks each (default 1500)
 //     --ntree N   random windows for the Check events (default 40), --nev N events in each (default 60)
 //     --ntrack N  random VScroll tracking scripts (default 600)
 //     --nset N    random TK_SETBAR calls (default 400)
-//     --ndemo N   random inputs in the demo (default 120)
-//     --only LIST groups to run: 1 looks, 2 Check events, 3 VScroll tracking, 4 TK_SETBAR, 5 demo, 6 watch / frames / DI (default all)
-// Since SHELL.md 9-10 the cartridge boots the shell; group 5 launches "Controls" (program 2, SHELL 5 / 9.6) through the shell (a double click on its icon) and leaves it by
-// the close box (CWindow, SHELL 10.1); the window is the grown one of TOOLKIT 10.5, (176, 32, 320, 144), with T1's controls at the same rectangles (9.4 moved by SHELL 5) and, added after them, the List with its bar, the "Name:" Label, the Field and the status Label (T2 / T3: their state is read from the machine into tk-model2's nodes, and the program's "Grid" reaction is applied to the model, 10.5).  Groups 1-4 and 6 build
-// their own windows on an empty desk (tk-lib bootParked: the shell's window closed).
+//     --only LIST groups to run: 1 looks, 2 Check events, 3 VScroll tracking, 4 TK_SETBAR, 6 watch / frames / DI (default all; 5 was the Controls demo, retired)
+// The other groups build their own windows on an empty desk (tk-lib bootParked: the shell's window closed).
 // Exit code 1 on any failure.
 import { checks } from './lib.mjs';
 import * as T from './tk-lib.mjs';
@@ -22,12 +19,12 @@ import * as X from './tk-lib2.mjs';
 const { L, hex, rd16 } = T;
 const { argv, argNum } = L;
 const SEED = argNum('--seed', 1);
-const NLOOK = argNum('--nlook', 1500), NTREE = argNum('--ntree', 40), NEV = argNum('--nev', 60), NTRACK = argNum('--ntrack', 600), NSET = argNum('--nset', 400), NDEMO = argNum('--ndemo', 120);
-const ONLY = argv.includes('--only') ? String(argv[argv.indexOf('--only') + 1]).split(',').map(Number) : [1, 2, 3, 4, 5, 6];
+const NLOOK = argNum('--nlook', 1500), NTREE = argNum('--ntree', 40), NEV = argNum('--nev', 60), NTRACK = argNum('--ntrack', 600), NSET = argNum('--nset', 400);
+const ONLY = argv.includes('--only') ? String(argv[argv.indexOf('--only') + 1]).split(',').map(Number) : [1, 2, 3, 4, 6];
 const VERBOSE = argv.includes('--verbose');
 const rng = L.makeRng(SEED);
 const C = checks('tk-t1');
-console.log(`seed ${SEED} (rerun with --seed ${SEED}); looks ${NLOOK}+${NLOOK}, Check events ${NTREE} windows x ${NEV}, tracking ${NTRACK}, TK_SETBAR ${NSET}, demo ${NDEMO}`);
+console.log(`seed ${SEED} (rerun with --seed ${SEED}); looks ${NLOOK}+${NLOOK}, Check events ${NTREE} windows x ${NEV}, tracking ${NTRACK}, TK_SETBAR ${NSET}`);
 
 class Sec {
   constructor(name) { this.name = name; this.n = 0; this.nf = 0; this.fails = []; this.notes = []; }
@@ -501,225 +498,8 @@ if (ONLY.includes(4)) {
   sec.end(`${clampN} with A > C (clamped)`);
 }
 
-// ===========================================================================================================================
-// 5. The demo, over real frames: the program's own loop (DOCK 2-3) with the Kempston mouse and the keyboard.
-// TOOLKIT 9.4's rectangles, moved with the window: it was at (352, 16), SHELL 5 puts it at (176, 32), so every control is 176 left and 16 lower (the offsets from the corner stay).
-const DEMO = {
-  win: [176, 32, 320, 144], checks: [['Sound', 184, 48, 72, 9], ['Grid', 184, 60, 72, 9]], radios: [['Small', 184, 76, 72, 9], ['Medium', 184, 88, 72, 9], ['Large', 184, 100, 72, 9]],
-  bar: [300, 48, 12, 80], label: [184, 116, 100, 9],
-};
-if (ONLY.includes(5)) {
-  // the cartridge boots the shell; bootDesk5 launches Controls (program 2) through the shell: a double click on its icon (SHELL 4, 10.4)
-  const env = L.bootDesk5({ prog: 2 }); envs.push(env);
-  const { m, S } = env;
-  env.rng = rng;
-  const sec = new Sec('5 the demo: Controls (program 2, launched from the shell), one of each control, driven by the mouse and the keys over real frames; flags, label text, screen against the model; quit by the close box and SS+Q, started fresh again');
-  // my own frame counter state is the lib's (env.frame checks V_FRAMES)
-  sec.ok(L.progUp(env, 2), () => `after the double click on the Controls icon: K_PROG ${m.ram[S.K_PROG]}, windows ${JSON.stringify(L.openWindows(m, S).map((w) => [w.title, w.x, w.y, w.w, w.h]))}`);
-  const dwin = rd16(m, S.D_WIN);
-  sec.ok(dwin !== 0, 'D_WIN is set after the launch');
-  if (dwin) {
-    const rv = (a) => L.readView(m, S, a);
-    const kidsOf = (a) => { const out = []; for (let v = rv(a).child; v; v = rv(v).next) out.push(rv(v)); return out; };
-    const wv = rv(dwin), kids = kidsOf(dwin);
-    sec.ok(wv.cls === S.CL_CWindow && [wv.x, wv.y, wv.w, wv.h].join() === DEMO.win.join(), () => `window: class ${hex(wv.cls)} (want CWindow ${hex(S.CL_CWindow)}) rect ${[wv.x, wv.y, wv.w, wv.h]}, want (176, 32, 320, 144) (TOOLKIT 10.5)`);
-    sec.ok(T.textOf(m, rd16(m, dwin + S.Window_title)) === 'Controls', () => `window title "${T.textOf(m, rd16(m, dwin + S.Window_title))}"`);
-    sec.ok(m.ram[dwin + S.Window_slot] !== 0 && rd16(m, S.W_SLOTS + 2 * m.ram[dwin + S.Window_slot]) === dwin, 'the demo window is open (a slot)');
-    const find = (rect, cls) => kids.find((v) => [v.x, v.y, v.w, v.h].join() === rect.join() && v.cls === cls);
-    const nodes = [];
-    const textOf = (v) => T.textOf(m, rd16(m, v.a + S.Check_text));
-    for (const [txt, x, y, w, h] of [...DEMO.checks, ...DEMO.radios]) {
-      const v = find([x, y, w, h], S.CL_Check);
-      sec.ok(!!v, () => `no Check "${txt}" at (${x}, ${y}, ${w}, ${h})`);
-      if (!v) continue;
-      sec.ok(textOf(v) === txt, () => `Check at (${x}, ${y}): text "${textOf(v)}", want "${txt}"`);
-      const radio = DEMO.radios.some((r) => r[0] === txt);
-      sec.ok(!!(v.flags & M.FL.RADIO) === radio, () => `"${txt}": radio bit ${(v.flags & M.FL.RADIO) !== 0}, want ${radio}`);
-      sec.ok(!!(v.flags & M.FL.CHECKED) === (txt === 'Medium'), () => `"${txt}": checked ${(v.flags & M.FL.CHECKED) !== 0}, want ${txt === 'Medium'} (only "Medium" is checked at the start)`);
-      sec.ok(v.id >= 128, () => `"${txt}": View_id ${v.id}, ids of the demo's controls are >= 128`);
-      nodes.push({ kind: 'Check', addr: v.a, id: v.id, x: v.x, y: v.y, w: v.w, h: v.h, flags: v.flags, codes: T.codesOf(textOf(v) || ''), name: txt });
-    }
-    const bv = find(DEMO.bar, S.CL_VScroll);
-    sec.ok(!!bv, 'a VScroll at (300, 48, 12, 80)');
-    const lv = find(DEMO.label, S.CL_Label);
-    sec.ok(!!lv, 'a Label at (184, 116, 100, 9)');
-    if (bv && lv) {
-      const mx = m.ram[bv.a + S.VScroll_max], pg = m.ram[bv.a + S.VScroll_page], tg = rd16(m, bv.a + S.VScroll_target);
-      sec.ok(mx === 20 && pg === 5, () => `bar max ${mx} page ${pg}, want 20 and 5`);
-      sec.ok(tg !== 0 && tg === rd16(m, S.D_TGT), () => `bar target ${hex(tg)}, the demo's view D_TGT is ${hex(rd16(m, S.D_TGT))}`);
-      sec.ok(bv.id >= 128 && lv.id >= 0, () => `bar View_id ${bv.id}`);
-      const bar = { kind: 'VScroll', addr: bv.a, id: bv.id, x: bv.x, y: bv.y, w: bv.w, h: bv.h, flags: bv.flags, value: m.ram[bv.a + S.VScroll_value], max: mx, page: pg, press: 0 };
-      const label = { kind: 'Label', addr: lv.a, id: lv.id, x: lv.x, y: lv.y, w: lv.w, h: lv.h, flags: lv.flags, codes: [] };
-      // T2 / T3: the demo's other views (the List and its bar, the "Name:" Label, the Field, the status Label) as model nodes, read from the machine
-      const extras = new Map();
-      for (const v of kids) { if (v.a === bv.a || v.a === lv.a || nodes.some((n) => n.addr === v.a)) continue; const n = X.viewToNode(env, v); sec.ok(!!n, () => `the demo window holds a view of an unknown class ${hex(v.cls)} at ${hex(v.a)}`); if (n) extras.set(v.a, n); }
-      const extraNodes = [...extras.values()];
-      X.linkBars(extraNodes);
-      const grid = nodes.find((n) => n.name === 'Grid'), demoList = extraNodes.find((n) => n.kind === 'List');
-      sec.ok(!!demoList && extraNodes.some((n) => n.kind === 'Field'), 'the demo window holds a List and a Field (TOOLKIT 10.5)');
-      const order = kids.map((v) => (v.a === bv.a ? bar : v.a === lv.a ? label : nodes.find((n) => n.addr === v.a) || extras.get(v.a))).filter(Boolean);
-      const tree = new M2.TkTree2({ x: wv.x, y: wv.y, w: wv.w, h: wv.h, slot: m.ram[dwin + S.Window_slot], title: T.codesOf('Controls') }, order);
-      const focusAddr = () => rd16(m, S.K_FOCUS);
-      const syncFocus = () => { tree.focus = order.find((n) => n.addr === focusAddr()) || null; };
-      syncFocus();
-      const firstFocusable = order.find((n) => tree.canFocus(n)) || null;
-      sec.ok((tree.focus && tree.focus.addr) === (firstFocusable && firstFocusable.addr), () => `K_FOCUS after opening ${hex(focusAddr())}, the first focusable control is ${firstFocusable ? firstFocusable.name : 'none'}`);
-      const labelText = () => { const t = rd16(m, lv.a + S.Label_text); return t ? Array.from(m.ram.subarray(t + 1, t + 1 + m.ram[t])) : []; };
-      const barRam = () => m.ram[bv.a + S.VScroll_value];
-      const check = (what) => {
-        env.frames_(2);
-        for (const n of extraNodes) if (n.kind === 'Label') n.codes = X.readCodes(m, rd16(m, n.addr + S.Label_text));     // the status Label: the program writes it
-        if (demoList && grid) X.applyGrid(tree, grid, demoList);                                                      // "Grid" switches the List's cell lines (10.5)
-        { const sd = X.stateDiff(env, tree); sec.ok(sd === null, () => `${what}: ${sd}`); }
-        for (const n of nodes) sec.ok(m.ram[n.addr + S.View_flags] === n.flags, () => `${what}: "${n.name}" flags ${hex(m.ram[n.addr + S.View_flags], 2)}, model ${hex(n.flags, 2)}`);
-        sec.ok(barRam() === bar.value, () => `${what}: bar value ${barRam()}, model ${bar.value}`);
-        const vs = Array.from(String(`Value: ${bar.value}`), (c) => c.charCodeAt(0)), got = labelText(), gstr = String.fromCharCode(...got);
-        sec.ok(String.fromCharCode(...vs) === gstr, () => `${what}: the label shows "${gstr}", want "Value: ${bar.value}"`);
-        label.codes = got;
-        const dv = Array.from(m.ram.subarray(S.D_VSTR + 1, S.D_VSTR + 1 + m.ram[S.D_VSTR]));
-        sec.ok(String.fromCharCode(...dv) === `Value: ${bar.value}`, () => `${what}: D_VSTR "${String.fromCharCode(...dv)}", want "Value: ${bar.value}"`);
-        sec.ok(focusAddr() === (tree.focus ? tree.focus.addr : 0), () => `${what}: K_FOCUS ${hex(focusAddr())}, model ${tree.focus ? tree.focus.name || tree.focus.id : 0}`);
-        const g = M.renderWindow(tree); L.closeBoxLook(g, wv.x, wv.y, wv.w);          // the window is in front: SHELL 10.1 close box
-        const cov = T.rectCov(wv.x, wv.y, wv.w, wv.h), pm = L.pointerMask(m, S);
-        for (let i = 0; i < cov.length; i++) cov[i] &= pm[i];
-        const d = T.diffDisp(T.readDisp(m), M.toDisp(g), cov);
-        sec.ok(d === null, () => `${what}: the demo window's pixels: ${d}`);
-        return d === null;
-      };
-      check('the opened demo');
-      // the initial state, for the fresh start after a quit (SHELL 1: nothing kept across a switch)
-      const init0 = { flags: nodes.map((n) => n.flags), bar: barRam(), label: String.fromCharCode(...labelText()), focus: focusAddr() };
-      sec.ok(m.ram[S.K_PROG] === 2 && L.openWindows(m, S).length === 1, 'only the Controls window is open');
-      const st = { clicks: 0, keys: 0, drags: 0, repeats: 0, rejected: 0, posts: 0 };
-      const clickNode = (n) => {
-        const [x, y] = [rng.int(n.x, n.x + n.w - 1), rng.int(n.y, n.y + n.h - 1)];
-        const ok = L.moveTo(env, x, y); sec.ok(ok, () => `the pointer did not arrive at (${x}, ${y})`);
-        env.frames_(1);
-        m.mouse.buttons = L.MOUSE_LEFT; env.frames_(rng.int(2, 4));
-        tree.dispatch({ t: M.E.DOWN, px: x, py: y });
-        m.mouse.buttons = L.MOUSE_UP; env.frames_(3);
-        tree.dispatch({ t: M.E.UP, px: x, py: y });
-        st.clicks++;
-        return `click "${n.name || n.kind}" at (${x}, ${y})`;
-      };
-      // A step of the bar costs the demo more than a frame (the bar is redrawn twice and the label once: about 2.4 frames of CPU), so the real-frame timing of the repeat is
-      // not the stepper's (group 3, where V_FRAMES does not move during a handler).  Here: single steps and drags are judged on the value they leave (timing independent),
-      // a long hold on its number of steps, and the instants of the steps (V_FRAMES at each write of the value) are measured against 9.3's 15, 6, 6 (check 5c).
-      const valueWrites = []; let armed = false;
-      { const w0 = m.bus.write; m.bus.write = function (a, v) { if (armed && (a & 0xFFFF) === bv.a + S.VScroll_value && m.ram[bv.a + S.VScroll_value] !== (v & 0xFF)) valueWrites.push(T.vframes(env)); w0(a, v); }; }
-      const holdRuns = [];
-      const scriptLine = (cs) => `${cs.part} at (${cs.px}, ${cs.py}), ${cs.H} frames, script ${JSON.stringify(cs.frames.map((f, i) => (f.length ? [i + 1, ...f.map((e) => (e.t === 'move' ? `m${e.px},${e.py}` : e.t))] : null)).filter(Boolean)).slice(0, 200)}`;
-      const press = (px, py) => {
-        const ok = L.moveTo(env, px, py); sec.ok(ok, () => `the pointer did not arrive at (${px}, ${py})`);
-        env.frames_(2);
-        m.mouse.buttons = L.MOUSE_LEFT; env.frame();
-        return T.vframes(env);
-      };
-      const finish = (what, want, extra = '') => {
-        env.frames_(8);
-        const got = barRam();
-        sec.ok(got === want, () => `${what}: value ${got}, model ${want}${extra}`);
-        sec.ok(m.ram[bv.a + S.VScroll_press] === 0, () => `${what}: the arrow is still pressed after the release (press ${m.ram[bv.a + S.VScroll_press]})`);
-        bar.value = got; bar.press = 0;
-      };
-      const driveBar = () => {
-        const kind = rng.pick(['click', 'click', 'click', 'drag', 'drag', 'hold']);
-        const gm = M.vsGeom(bar);
-        if (kind === 'hold') {
-          const part = bar.value >= 9 ? 'up' : bar.value <= 11 ? 'down' : null;
-          if (!part) return driveBar();
-          const H = rng.int(24, 56), py = part === 'up' ? rng.int(bar.y, bar.y + 9) : rng.int(bar.y + bar.h - 10, bar.y + bar.h - 1), px = rng.int(bar.x, bar.x + bar.w - 1);
-          const v0 = bar.value; valueWrites.length = 0;
-          armed = true; const vfe = press(px, py);
-          for (let i = 0; i < H - 1; i++) env.frame();
-          m.mouse.buttons = L.MOUSE_UP; env.frame(); armed = false;
-          const n = valueWrites.length, nHi = 1 + Math.floor((H - 15) / 6) + 1 + 1, nLo = 1 + Math.max(0, Math.floor((H - 20) / 8));
-          const what = `hold ${part} arrow ${H} frames at (${px}, ${py}) from ${v0}`;
-          sec.ok(n >= nLo && n <= nHi, () => `${what}: ${n} steps, between ${nLo} and ${nHi} expected`);
-          holdRuns.push({ part, H, vfe, steps: valueWrites.slice() });
-          finish(what, Math.max(0, Math.min(20, v0 + (part === 'up' ? -n : n))), ` (${n} steps)`);
-          st.drags++; st.repeats++;
-          return what;
-        }
-        if (kind === 'click') {
-          const parts = ['up', 'down']; if (gm.thumb && gm.ty > bar.y + 10) parts.push('pgup'); if (gm.thumb && gm.ty + gm.th < bar.y + bar.h - 10) parts.push('pgdn');
-          const part = rng.pick(parts), rows = { up: [bar.y, bar.y + 9], down: [bar.y + bar.h - 10, bar.y + bar.h - 1], pgup: [bar.y + 10, gm.ty - 1], pgdn: [gm.ty + gm.th, bar.y + bar.h - 11] }[part];
-          const py = rng.int(rows[0], rows[1]), px = rng.int(bar.x, bar.x + bar.w - 1), H = rng.int(3, 8);
-          const frames = []; for (let i = 0; i < H; i++) frames.push([]); frames[H - 1].push({ t: 'up' });
-          const sim = M.simulateTrack({ ...bar }, 'tell', { px, py, pre: [] }, 0, frames, 'rect');
-          if (!sim) return driveBar();
-          press(px, py);
-          for (let i = 0; i < H; i++) { if (i === H - 1) m.mouse.buttons = L.MOUSE_UP; env.frame(); }
-          finish(`click ${part} at (${px}, ${py}) held ${H} frames`, sim.v.value);
-          st.drags++;
-          return `click ${part}`;
-        }
-        // a drag of the thumb
-        if (!gm.thumb) return driveBar();
-        for (let attempt = 0; attempt < 30; attempt++) {
-          const cs = genTrack({ demo: true, part: 'thumb', x: bar.x, y: bar.y, h: bar.h, w: bar.w, max: bar.max, page: bar.page, value: bar.value });
-          if (cs.part !== 'thumb') continue;
-          cs.bar.w = bar.w; cs.bar.id = bar.id;
-          const sim = M.simulateTrack({ ...bar }, 'tell', { px: cs.px, py: cs.py, pre: [] }, 0, cs.frames, 'rect');
-          if (!sim) { st.rejected++; continue; }
-          press(cs.px, cs.py);
-          let cur = L.pointerPos(m, S).slice();
-          const bad = [];
-          for (let i = 0; i < cs.frames.length; i++) {
-            const mv = cs.frames[i].find((e) => e.t === 'move'), up = cs.frames[i].some((e) => e.t === 'up');
-            if (mv) { m.mouse.x = (m.mouse.x + (mv.px - cur[0])) & 0xFF; m.mouse.y = (m.mouse.y - (mv.py - cur[1])) & 0xFF; }
-            if (up) m.mouse.buttons = L.MOUSE_UP;
-            env.frame();
-            if (mv) cur = [mv.px, mv.py];
-          }
-          finish(`drag ${scriptLine(cs)}`, sim.v.value);
-          st.drags++;
-          return `drag ${cs.H} frames`;
-        }
-        return 'no bar script';
-      };
-      for (let i = 0; i < NDEMO && sec.nf < 10; i++) {
-        const r = rng.next();
-        let what;
-        if (r < 0.40) what = clickNode(rng.pick(nodes));
-        else if (r < 0.60) { const code = rng.pick([32, 32, 32, 14, 15, 10, 11]); L.typeCode(env, code, 3, 3); tree.dispatch({ t: M.E.KEY, key: code }); st.keys++; what = `key ${code}`; }
-        else if (r < 0.90) what = driveBar();
-        else { what = clickNode(label); }
-        syncFocus();
-        if (!check(`#${i} ${what.slice(0, 160)}`)) { if (sec.nf > 6) break; }
-      }
-      {
-        const sc = new Sec('5c repeat timing of a held arrow over real frames in the demo: the first step, again 15 frames later, then every 6 (9.3), V_FRAMES at each change of the value');
-        for (const h of holdRuns) {
-          const gaps = h.steps.slice(1).map((v, i) => v - h.steps[i]);
-          sc.ok(gaps.length > 0, () => `${h.part} hold of ${h.H} frames: no repeat`);
-          if (!gaps.length) continue;
-          sc.ok(gaps[0] === 15, () => `${h.part} arrow held ${h.H} frames: the first repeat is ${gaps[0]} frames after the first step (V_FRAMES gaps ${gaps.join(',')}), want 15`);
-          gaps.slice(1).forEach((g, i) => sc.ok(g === 6, () => `${h.part} arrow held ${h.H} frames: repeat ${i + 2} is ${g} frames after the previous step (V_FRAMES gaps ${gaps.join(',')}), want 6`));
-        }
-        sc.end(`${holdRuns.length} holds, gaps between steps: ${holdRuns.slice(0, 3).map((h) => `[${h.steps.slice(1).map((v, i) => v - h.steps[i]).join(',')}]`).join(' ')}; the first step came ${holdRuns.slice(0, 3).map((h) => h.steps[0] - h.vfe).join(',')} frames after the E_DOWN was polled`);
-      }
-      // leaving: the close box, then Controls again from the shell starts as the first time (SHELL 1, 3: nothing is kept); the same with SYMBOL SHIFT + Q (SHELL 9.4)
-      let quits = 0;
-      for (const how of ['the close box', 'SYMBOL SHIFT + Q']) {
-        const okQ = how === 'the close box' ? L.quitByCloseBox(env, 2) : L.quitBySSQ(env); env.frames_(8); quits++;
-        sec.ok(okQ && L.shellUp(env), () => `${how}: back to the shell: ${okQ}, K_PROG ${m.ram[S.K_PROG]}`);
-        const okL = L.launchByDoubleClick(env, 2); env.frames_(10);
-        sec.ok(okL, () => `${how}: Controls did not start again from the shell (K_PROG ${m.ram[S.K_PROG]})`);
-        if (!okL) break;
-        const dw = rd16(m, S.D_WIN), wv2 = rv(dw), ks = kidsOf(dw);
-        sec.ok(wv2.cls === S.CL_CWindow && [wv2.x, wv2.y, wv2.w, wv2.h].join() === DEMO.win.join(), () => `${how}: second window ${hex(wv2.cls)} ${[wv2.x, wv2.y, wv2.w, wv2.h]}`);
-        nodes.forEach((n, i) => { const v = ks.find((k) => k.x === n.x && k.y === n.y && k.cls === S.CL_Check); sec.ok(!!v && v.flags === init0.flags[i], () => `${how}: "${n.name}" flags ${v && hex(v.flags, 2)} on the second launch, first launch ${hex(init0.flags[i], 2)}`); });
-        const bv2 = ks.find((k) => k.cls === S.CL_VScroll), lv2 = ks.find((k) => k.cls === S.CL_Label);
-        sec.ok(!!bv2 && m.ram[bv2.a + S.VScroll_value] === init0.bar, () => `${how}: bar value ${bv2 && m.ram[bv2.a + S.VScroll_value]} on the second launch, first launch ${init0.bar}`);
-        const t2 = lv2 ? rd16(m, lv2.a + S.Label_text) : 0, lt = t2 ? String.fromCharCode(...m.ram.subarray(t2 + 1, t2 + 1 + m.ram[t2])) : '';
-        sec.ok(lt === init0.label, () => `${how}: label "${lt}" on the second launch, first launch "${init0.label}"`);
-        sec.ok(rd16(m, S.K_FOCUS) === init0.focus, () => `${how}: K_FOCUS ${hex(rd16(m, S.K_FOCUS))} on the second launch, first launch ${hex(init0.focus)}`);
-      }
-      sec.end(`${st.clicks} clicks, ${st.keys} keys, ${st.drags} bar scripts (${st.repeats} with a repeat; ${st.rejected} rejected as ambiguous), ${quits} quits to the shell and fresh launches, ${env.frames} frames run`);
-    } else sec.end();
-  } else sec.end();
-}
+// (Group 5, the Controls demo over real frames, was retired when Key Caps replaced Controls as program 2 (docs/KEYCAPS.md 5): Check's looks and events are groups 1 and 2, VScroll's repeat and tracking
+// group 3 (frame by frame), the radios in a real program tests/kc-k1.mjs, a real VScroll Write's bar (tests/wr-w1.mjs).)
 
 // ===========================================================================================================================
 // 6. The memory watch of BANKING 10.7, V_FRAMES and DI over every machine of this run.

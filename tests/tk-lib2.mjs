@@ -1,7 +1,7 @@
 "use strict";
-// tk-lib2.mjs -- shared pieces of the T2 / T3 tests (tests/tk-t2.mjs List, tests/tk-t3.mjs Field, tests/tk-demo.mjs): the group collector, the generators, and the step checker that compares the machine
+// tk-lib2.mjs -- shared pieces of the T2 / T3 tests (tests/tk-t2.mjs List, tests/tk-t3.mjs Field): the group collector, the generators, and the step checker that compares the machine
 // with tk-model2's TkTree2 after every event (W_DRAWVIEW calls, E_CMD posts, the state of every control, the focus, the capture, the window's pixels, the pixels outside it).
-// Written from docs/TOOLKIT.md (1-10) only; src/kernel/tk.asm, tk2.asm and src/apps/demo.asm were never read.
+// Written from docs/TOOLKIT.md (1-10) only; src/kernel/tk.asm and tk2.asm were never read.
 import { checks } from './lib.mjs';
 import * as T from './tk-lib.mjs';
 import * as M from './tk-model.mjs';
@@ -234,38 +234,3 @@ export function drawUnderClip(env, sec, ctx, node, look, clip, o = {}) {
   return r;
 }
 
-// ---------------------------------------------------------------------------------------------------------------------------------------------
-// The demo (Controls window, TOOLKIT 10.5), read from the machine into model nodes
-export const readCodes = (m, a) => (a ? Array.from(m.ram.subarray(a + 1, a + 1 + m.ram[a])) : []);
-/** A view read by calc-lib's readView as a model node (Check, Label, VScroll, List, Field), its state read from RAM. */
-export function viewToNode(env, v) {
-  const { m, S } = env, base = { addr: v.a, id: v.id, x: v.x, y: v.y, w: v.w, h: v.h, flags: v.flags };
-  if (v.cls === S.CL_Check) return { kind: 'Check', ...base, codes: readCodes(m, rd16(m, v.a + S.Check_text)) };
-  if (v.cls === S.CL_Label) return { kind: 'Label', ...base, codes: readCodes(m, rd16(m, v.a + S.Label_text)) };
-  if (v.cls === S.CL_VScroll) return { kind: 'VScroll', ...base, value: m.ram[v.a + S.VScroll_value], max: m.ram[v.a + S.VScroll_max], page: m.ram[v.a + S.VScroll_page], press: 0, target: rd16(m, v.a + S.VScroll_target) };
-  if (v.cls === S.CL_List) {
-    const arr = rd16(m, v.a + S.List_items), count = m.ram[v.a + S.List_count], items = [];
-    for (let i = 0; i < count; i++) items.push(readCodes(m, rd16(m, arr + 2 * i)));
-    return { kind: 'List', ...base, items, count, sel: m.ram[v.a + S.List_sel], top: m.ram[v.a + S.List_top], bar: null, barAddr: rd16(m, v.a + S.List_bar) };
-  }
-  if (v.cls === S.CL_Field) return { kind: 'Field', ...base, buf: readCodes(m, rd16(m, v.a + S.Field_buf)), cap: m.ram[v.a + S.Field_cap], caret: m.ram[v.a + S.Field_caret], first: m.ram[v.a + S.Field_first] };
-  return null;
-}
-/** The children of the window at `dwin`, as readView records in list order. */
-export function kidsOfWindow(env, dwin) {
-  const rv = (a) => L.readView(env.m, env.S, a), out = [];
-  for (let v = rv(dwin).child; v; v = rv(v).next) out.push(rv(v));
-  return out;
-}
-/** Link each List with its bar (the VScroll whose address is List_bar), and the bar's targetNode. */
-export function linkBars(nodes) {
-  for (const l of nodes.filter((n) => n.kind === 'List')) {
-    const b = nodes.find((n) => n.kind === 'VScroll' && n.addr === l.barAddr);
-    if (b) { l.bar = b; b.targetNode = l; }
-  }
-}
-/** The program's reaction to the "Grid" check (TOOLKIT 10.5): its checked flag copied to the List's bit 4, then TK_SETITEMS with the same items (selection cleared). */
-export function applyGrid(tree, grid, list) {
-  const want = (grid.flags & M.FL.CHECKED) ? 16 : 0;
-  if ((list.flags & 16) !== want) { list.flags = (list.flags & ~16) | want; tree.resetLog(); M2.listSetItems(tree, list, list.items); }
-}

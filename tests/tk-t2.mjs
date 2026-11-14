@@ -1,7 +1,7 @@
 "use strict";
 // tk-t2.mjs -- toolkit slice T2 (List) on the prebuilt `desk5` cartridge (build/desk5.dck, build/desk5/out.sym; never rebuilt here).
 // Written from docs/TOOLKIT.md (1-10; section 10.3 and 10.8 items 1-2 are what is tested), docs/WINDOWS.md (4, 5, 7, 17) and docs/OBJECTS_EVENTS.md (5, 6, 15); never from src/kernel/tk.asm,
-// tk2.asm or src/apps/demo.asm.  The reference is tests/tk-model2.mjs (built on tk-model.mjs and gfx6-model.mjs); the harness is tests/tk-lib.mjs and tests/tk-lib2.mjs.
+// tk2.asm.  The reference is tests/tk-model2.mjs (built on tk-model.mjs and gfx6-model.mjs); the harness is tests/tk-lib.mjs and tests/tk-lib2.mjs.
 //   node tests/tk-t2.mjs [--seed N] [--nlook N] [--nclip N] [--ntree N] [--nev N] [--nset N] [--ndirect N] [--only LIST] [--verbose]
 //     --nlook N    random Lists drawn whole by W_DRAWVIEW (default 1200)
 //     --nclip N    random Lists drawn by M_DRAW under a random clip (default 800)

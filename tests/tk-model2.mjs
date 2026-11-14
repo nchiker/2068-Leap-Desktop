@@ -1,6 +1,6 @@
 "use strict";
 // tk-model2.mjs -- reference model of toolkit slices T2 (List) and T3 (Field): docs/TOOLKIT.md section 10 (with 1-9 and the kernel's routing, OBJECTS_EVENTS 15 and WINDOWS 17).
-// Written from the contract only; src/kernel/tk.asm, src/kernel/tk2.asm and src/apps/demo.asm were never read.
+// Written from the contract only; src/kernel/tk.asm and src/kernel/tk2.asm were never read.
 //
 //   node tests/tk-model2.mjs --self-test      hand-worked cases of the model itself (the test files run the same cases as their group 0)
 //

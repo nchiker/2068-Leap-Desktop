@@ -4,7 +4,7 @@
 // build/desk5.dck and build/desk5/out.sym through tests/calc-lib.mjs.
 //   - the machine states of the launcher's contract: captureState (K_PROG, the windows, the app arena's top, K_FOCUS / K_CAPTURE / W_MODAL / the posted queue, the stack depth at the
 //     program's event loop, the screen) and compareStates (the "same as after a fresh launch" rows of SHELL 7);
-//   - shellDiff / calcDiff / controlsDiff: the machine's screen against the models' renderings (shell-model.mjs, calc-lib's renderScreen, tk-model's renderWindow plus the close box);
+//   - shellDiff / calcDiff / keycapsDiff: the machine's screen against the models' renderings (shell-model.mjs, calc-lib's renderScreen, kc-model's rendering, tk-model's renderWindow plus the close box);
 //   - drivers for the shell: single click, double click at an exact frame gap, the "Leap" menu items by the pointer, keys.
 import * as L from './calc-lib.mjs';
 import * as SM from './shell-model.mjs';
@@ -13,6 +13,7 @@ import './tk-model2.mjs';                          // registers the List and Fie
 import { readDisp, diffDisp } from './wm-lib.mjs';
 import { barLook as drawBar, deskLook } from './look-model.mjs';
 import * as WM from './wr-model.mjs';
+import * as KL from './kc-lib.mjs';
 
 export { L, SM, M, readDisp, diffDisp };
 export const { hex, rd16 } = L;
@@ -21,7 +22,7 @@ export const AARENA_END = (S) => S.AARENA_END ?? 0xE000;
 
 export const needSyms = (S, list) => { const miss = list.filter((n) => S[n] === undefined); if (miss.length) throw new Error(`desk5 does not define: ${miss.join(', ')}`); };
 export const SHELL_NEEDED = ['K_PROG', 'K_PROGS', 'K_LAUNCH', 'K_QUIT', 'S_START', 'S_END', 'S_IMG', 'S_IMG_LEN', 'S_WIN', 'S_LAST', 'S_ABOUT', 'CL_CWindow', 'CL_Icon', 'CL_Dialog', 'Dialog_default', 'Dialog_cancel',
-  'TK_DISPATCH', 'C_START', 'C_END', 'C_IMG_LEN', 'D_START', 'D_END', 'D_IMG_LEN', 'D_WIN', 'D_VSTR', 'D_TGT', 'D_LBL', 'K_AARENA', 'K_PN', 'K_POSTQ', 'K_PHEAD', 'K_FOCUS', 'K_CAPTURE', 'W_MODAL', 'V_FRAMES', 'K_PX', 'K_PY', 'PT_X', 'PT_Y',
+  'TK_DISPATCH', 'C_START', 'C_END', 'C_IMG_LEN', 'KC_START', 'KC_END', 'KC_IMG_LEN', 'K_AARENA', 'K_PN', 'K_POSTQ', 'K_PHEAD', 'K_FOCUS', 'K_CAPTURE', 'W_MODAL', 'V_FRAMES', 'K_PX', 'K_PY', 'PT_X', 'PT_Y',
   'W_SLOTS', 'K_GETEV', 'W_DRAWVIEW', 'K_ARESET', 'GCLIP', 'Window_title', 'Window_slot', 'Button_text', 'Label_text', 'Check_text', 'VScroll_value'];
 
 /** Boot desk5 into the shell (program 0); the pointer is at (0, 0). */
@@ -101,48 +102,24 @@ export function shellDiff(env, extra = []) {
 }
 /** Calculator's screen (calc-lib's rendering of CALCULATOR 4 + the close box) for the display `dstr`. */
 export const calcDiff = (env, dstr = '0', extra = []) => { const d = L.screenDiff(env, dstr); return d; };
-/** Controls' screen: the window read from the machine (the controls' flags, text, bar value), the tk-model's rendering of TOOLKIT 9 plus the close box (SHELL 10.1). */
-export function controlsDiff(env, extra = []) {
-  const { m, S } = env, dwin = rd16(m, S.D_WIN), rv = (a) => L.readView(m, S, a);
-  const wv = rv(dwin), order = [];
-  for (let v = wv.child; v; v = rv(v).next) {
-    const k = rv(v), base = { addr: v, id: k.id, x: k.x, y: k.y, w: k.w, h: k.h, flags: k.flags };
-    if (k.cls === S.CL_Check) order.push({ kind: 'Check', ...base, codes: Array.from(readStrText(m, rd16(m, v + S.Check_text)), (c) => c.charCodeAt(0)) });
-    else if (k.cls === S.CL_VScroll) order.push({ kind: 'VScroll', ...base, value: m.ram[v + S.VScroll_value], max: m.ram[v + S.VScroll_max], page: m.ram[v + S.VScroll_page], press: m.ram[v + S.VScroll_press] });
-    else if (k.cls === S.CL_Label) order.push({ kind: 'Label', ...base, codes: Array.from(readStrText(m, rd16(m, v + S.Label_text)), (c) => c.charCodeAt(0)) });
-    else if (k.cls === S.CL_List) {
-      const arr = rd16(m, v + S.List_items), count = m.ram[v + S.List_count], items = [];
-      for (let i = 0; i < count; i++) { const a = rd16(m, arr + 2 * i); items.push(Array.from(m.ram.subarray(a + 1, a + 1 + m.ram[a]))); }
-      order.push({ kind: 'List', ...base, items, count, sel: m.ram[v + S.List_sel], top: m.ram[v + S.List_top], bar: null });
-    } else if (k.cls === S.CL_Field) {
-      const b = rd16(m, v + S.Field_buf);
-      order.push({ kind: 'Field', ...base, buf: Array.from(m.ram.subarray(b + 1, b + 1 + m.ram[b])), cap: m.ram[v + S.Field_cap], caret: m.ram[v + S.Field_caret], first: m.ram[v + S.Field_first] });
-    }
-    else return `an unknown view class ${hex(k.cls)} in the Controls window`;
-  }
-  const tree = new M.TkTree({ x: wv.x, y: wv.y, w: wv.w, h: wv.h, slot: m.ram[dwin + S.Window_slot], title: SM.codesOf(readStrText(m, rd16(m, dwin + S.Window_title))) }, order);
-  const foc = rd16(m, S.K_FOCUS); tree.focus = order.find((n) => n.addr === foc) || null;
-  const g = new M.Gfx6Model();
-  deskLook(g); drawBar(g, null, null);
-  M.renderWindow(tree, g); SM.closeBoxLook(g, wv.x, wv.y, wv.w);
-  return diffDisp(readDisp(m), M.toDisp(g), withPointer(env, extra));
-}
+/** Key Caps' screen (KEYCAPS 1-3): the window read from the machine (the radios' flags, the focus, the status text, the keys down), tests/kc-model.mjs's rendering. */
+export const keycapsDiff = (env, extra = []) => KL.kcDiff(env, extra);
 /** Write's screen (WRITE 11.3) with an empty document, as a fresh launch draws it: the caret shows when K_FOCUS is the text view. */
 export function writeDiff(env, extra = []) {
   const { m, S } = env, tv = S.WR_TV !== undefined ? rd16(m, S.WR_TV) : 0, foc = rd16(m, S.K_FOCUS);
   const g = WM.renderScreen(new WM.Doc(), { focus: tv !== 0 && foc === tv });
   return diffDisp(readDisp(m), WM.toDisp(g), withPointer(env, extra));
 }
-/** The screen of the running program against its model (the shell, Calculator showing `dstr`, Controls, Write with an empty document). */
+/** The screen of the running program against its model (the shell, Calculator showing `dstr`, Key Caps, Write with an empty document). */
 export function programDiff(env, p = env.m.ram[env.S.K_PROG], extra = [], dstr = '0') {
-  return p === 0 ? shellDiff(env, extra) : p === 1 ? L.screenDiff(env, dstr) : p === 2 ? controlsDiff(env, extra) : writeDiff(env, extra);
+  return p === 0 ? shellDiff(env, extra) : p === 1 ? L.screenDiff(env, dstr) : p === 2 ? keycapsDiff(env, extra) : writeDiff(env, extra);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------
 // Drivers
 /** A single click on the icon of program p: the pointer there, press `hold` frames, release, wait `rel` frames. */
 export const clickIcon = (env, p, hold = 3, rel = 6) => { const [x, y] = L.iconCentre(p); return L.click(env, x, y, hold, rel); };
-/** The "Leap" menu by the pointer (WINDOWS 18.4): press on the title, move to item `item` (1-based, the separator counts: items 1 About, 2 separator, 3 Calculator, 4 Controls), release. */
+/** The "Leap" menu by the pointer (WINDOWS 18.4): press on the title, move to item `item` (1-based, the separator counts: items 1 About, 2 separator, 3 Calculator, 4 Key Caps, 5 Notepad), release. */
 export function leapMenu(env, item) {
   const { m } = env;
   L.moveTo(env, 20, 4); m.mouse.buttons = L.MOUSE_LEFT; env.frames_(3);

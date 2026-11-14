@@ -1,11 +1,11 @@
 "use strict";
-// shell-model.mjs -- reference model of the shell slice (docs/SHELL.md 1-10; TOOLKIT.md 9 for the controls Controls shows).  Written from the contract only:
+// shell-model.mjs -- reference model of the shell slice (docs/SHELL.md 1-10; KEYCAPS.md for program 2).  Written from the contract only:
 // src/kernel/launch.asm, src/kernel/tk.asm and src/apps/*.asm were never read.  Only src/apps/icons.txt (the icon art, part of the contract: SHELL 10.4 and 9.5) is read.
 //
 //   node tests/shell-model.mjs --self-test      hand-worked cases of the model itself
 //
 // What is here:
-//   * parseIcons: icons.txt -> { CALC: [16 rows], CTRL: [16 rows] };
+//   * parseIcons: icons.txt -> { CALC, KEYS, WRITE: [16 rows each] };
 //   * iconLook / shellLook / aboutLook / renderShell: the shell's screen as gfx6-model drawing (SHELL 10.4 / 10.5: the window, the icons' bitmaps drawn at (x + 16, y) opaque, the names centred
 //     at (x + floor((64 - tw) / 2), y + 17), the selected name's box (tx - 2, y + 17, tw + 4, 9) XORed; the "Leap" menu in the bar; the About Dialog in front);
 //   * cwindowLook (10.1): a Window's look plus, only when it is the front one, the close box; paintWindows: the screen of a stack of windows, back to front;
@@ -57,11 +57,11 @@ export const ICONART = parseIcons();
 // ---------------------------------------------------------------------------------------------------------------------------------------------
 // The programs and the shell's geometry (SHELL 4, 5, 10.4)
 export const SHELL_WIN = { x: 32, y: 24, w: 256, h: 80, title: 'Leap Desktop' };
-// WRITE 11.2: a third icon "Write" at (176, 40) (its bitmap is `icon WRITE` in icons.txt) and the menu item "Write" (id 5) after "Controls"
-export const ICONS = [{ name: 'Calculator', art: 'CALC', prog: 1, x: 48, y: 40, w: 64, h: 26 }, { name: 'Controls', art: 'CTRL', prog: 2, x: 112, y: 40, w: 64, h: 26 },
+// WRITE 11.2: a third icon "Write" at (176, 40) (its bitmap is `icon WRITE` in icons.txt) and the menu item "Notepad" (id 5) after "Key Caps"
+export const ICONS = [{ name: 'Calculator', art: 'CALC', prog: 1, x: 48, y: 40, w: 64, h: 26 }, { name: 'Key Caps', art: 'KEYS', prog: 2, x: 112, y: 40, w: 64, h: 26 },
   { name: 'Notepad', art: 'WRITE', prog: 3, x: 176, y: 40, w: 64, h: 26 }];
-export const LEAP_MENU = menuSpec(1, 'Leap', [[1, 0, 'About Leap Desktop...'], [2, 2, ''], [3, 0, 'Calculator'], [4, 0, 'Controls'], [5, 0, 'Notepad']]);
-export const ABOUT = { dialog: { x: 128, y: 64, w: 256, h: 64 }, label: { x: 144, y: 76, w: 200, h: 9, text: 'Leap Desktop, step 5' }, ok: { x: 304, y: 100, w: 64, h: 16, text: 'OK' } };
+export const LEAP_MENU = menuSpec(1, 'Leap', [[1, 0, 'About Leap Desktop...'], [2, 2, ''], [3, 0, 'Calculator'], [4, 0, 'Key Caps'], [5, 0, 'Notepad']]);
+export const ABOUT = { dialog: { x: 128, y: 64, w: 256, h: 64 }, label: { x: 144, y: 76, w: 224, h: 18, text: 'Leap Desktop, step 5' }, ok: { x: 304, y: 100, w: 64, h: 16, text: 'OK' } };
 export const DBL_FRAMES = 20;
 
 /** One icon (10.4 as amended by 10.5): CLR fill of its 64 x 26, the bitmap at (x + 16, y), the name centred in 64 at y + 17, the selected name's box XORed. */
@@ -153,7 +153,7 @@ export class ShellSim {
 if (process.argv[1] === fileURLToPath(import.meta.url) && process.argv.includes('--self-test')) {
   let bad = 0;
   const eq = (name, a, b) => { const ok = JSON.stringify(a) === JSON.stringify(b); if (!ok) bad++; console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${ok ? '' : `: got ${JSON.stringify(a)}, want ${JSON.stringify(b)}`}`); };
-  eq('icons parsed (CALC, CTRL, and WRITE once the main model has drawn it)', [Object.keys(ICONART).slice(0, 2), ICONART.CALC.length, ICONART.CTRL[0].length], [['CALC', 'CTRL'], 16, 32]);
+  eq('icons parsed (CALC, KEYS, WRITE)', [Object.keys(ICONART), ICONART.CALC.length, ICONART.KEYS[0].length], [['CALC', 'KEYS', 'WRITE'], 16, 32]);
   // the bitmap: CALC's first row is '....####...' at x + 8: columns 4..27 inked
   { const g = new Gfx6Model(); iconLook(g, ICONS[0], false); eq('CALC row 0 pixels', [g.get(48 + 16 + 3, 40), g.get(48 + 16 + 4, 40), g.get(48 + 16 + 27, 40), g.get(48 + 16 + 28, 40)], [0, 1, 1, 0]); }
   // the name's width and the inverted box

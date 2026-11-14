@@ -1,6 +1,6 @@
 "use strict";
 // tk-perf.mjs -- toolkit T1's bounds, docs/TOOLKIT.md sections 7 and 9.5, as a table, on the prebuilt `desk5` cartridge (build/desk5.dck, build/desk5/out.sym; never rebuilt).
-// Written from the contract only (never from src/kernel/tk.asm or src/apps/demo.asm).  T-states are TSRun's (no memory contention); direct calls under mapping K with a sentinel
+// Written from the contract only (never from src/kernel/tk.asm).  T-states are TSRun's (no memory contention); direct calls under mapping K with a sentinel
 // return, interrupts off unless a row says otherwise (a HALT is answered by the harness, tests/tk-lib.mjs runCall).
 //   node tests/tk-perf.mjs [--seed N]
 // Rows: measured, bound, pass / MISSED / reported.  Exit code 1 on a missed bound.
@@ -392,28 +392,19 @@ const listTree = (cell, withBar, sel = 3, top = 0) => {
 
 // ---- interrupts lost (V_FRAMES over every normally run frame) and DI -----------------------------------------------------------------------------------------------------------
 {
-  // since SHELL.md 9-10 the demo is program 2 of the shell: bootDesk5 launches it by a double click on its icon.  Its window is at (176, 32) (SHELL 5), 176 left and 16 lower than TOOLKIT 9.4's.
-  const e2 = L.bootDesk5({ prog: 2 }); const m2 = e2.m, S2 = e2.S;
+  // program 2 is Key Caps since docs/KEYCAPS.md (the Controls demo, with the List, the Field and the bar, is gone; List and Field have their own groups above, a VScroll in a real program is Notepad's bar,
+  // tests/wr-perf.mjs): bootDesk5 launches it by a double click on its icon.  The long handlers of the real program: radio clicks (a plane change redraws the keyboard), the shifts, keys, TAB and SPACE.
+  const e2 = L.bootDesk5({ prog: 2, settle: 36 }); const m2 = e2.m, S2 = e2.S;
   e2.rng = rng;
   e2.frames_(30);
-  // click its controls, hold the bar: the long handlers of the real program
-  const ok = rd16(m2, S2.D_WIN) !== 0 && L.progUp(e2, 2);
-  for (const [x, y] of [[204, 52], [204, 64], [204, 80], [204, 92], [204, 104], [204, 52]]) L.click(e2, x, y, 3, 5);
-  for (const code of [32, 14, 32, 15, 32]) L.typeCode(e2, code, 3, 3);
-  // T2 / T3: the List and the Field in the same run (TAB to them, DOWN past the lines shown, ENTER, clicks, typing, DELETE)
-  for (let i = 0; i < 6; i++) L.typeCode(e2, 14, 3, 3);
-  for (let i = 0; i < 12; i++) L.typeCode(e2, 10, 3, 3);
-  L.typeCode(e2, 13, 3, 3); L.click(e2, 340, 70, 3, 6); L.click(e2, 340, 70, 3, 6);
-  for (let i = 0; i < 3; i++) L.typeCode(e2, 14, 3, 3);
-  for (const c of 'abc!@') L.typeCode(e2, c.charCodeAt(0), 3, 3);
-  L.typeCode(e2, 12, 3, 3); L.typeCode(e2, 13, 3, 3);
-  L.click(e2, 460, 60, 3, 6);
-  L.moveTo(e2, 305, 52); e2.frames_(2); m2.mouse.buttons = L.MOUSE_LEFT; e2.frames_(60); m2.mouse.buttons = L.MOUSE_UP; e2.frames_(8);
-  L.moveTo(e2, 305, 124); e2.frames_(2); m2.mouse.buttons = L.MOUSE_LEFT; e2.frames_(40); m2.mouse.buttons = L.MOUSE_UP; e2.frames_(8);
-  L.moveTo(e2, 305, 76); e2.frames_(2); m2.mouse.buttons = L.MOUSE_LEFT; e2.frames_(2); L.moveTo(e2, 305, 106); L.moveTo(e2, 305, 56); m2.mouse.buttons = L.MOUSE_UP; e2.frames_(8);
-  L.quitByCloseBox(e2, 2); e2.frames_(10); L.launchByDoubleClick(e2, 2); e2.frames_(10);       // a quit and a launch among the frames
+  const ok = L.progUp(e2, 2);
+  for (const [x, y] of [[100, 52], [200, 52], [350, 52], [100, 52]]) L.click(e2, x, y, 3, 20);
+  for (const code of [32, 14, 32, 15, 32, 113, 65, 33]) L.typeCode(e2, code, 3, 12);
+  for (const ks of [[0], [36], [0, 15], [36, 10], [0, 36, 5], [0, 1]]) { L.setKeys(m2, ks); e2.frames_(14); L.setKeys(m2, []); e2.frames_(14); }
+  L.moveTo(e2, 300, 100); e2.frames_(2); m2.mouse.buttons = L.MOUSE_LEFT; e2.frames_(20); m2.mouse.buttons = L.MOUSE_UP; e2.frames_(8);   // a press on the keyboard view
+  L.quitByCloseBox(e2, 2); e2.frames_(10); L.launchByDoubleClick(e2, 2); e2.frames_(30);       // a quit and a launch among the frames
   e2.frames_(40);
-  row('frame interrupts lost over the demo machine\'s normal frames (V_FRAMES must rise by 1 a frame): idle, pointer moving, Check clicks, keys, a held arrow, a track hold, a thumb drag', e2.vf.bad, 0, `${e2.vf.checked} frames checked; demo launched from the shell: ${ok}${e2.vf.bad ? '; first ' + e2.vf.first : ''}; memory watch: ${e2.w.summary()}`);
+  row('frame interrupts lost over the Key Caps machine\'s normal frames (V_FRAMES must rise by 1 a frame): idle, pointer moving, radio clicks, keys, the shifts, a quit and a launch', e2.vf.bad, 0, `${e2.vf.checked} frames checked; Key Caps launched from the shell: ${ok}${e2.vf.bad ? '; first ' + e2.vf.first : ''}; memory watch: ${e2.w.summary()}`);
   if (e2.w.n) { missed++; console.log('FAIL | the memory watch (BANKING 10.7) reported violations in the perf run'); }
 }
 {

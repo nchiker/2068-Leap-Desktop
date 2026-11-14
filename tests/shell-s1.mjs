@@ -51,7 +51,7 @@ function dirty(env, p) {
       else { const b = rng.pick(L.BUTTONS), [cx, cy] = L.centre(b); L.click(env, cx, cy, 3, 4); }
     }
   } else if (p === 2) {
-    const spots = [[194, 52], [194, 64], [194, 80], [194, 92], [194, 104], [306, 53], [306, 123]];
+    const spots = [[100, 52], [200, 52], [350, 52], [100, 70], [300, 120], [420, 140]];   // Key Caps: the three radios, caps of the keyboard
     for (let i = rng.int(1, 4); i > 0; i--) { const [x, y] = rng.pick(spots); L.click(env, x, y, 3, 5); }
     if (rng.chance(0.5)) L.typeCode(env, rng.pick([32, 14, 15]));
   } else if (p === 3) {
@@ -79,7 +79,7 @@ function launcherGroup() {
   const trail = [];
   const note = (s) => { trail.push(s); if (trail.length > 8) trail.shift(); };
   const judge = (p, what) => {
-    env.frames_(12);                                    // the window is up before it is all drawn (a launch takes about 8 frames, SHELL 7): let it settle
+    env.frames_(p === 2 ? 36 : 12);                     // the window is up before it is all drawn (a launch takes about 8 frames, SHELL 7; Key Caps' 40 caps another 25): let it settle
     const cur = H.captureState(env);
     if (!base[p]) {
       base[p] = cur;                                    // the first arrival: the reference for "as after a fresh launch"
@@ -151,7 +151,7 @@ function launcherGroup() {
   if (cur !== 0) { quit(cur, 'close'); judge(0, 'the last return'); }
   // the three baselines against each other: a program has its own state
   sec.ok(base[1].top !== base[2].top || base[1].focus !== base[2].focus, 'the two programs have different arena states');
-  sec.end(`${stat.launches} launches (calculator ${stat.perProg[1]}, controls ${stat.perProg[2]}, write ${stat.perProg[3]}), ${stat.quits} quits, methods ${JSON.stringify(stat.byMethod)}; the shell's arena top ${hex(base[0].top)}, calculator's ${hex(base[1].top)}, controls' ${hex(base[2].top)}, write's ${hex(base[3].top)}; loop SP shell ${hex(base[0].sp)}, calculator ${hex(base[1].sp)}, controls ${hex(base[2].sp)}; most frames: launch ${stat.maxLaunch}, quit ${stat.maxQuit} (the whole driver, input included)`);
+  sec.end(`${stat.launches} launches (calculator ${stat.perProg[1]}, key caps ${stat.perProg[2]}, write ${stat.perProg[3]}), ${stat.quits} quits, methods ${JSON.stringify(stat.byMethod)}; the shell's arena top ${hex(base[0].top)}, calculator's ${hex(base[1].top)}, controls' ${hex(base[2].top)}, write's ${hex(base[3].top)}; loop SP shell ${hex(base[0].sp)}, calculator ${hex(base[1].sp)}, controls ${hex(base[2].sp)}; most frames: launch ${stat.maxLaunch}, quit ${stat.maxQuit} (the whole driver, input included)`);
 }
 
 // 1b. Exact cycles: 50 launch / quit cycles (SHELL 7)
@@ -197,7 +197,7 @@ function shellGroup() {
     const ics = views.filter((v) => v.cls === S.CL_Icon);
     sec.ok(ics.length === 3 && ics[0].x === 48 && ics[0].y === 40 && ics[1].x === 112 && ics[1].y === 40 && ics[2].x === 176 && ics[2].y === 40 && ics.every((v) => v.w === 64 && v.h === 26 && (v.flags & 1) === 1), () => `icons ${JSON.stringify(ics.map((v) => [v.x, v.y, v.w, v.h, v.flags]))}, want (48, 40), (112, 40) and (176, 40) (WRITE 11.2), 64 x 26 (SHELL 10.5), focusable`);
     sec.ok(ics.length === 3 && m.ram[ics[0].a + S.Icon_prog] === 1 && m.ram[ics[1].a + S.Icon_prog] === 2 && m.ram[ics[2].a + S.Icon_prog] === 3, () => `Icon prog fields ${ics.map((v) => m.ram[v.a + S.Icon_prog])}, want 1, 2 and 3 (SHELL 10.4: prog 1 byte)`);
-    sec.ok(ics.length === 3 && H.readStrText(m, rd16(m, ics[0].a + S.Icon_name)) === 'Calculator' && H.readStrText(m, rd16(m, ics[1].a + S.Icon_name)) === 'Controls' && H.readStrText(m, rd16(m, ics[2].a + S.Icon_name)) === 'Notepad', () => `Icon names ${ics.map((v) => H.readStrText(m, rd16(m, v.a + S.Icon_name)))}`);
+    sec.ok(ics.length === 3 && H.readStrText(m, rd16(m, ics[0].a + S.Icon_name)) === 'Calculator' && H.readStrText(m, rd16(m, ics[1].a + S.Icon_name)) === 'Key Caps' && H.readStrText(m, rd16(m, ics[2].a + S.Icon_name)) === 'Notepad', () => `Icon names ${ics.map((v) => H.readStrText(m, rd16(m, v.a + S.Icon_name)))}`);
     const d0 = H.shellDiff(env);
     sec.ok(d0 === null, () => `boot screen: ${d0}`);
     sec.ok(rd16(m, S.K_FOCUS) === icons[0], () => `K_FOCUS after boot ${hex(rd16(m, S.K_FOCUS))}, the first icon is ${hex(icons[0])}`);
@@ -274,7 +274,7 @@ function shellGroup() {
       const n = L.waitProgram(env, p, 120);
       sec.ok(n >= 0, () => `${why}: program ${p} did not come up (K_PROG ${m.ram[S.K_PROG]}) [${hist.join('; ')}]`);
       if (n < 0) return false;
-      env.frames_(12);
+      env.frames_(p === 2 ? 36 : 12);                   // Key Caps draws its 40 caps over about 25 frames after its window is up
       const d = H.programDiff(env, p, [], '0');
       sec.ok(d === null, () => `${why}: the program ${p} screen: ${d}`);
       const ok = (rd16(m, S.K_FOCUS) !== 0) && L.progUp(env, p);
@@ -810,7 +810,7 @@ function cwindowGroup() {
 // ===========================================================================================================================
 // 4. The About dialog
 function aboutGroup() {
-  const sec = new Sec('4 About Leap Desktop... (menu "Leap", item 1): a Dialog (128, 64, 256, 64) with the Label "Leap Desktop, step 5" (144, 76, 200, 9) and the OK Button (304, 100, 64, 16), the default and the cancel; opens, closes by the mouse (OK), ENTER, ESC and BREAK, reopens; modal; the shell as before');
+  const sec = new Sec('4 About Leap Desktop... (menu "Leap", item 1): a Dialog (128, 64, 256, 64) with the Label "Leap Desktop, step 5" (144, 76, 224, 18; the alert of the app library, APPLIB 5) and the OK Button (304, 100, 64, 16), the default and the cancel; opens, closes by the mouse (OK), ENTER, ESC and BREAK, reopens; modal; the shell as before');
   const env = mkShell(), { m, S } = env;
   const icons = H.iconAddrs(env);
   const base0 = H.captureState(env);
@@ -830,7 +830,7 @@ function aboutGroup() {
     st.open++;
     const kids = []; for (let v = dlg.child; v; v = L.readView(m, S, v).next) kids.push(L.readView(m, S, v));
     const lbl = kids.find((k) => k.cls === S.CL_Label), btn = kids.find((k) => k.cls === S.CL_Button);
-    sec.ok(!!lbl && [lbl.x, lbl.y, lbl.w, lbl.h].join() === '144,76,200,9' && H.readStrText(m, rd16(m, lbl.a + S.Label_text)) === 'Leap Desktop, step 5', () => `Label ${lbl && [lbl.x, lbl.y, lbl.w, lbl.h]} "${lbl && H.readStrText(m, rd16(m, lbl.a + S.Label_text))}"`);
+    sec.ok(!!lbl && [lbl.x, lbl.y, lbl.w, lbl.h].join() === '144,76,224,18' && H.readStrText(m, rd16(m, lbl.a + S.Label_text)) === 'Leap Desktop, step 5', () => `Label ${lbl && [lbl.x, lbl.y, lbl.w, lbl.h]} "${lbl && H.readStrText(m, rd16(m, lbl.a + S.Label_text))}"`);
     sec.ok(!!btn && [btn.x, btn.y, btn.w, btn.h].join() === '304,100,64,16' && H.readStrText(m, rd16(m, btn.a + S.Button_text)) === 'OK', () => `Button ${btn && [btn.x, btn.y, btn.w, btn.h]} "${btn && H.readStrText(m, rd16(m, btn.a + S.Button_text))}"`);
     sec.ok(!!btn && rd16(m, dlg.a + S.Dialog_default) === btn.a && rd16(m, dlg.a + S.Dialog_cancel) === btn.a, () => `Dialog_default ${hex(rd16(m, dlg.a + S.Dialog_default))}, Dialog_cancel ${hex(rd16(m, dlg.a + S.Dialog_cancel))}, the button is ${btn && hex(btn.a)}`);
     sec.ok(rd16(m, S.W_MODAL) === dlg.a, () => `W_MODAL ${hex(rd16(m, S.W_MODAL))}, the dialog is ${hex(dlg.a)}`);
