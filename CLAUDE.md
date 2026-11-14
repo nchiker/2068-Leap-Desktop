@@ -151,7 +151,19 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
     bit 2 (`K_DCLICK`, `desk5` only). The shell and `List` use the flag. Find shares the Save dialog.
   - **Sizes:** Notepad 6,943 of 7,000 bytes; pool +59 (step 5's growth about 3,245 of 3,400).
   - **The owner tried it:** "double click and find work in my test run" (14.10).
-  - **Open:** a Sonnet agent was writing `wr-w4`, `kern-dclick` and the W4 `wr-perf` rows, and repairing `wr-w2`, `wr-w3`, `tk-t2` and `shell-s1` for the 8-item
-    Edit menu and the kernel flag. Check its commits (`git log`), then re-run every suite. Still to do: the ZEsarUX key-driven Find session (14.7 item 7), then close W4.
+  - **Tests:** `wr-w4`, `kern-dclick` and the W4 rows of `wr-perf` are written, and every suite passes. The bounds were reset
+    by the owner (14.11). Still to do: the ZEsarUX key-driven Find session (14.7 item 7).
+- **App library (2026-11-14), `docs/APPLIB.md`, `src/apps/applib.asm`:**
+  - **What it is:** view tables (`AL_NEW`, `AL_VIEW`, `AL_VIEWS`, `AL_ADD`), dialogs, the alert, the ask, the name dialog,
+    the title and the extension rule.
+  - **Who uses it:** Notepad, the shell, Calculator and Key Caps. Notepad is 6,474 bytes. Its test is `tests/al-a1.mjs`.
+- **Key Caps (program 2, 2026-11-14), `docs/KEYCAPS.md`:** it replaces the Controls demo, whose test `tk-demo` is retired.
+  Its test is `tests/kc-k1.mjs`.
+- **All 19 suites and `desk5-ref` pass on the merged build** (2026-11-14). Next:
+  - the owner tries Key Caps;
+  - the test-speed slice (TESTSPEED; TSRun's pin moves to 6ccf56e under TESTSPEED 6's rules);
+  - the safe pool changes, the free-space measure and Notepad's faster search (`docs/SIZE.md` 1-3);
+  - the ZEsarUX runs (W4's Find session; Key Caps in `zesarux-desk5.py`);
+  - then Paint, starting with the DOCK 6 graphics library (SIZE 4).
 - **Owner (2026-11-13):** W3 tried in the browser and accepted. Program 3 is now shown as **Notepad** (icon, "Leap" menu,
   title "Notepad: name", alerts); the code, `docs/WRITE.md` and the `WR_` symbols keep the name Write (WRITE 13.10).
