@@ -10,6 +10,7 @@ S_START:
     ld de,PROG_IMG
     ld bc,S_IMG_LEN
     ldir
+    call AL_INIT
     ld hl,S_MENUS
     KFAR MB_SET
     ld hl,CL_Window
@@ -99,59 +100,11 @@ s_loop:
     ld ix,(S_ABOUT)
     KFAR W_CLOSE
     jr s_loop
-.about:
-    ld ix,(S_ABOUT)
-    ld a,ixh
-    or ixl
-    call z,s_mkabout
-    KFAR W_OPEN
+.about:                         ; the library's alert (APPLIB 5)
+    ld hl,S_ABOUT
+    ld de,S_ABOUTT
+    call AL_ALERT
     jr s_loop
-
-; s_mkabout: the About dialog (10.4), made once -> IX, S_ABOUT.
-s_mkabout:
-    ld hl,CL_Dialog
-    call K_NEW
-    ld (ix+View_x),128
-    ld (ix+View_y),64
-    ld (ix+View_w),LOW 256
-    ld (ix+View_w+1),HIGH 256
-    ld (ix+View_h),64
-    ld (S_ABOUT),ix
-    ld hl,CL_Label
-    call K_NEW
-    ld (ix+View_x),144
-    ld (ix+View_y),76
-    ld (ix+View_w),200
-    ld (ix+View_h),9
-    ld (ix+Label_text),LOW S_ABOUTT
-    ld (ix+Label_text+1),HIGH S_ABOUTT
-    call s_addabout
-    ld hl,CL_Button
-    call K_NEW
-    ld (ix+View_x),LOW 304
-    ld (ix+View_x+1),HIGH 304
-    ld (ix+View_y),100
-    ld (ix+View_w),64
-    ld (ix+View_h),16
-    ld (ix+View_flags),$11      ; focusable, default
-    ld (ix+View_id),1
-    ld (ix+Button_text),LOW S_OK
-    ld (ix+Button_text+1),HIGH S_OK
-    push ix
-    call s_addabout
-    pop hl
-    ld ix,(S_ABOUT)
-    ld (ix+Dialog_default),l
-    ld (ix+Dialog_default+1),h
-    ld (ix+Dialog_cancel),l
-    ld (ix+Dialog_cancel+1),h
-    ret
-s_addabout:                     ; IX = a view -> the dialog's last child
-    push ix
-    pop de
-    ld ix,(S_ABOUT)
-    KFAR K_ADDCHILD
-    ret
 
 ; ---------------------------------------------------------------------------------------------------------------------------
 ; Icon's methods (banked).  ic_draw (10.4, 10.5): paper, the bitmap (G_BLIT, copy 0: x + 16 is on the byte grid), the name centred
@@ -291,7 +244,7 @@ S_THEVENT:
     KTHUNK ic_event
 S_TITLE:    DB 12, "Leap Desktop"
 S_ABOUTT:   DB 20, "Leap Desktop, step 5"
-S_OK:       DB 2, "OK"
+
 S_NCALC:    DB 10, "Calculator"
 S_NCTRL:    DB 8, "Controls"
 S_NWRITE:   DB 7, "Notepad"
@@ -319,5 +272,5 @@ S_NICONS    EQU 3
 Icon_prog   EQU 16
 Icon_name   EQU 17
 Icon_SIZE   EQU 19
-    ASSERT S_IMG_LEN <= 1024 && (CL_Icon >> 8) == ((CL_Icon + 11) >> 8)
+    ASSERT PROG_IMG + S_IMG_LEN <= AL_RAM && (CL_Icon >> 8) == ((CL_Icon + 11) >> 8)
 S_END:

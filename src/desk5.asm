@@ -177,6 +177,7 @@ K_PROGS:                        ; the programs (SHELL 10.3): 0 the shell, 1 Calc
     INCLUDE "apps/demo.asm"
     INCLUDE "apps/shell.asm"
     INCLUDE "apps/write.asm"     ; program 3 (docs/WRITE.md)
+    INCLUDE "apps/applib.asm"   ; the app library (docs/APPLIB.md)
     INCLUDE "apps/files.asm"    ; the FS_ calls (docs/FILES.md)
     ASSERT $ <= $8000
 
