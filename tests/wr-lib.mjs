@@ -246,7 +246,7 @@ export class Drv {
     const [t, a1, a2, a3] = rec;
     let want;
     if (t === E.KEY) { want = Doc_consumes(a1); Doc_key(doc, a1); }
-    else if (t === E.DOWN) { want = true; doc.click(a1 + 256 * (a3 & 1), a2); }
+    else if (t === E.DOWN) { want = true; doc.press(a1 + 256 * (a3 & 1), a2, (a3 & 4) !== 0); }
     else if (t === E.UP) want = true;
     else if (t === E.MOVE) { want = rd16(env.m, env.S.K_CAPTURE) === tv; if (want) doc.drag(a1 + 256 * (a3 & 1), a2); }      // W2 (12.4): E_MOVE with the capture is a drag (W1: consumed, nothing else)
     else if (t === E.SCROLL) { want = undefined; doc.scrollTo(a1); }       // CONTRACT? consumed or not is not settled for E_SCROLL
@@ -364,9 +364,29 @@ export function stateDiff2(env, doc) {
   else { const i = firstDiff(st.clip, doc.clip); if (i >= 0) out.clip.push(`the clipboard differs at offset ${i} (length ${st.cln}): machine ${JSON.stringify(WM.textOf(st.clip.slice(Math.max(0, i - 4), i + 8)))}, model ${JSON.stringify(WM.textOf(doc.clip.slice(Math.max(0, i - 4), i + 8)))}`); }
   return out;
 }
+/** W4 (docs/WRITE.md 14.9 items 3 and 5): WR_FN (F's length, the image's last byte), F's codes at WR_FCODES, WR_LCK (the last E_DOWN's clicked code, $FFFF for none); null when the build has no W4 symbols. */
+export function readState4(env) {
+  const { m, S } = env;
+  if (S.WR_FN === undefined || S.WR_LCK === undefined) return null;
+  const n = m.ram[S.WR_FN];
+  return { fn: n, f: Array.from(m.ram.subarray(S.WR_FCODES, S.WR_FCODES + Math.min(n, 31))), lck: rd16(m, S.WR_LCK) };
+}
+/** The differences between the machine's W4 state and a Doc (F, WR_LCK): a list of messages. */
+export function stateDiff4(env, doc, strict = false) {
+  const st = readState4(env), out = [];
+  if (!st) return out;
+  if (st.fn !== doc.find.length) out.push(`WR_FN ${st.fn}, model F has ${doc.find.length} codes (${JSON.stringify(WM.textOf(doc.find))})`);
+  else { const i = firstDiff(st.f, doc.find); if (i >= 0) out.push(`F differs at ${i}: machine ${JSON.stringify(WM.textOf(st.f))}, model ${JSON.stringify(WM.textOf(doc.find))}`); }
+  // "none" is $FFFF (14.9 item 3).  The build leaves a stale low byte after a text change ($FF01 after Cut: reported by wr-w4 group 3 as a disagreement with the contract); no clicked code reaches $FF00
+  // (5,120 codes at most), so here a high byte of $FF is accepted as none, to keep the other suites about their own contract; `strict` demands $FFFF.
+  const want = doc.lck < 0 ? 0xFFFF : doc.lck;
+  const ok = doc.lck < 0 && !strict ? (st.lck >> 8) === 0xFF : st.lck === want;
+  if (!ok) out.push(`WR_LCK ${hex(st.lck)}, model ${doc.lck < 0 ? 'none ($FFFF)' : doc.lck}`);
+  return out;
+}
 /** The kernel's enable word of menu `index` (0 File, 1 Edit): MB_ENT + ME_SIZE x index + ME_EN (a word; bit n - 1 - k for item k of n). */
 export const menuBits = (env, index) => rd16(env.m, env.S.MB_ENT + env.S.ME_SIZE * index + env.S.ME_EN);
-/** The model's words for the two menus: File "New" (1 item, always enabled: bit 0), Edit (5 items). */
+/** The model's words for the two menus: File "New" (1 item, always enabled: bit 0), Edit (8 items, W4). */
 export const wantBits = (doc) => [1, doc.editBits()];
 /** WR_MENU with K_EV = an E_MENU record (menu id, item id), by a direct call under mapping A (interrupts as `o`). */
 export function menuCall(env, menuId, item, o = {}) {
@@ -391,6 +411,8 @@ export class Drv2 extends Drv {
     const { env, doc } = this, { m } = env, s = this.secs, sel = s.sel || s.doc, clip = s.clip || s.doc, menu = s.menu || s.doc, ctx = this.ctx();
     const sd = stateDiff2(env, doc);
     sel.ok(sd.sel.length === 0, () => `${ctx}: ${sd.sel[0]}`);
+    const s4 = stateDiff4(env, doc);
+    sel.ok(s4.length === 0, () => `${ctx}: ${s4[0]}`);
     clip.ok(sd.clip.length === 0, () => `${ctx}: ${sd.clip[0]}`);
     const cur = clipRegion(env);
     if (this.clipLast && r) {
@@ -400,8 +422,8 @@ export class Drv2 extends Drv {
     }
     this.clipLast = cur;
     if (this.menuChecks) {
-      const want = wantBits(doc), mask = [1, 0x1F];
-      for (let i = 0; i < 2; i++) { const got = menuBits(env, i) & mask[i]; menu.ok(got === want[i], () => `${ctx}: menu ${i} enable bits ${got.toString(2).padStart(i ? 5 : 1, '0')}, model ${want[i].toString(2).padStart(i ? 5 : 1, '0')} (S ${doc.S}, clipboard ${doc.clip.length})`); }
+      const want = wantBits(doc), mask = [1, 0xFF];
+      for (let i = 0; i < 2; i++) { const got = menuBits(env, i) & mask[i]; menu.ok(got === want[i], () => `${ctx}: menu ${i} enable bits ${got.toString(2).padStart(i ? 8 : 1, '0')}, model ${want[i].toString(2).padStart(i ? 8 : 1, '0')} (S ${doc.S}, clipboard ${doc.clip.length})`); }
     }
   }
   /** The state after a loadDoc / reset (no step): remembers $7800-$7FFF as it is. */
@@ -447,9 +469,9 @@ export class Drv2 extends Drv {
   }
   /** An Edit menu item (1 Cut, 2 Copy, 3 Paste, 4 Select all) by WR_MENU; only for an item the model has enabled (the kernel sends no other: 12.4). */
   menuItem(item) {
-    const { env, doc } = this, before = readDisp(env.m), name = ['', 'Cut', 'Copy', 'Paste', 'Select all'][item];
+    const { env, doc } = this, before = readDisp(env.m), name = ['', 'Cut', 'Copy', 'Paste', 'Select all', 'Find...', 'Find again'][item];
     this.note(`menu ${name}`); this.stat.menus++;
-    const en = doc.editEnabled()[item === 4 ? 4 : item - 1];
+    const en = doc.editEnabled()[WM.ITEM_IDX[item]];
     if (!en) throw new Error(`Drv2.menuItem(${item}): the model has it disabled (${this.ctx()})`);
     const wasPasteOk = item === 3 ? doc.pasteOk() : true;
     let r;
@@ -474,7 +496,7 @@ export function typeMark(env, hold = 3, rel = 3) {
 export function menuKeys(env, codes) { for (const c of codes) L.typeCode(env, c, 3, 3); }
 /** The Edit title box (43..79 at y 0-7: File is 8..42) and the items' rows: item index k (Cut 0, Copy 1, Paste 2, separator 3, Select all 4) at y 14 + 10 k, x inside the drop-down (WINDOWS 18.2, 18.3). */
 export const EDIT_TITLE = [60, 4], editItemPos = (k) => [60, 14 + 10 * k];
-export const ITEM_INDEX = { 1: 0, 2: 1, 3: 2, 4: 4 };
+export const ITEM_INDEX = { 1: 0, 2: 1, 3: 2, 4: 4, 5: 6, 6: 7 };
 /** The Edit menu by the pointer (the gesture of fileNew): press the title, move to the item, release over it (`release` false: leave the button down, the menu open). */
 export function editMenu(env, itemIndex, { release = true, wait = 12 } = {}) {
   const { m } = env;

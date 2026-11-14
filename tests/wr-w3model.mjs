@@ -65,14 +65,17 @@ export function newSaveField(nameCodes) {
   fieldSetText(stub, f, nameCodes);
   return f;
 }
+/** WRITE 14.4 / 14.9 item 4: the Find dialog is the Save dialog re-labelled: "Find:" and the button "Find" (same rectangles, same Field, same Cancel). */
+export const FIND = { label: 'Find:', btn: 'Find' };
+export const findDraw = (g, f, focus = 0) => saveDraw(g, f, focus, FIND);
 export const fieldTyped = (f, code) => fieldKey(stub, f, code);
 /** The Save dialog as drawn; the Field focused (caret) unless `focus` says another (1 Save button, 2 Cancel button). */
-export function saveDraw(g, f, focus = 0) {
+export function saveDraw(g, f, focus = 0, tx = null) {
   const s = SAVE;
   dialogLook(g, s.dlg);
-  labelLook(g, { ...s.label, flags: 0, text: { codes: codesOf(s.label.text) } });
+  labelLook(g, { ...s.label, flags: 0, text: { codes: codesOf(tx ? tx.label : s.label.text) } });
   fieldLook(g, f, focus === 0);
-  buttonLook(g, { x: s.save.x, y: s.save.y, w: s.save.w, h: s.save.h, flags: 0x11, text: { codes: codesOf(s.save.text) } }, focus === 1);
+  buttonLook(g, { x: s.save.x, y: s.save.y, w: s.save.w, h: s.save.h, flags: 0x11, text: { codes: codesOf(tx ? tx.btn : s.save.text) } }, focus === 1);
   buttonLook(g, { x: s.cancel.x, y: s.cancel.y, w: s.cancel.w, h: s.cancel.h, flags: 1, text: { codes: codesOf(s.cancel.text) } }, focus === 2);
 }
 
@@ -94,7 +97,7 @@ export class W3 {
   get title() { return 'Notepad: ' + textOf(this.name); }
   clone() { const w = new W3(); w.doc = this.doc.clone(); w.name = this.name.slice(); return w; }
   /** "New" (13.1, clarification 6): an empty document, the name "Untitled" (the clipboard is kept: 12.1). */
-  newDoc() { this.doc.reset(); this.name = codesOf(UNTITLED); }
+  newDoc() { this.doc.reset(); this.name = codesOf(UNTITLED); }   // Doc.reset keeps the clipboard and F
   save(typed, host = {}) {
     const n = saveName(typed);
     if (n === null) return { saved: null, alert: null, name: null };
@@ -108,10 +111,10 @@ export class W3 {
     if (!(opts.pickOk ?? true) || !(opts.openOk ?? true) || !nameOk(picked)) return { alert: MSG.openFail };
     const codes = textIn(file);
     if (codes.length > CAP) return { alert: MSG.tooLong };
-    if (!(opts.readOk ?? true)) { const clip = this.doc.clip; this.doc = new Doc(); this.doc.clip = clip; this.name = codesOf(UNTITLED); return { alert: MSG.openFail }; }
+    if (!(opts.readOk ?? true)) { const clip = this.doc.clip, find = this.doc.find; this.doc = new Doc(); this.doc.clip = clip; this.doc.find = find; this.name = codesOf(UNTITLED); return { alert: MSG.openFail }; }
     const d = new Doc(codes);
-    d.clip = this.doc.clip;
-    if (d.nl > MAXLINES) { const clip = this.doc.clip; this.doc = new Doc(); this.doc.clip = clip; this.name = codesOf(UNTITLED); return { alert: MSG.tooMany }; }
+    d.clip = this.doc.clip; d.find = this.doc.find;               // 14.5: "New" and Open keep F, as the clipboard
+    if (d.nl > MAXLINES) { const clip = this.doc.clip, find = this.doc.find; this.doc = new Doc(); this.doc.clip = clip; this.doc.find = find; this.name = codesOf(UNTITLED); return { alert: MSG.tooMany }; }
     this.doc = d; this.name = picked.slice();
     return { alert: null };
   }

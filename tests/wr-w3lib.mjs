@@ -52,7 +52,7 @@ export function bootW3(opts = {}) {
   env.host = host;
   env.st = new W3.W3();
   // W3 memory watch (13.7: $C000-$C3FF, Write's image and the RAM after it, below the arena): writes are allowed only into Write's variables: from WR_BUF to the end of WR_PNAME's 32 bytes
-  const { m, S } = env, lo = S.WR_BUF, hi = S.WR_PNAME + 32;
+  const { m, S } = env, lo = S.WR_BUF, hi = Math.max(S.WR_PNAME + 32, S.WR_FFB !== undefined ? S.WR_FFB + 32 : 0);   // W4: WR_FN, F's codes (WR_FCODES) and the Find Field's buffer WR_FFB (31 bytes) are in this range too
   env.imgw = { n: 0, first: [], armed: true, lo, hi, log: new Map() };
   const wr0 = m.bus.write;
   m.bus.write = function (addr, v) {
@@ -95,15 +95,15 @@ export function alertFn(env, msg) {
   return (g) => W3.alertDraw(g, msg, !!def && rd16(m, S.K_FOCUS) === def);
 }
 /** The Save dialog's drawing function for the Field model `f`; the focus is read from K_FOCUS (the Field, the Save button, the Cancel button). */
-export function saveFn(env, f) {
+export function saveFn(env, f, tx = null) {
   const { m, S } = env, d = rd16(m, S.WR_SDLG), fld = rd16(m, S.WR_SFLD), foc = rd16(m, S.K_FOCUS);
   const focus = foc === fld ? 0 : d && foc === rd16(m, d + S.Dialog_default) ? 1 : d && foc === rd16(m, d + S.Dialog_cancel) ? 2 : -1;
-  return (g) => W3.saveDraw(g, f, focus);
+  return (g) => W3.saveDraw(g, f, focus, tx);
 }
 
 /**
  * Every W3 check after a step, into `sec`: the document (text, caret, top, changed, line table, bar), the selection and clipboard, the Edit menu's enable bits, the name, the title, WR_DK, the screen.
- * o: { dk: 0 | 1 | 2 (WR_DK), dlg (function | null), msg, field (Field model, for dk 1) }.
+ * o: { dk: 0 | 1 | 2 | 3 (WR_DK: 1 Save, 2 alert, 3 Find), dlg (function | null), msg, field (Field model, for dk 1 and 3) }.
  */
 export function check(env, sec, ctx, o = {}) {
   const { m, S } = env, st = env.st, doc = st.doc, dk = o.dk ?? 0;
@@ -111,17 +111,19 @@ export function check(env, sec, ctx, o = {}) {
   sec.ok(d.length === 0, () => `${ctx}: ${d[0]} [${W.describe(doc)}]`);
   const s2 = W.stateDiff2(env, doc), d2 = [...s2.sel, ...s2.clip];
   sec.ok(d2.length === 0, () => `${ctx}: ${d2[0]}`);
-  const want = W.wantBits(doc), mask = [1, 0x1F];
+  const d4 = W.stateDiff4(env, doc);
+  sec.ok(d4.length === 0, () => `${ctx}: ${d4[0]}`);
+  const want = W.wantBits(doc), mask = [1, 0xFF];
   for (let i = 0; i < 2; i++) { const got = W.menuBits(env, i) & mask[i]; sec.ok(got === want[i], () => `${ctx}: menu ${i} enable bits ${got.toString(2)}, model ${want[i].toString(2)}`); }
   const nm = nameOf(env), tt = titleOf(env);
   sec.ok(WM.textOf(nm) === WM.textOf(st.name), () => `${ctx}: WR_NAME ${JSON.stringify(WM.textOf(nm))}, model ${JSON.stringify(WM.textOf(st.name))}`);
   sec.ok(WM.textOf(tt) === st.title, () => `${ctx}: WR_TITLE ${JSON.stringify(WM.textOf(tt))}, model ${JSON.stringify(st.title)}`);
   sec.ok(m.ram[S.WR_DK] === dk, () => `${ctx}: WR_DK ${m.ram[S.WR_DK]}, want ${dk}`);
   sec.ok(m.ram[S.K_PROG] === 3, () => `${ctx}: K_PROG ${m.ram[S.K_PROG]}, Write should be running`);
-  const dlg = o.dlg !== undefined ? o.dlg : o.discard ? discardFn(env) : dk === 2 ? alertFn(env, o.msg) : dk === 1 ? saveFn(env, o.field) : null;
+  const dlg = o.dlg !== undefined ? o.dlg : o.discard ? discardFn(env) : dk === 2 ? alertFn(env, o.msg) : dk === 1 ? saveFn(env, o.field) : dk === 3 ? saveFn(env, o.field, W3.FIND) : null;      // W4: dk 3 = the Find dialog (the Save dialog re-labelled, 14.9 item 4)
   const sc = screenDiff(env, st, dlg);
   sec.ok(sc === null, () => `${ctx}: screen ${sc} [${W.describe(doc)}; title ${st.title}${dk ? '; dialog ' + dk : ''}]`);
-  const open = o.discard ? W.dialogUp(env) : dk === 1 ? dlgOpen(env, 'save') : dk === 2 ? dlgOpen(env, 'alert') : (L.openWindows(m, S).length === 1);
+  const open = o.discard ? W.dialogUp(env) : dk === 1 || dk === 3 ? dlgOpen(env, 'save') : dk === 2 ? dlgOpen(env, 'alert') : (L.openWindows(m, S).length === 1);
   sec.ok(open, () => `${ctx}: windows ${JSON.stringify(L.openWindows(m, S).map((w) => [w.title, w.x, w.y, w.w, w.h]))}, dialog state ${dk}`);
   return d.length === 0 && sc === null;
 }

@@ -31,6 +31,13 @@
 //  R10. A drag (E_MOVE with the capture) ends a run (it follows an E_DOWN, which already ended it).
 //  R11. (coordinator, 2026-11-12) every Edit menu action that takes effect (Cut, Copy, Paste, Select all) ends the UP / DOWN run.  A Paste that is refused does nothing (R12); the generators do not send a refused Paste while a run is live.
 //  R12. A Paste that is refused changes nothing: the selection, the mark and the run stay.
+// W4 (14, as amended by 14.9; the readings are marked CONTRACT? where used):
+//  R13. The clicked code (14.2) is computed for every E_DOWN the text view takes; `lck` (WR_LCK) is the last E_DOWN's clicked code (-1 for none, $FFFF in the machine), set by every E_DOWN (a double-click
+//       too), and to none by every change of the text ("New" and Open included: a new document is built by relayout()).  A double-click is an E_DOWN with the mark 0, the kernel's flag set and a
+//       clicked code equal to lck (not none).  It ends the UP / DOWN run (it is an E_DOWN: 11.5), selects the run around the code (word codes 0-9 A-Z a-z; spaces; any other code alone; never across a 13),
+//       anchor = the run's start, caret = its end, mark 0, "Shown" for the caret.
+//  R14. F (`find`: 0-30 codes, 32-126) survives "New" and Open (14.5), like the clipboard.  The search (14.5): from p0 = the selection's end (the caret when empty), starts p0 .. L - |F|, then 0 .. min(p0, L - |F| + 1) - 1;
+//       letters compare ignoring case, other codes exactly.  Found: anchor = p, caret = p + |F|, mark 0, the run ended (14.9 item 6), "Shown".  Not found: nothing changes (the alert is the driver's).
 import { fileURLToPath } from 'node:url';
 import { Gfx6Model, OP_SET, OP_CLR, OP_XOR, fonts } from './gfx6-model.mjs';
 import { buttonLook, labelLook, dialogLook, toDisp } from './wm-model2.mjs';
@@ -49,9 +56,16 @@ export const DLG = { x: 128, y: 64, w: 256, h: 64, label: { x: 144, y: 76, w: 20
 export const FILE_MENU = menuSpec(1, 'File', [[1, 0, 'New'], [2, 0, 'Open...'], [3, 0, 'Save...']]);   // W3 (13.1)
 export const KEY = { DELETE: 12, LEFT: 8, RIGHT: 9, DOWN: 10, UP: 11, ENTER: 13, TAB: 14, BACKTAB: 15, MENU: 16, CLOSE: 17, MARK: 18, ESC: 27 };
 export const CLIPMAX = 2048, CLIP_ADDR = 0x7800;
-export const EDIT_MENU = menuSpec(2, 'Edit', [[1, 1, 'Cut'], [2, 1, 'Copy'], [3, 1, 'Paste'], [0, 2, ''], [4, 0, 'Select all']]);   // 12.4: flags bit 0 disabled at start, bit 1 separator
+export const EDIT_MENU = menuSpec(2, 'Edit', [[1, 1, 'Cut'], [2, 1, 'Copy'], [3, 1, 'Paste'], [0, 2, ''], [4, 0, 'Select all'], [0, 2, ''], [5, 0, 'Find...'], [6, 1, 'Find again']]);   // 12.4, 14.3: flags bit 0 disabled at start, bit 1 separator
 export const MENUS = [FILE_MENU, EDIT_MENU];
-export const ITEM = { CUT: 1, COPY: 2, PASTE: 3, ALL: 4 };
+export const ITEM = { CUT: 1, COPY: 2, PASTE: 3, ALL: 4, FIND: 5, AGAIN: 6 };
+/** The Edit menu's item index (position, separators counting) of each id: Cut 0, Copy 1, Paste 2, [sep 3], Select all 4, [sep 5], Find... 6, Find again 7. */
+export const ITEM_IDX = { 1: 0, 2: 1, 3: 2, 4: 4, 5: 6, 6: 7 };
+export const NEDIT = 8, FMAX = 30;
+/** Word codes (14.2): 0-9, A-Z, a-z. */
+export const isWord = (c) => (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122);
+/** 14.5: letters fold to one case, every other code is itself. */
+export const fold = (c) => (c >= 65 && c <= 90 ? c + 32 : c);
 export const codesOf = (s) => Array.from(s, (c) => c.charCodeAt(0));
 export const textOf = (codes) => String.fromCharCode(...codes);
 const PW = fonts().prop6.W;
@@ -95,13 +109,15 @@ export function wrapAll(codes) {
 export class Doc {
   constructor(codes = [], caret = 0) {
     this.codes = codes.slice(); this.caret = caret; this.top = 0; this.changed = false; this.run = null;
-    this.anchor = caret; this.mark = 0; this.clip = [];            // 12.2: anchor = caret, mark 0 at the start; 12.5: the clipboard is empty at each start (never mutated in place: clones share it)
+    this.anchor = caret; this.mark = 0; this.clip = []; this.find = []; this.lck = -1;            // 14.5: F, empty at each start (never mutated in place: clones share it); 14.9 item 3: WR_LCK
+    // 12.2: anchor = caret, mark 0 at the start; 12.5: the clipboard is empty at each start (never mutated in place: clones share it)
     this.relayout();
   }
   /** "New" (11.6): the document emptied; the clipboard is kept (12.1). */
   reset() { this.codes = []; this.caret = 0; this.top = 0; this.changed = false; this.run = null; this.anchor = 0; this.mark = 0; this.relayout(); }
-  clone() { const d = new Doc(this.codes, this.caret); d.top = this.top; d.changed = this.changed; d.run = this.run; d.anchor = this.anchor; d.mark = this.mark; d.clip = this.clip; return d; }
+  clone() { const d = new Doc(this.codes, this.caret); d.top = this.top; d.changed = this.changed; d.run = this.run; d.anchor = this.anchor; d.mark = this.mark; d.clip = this.clip; d.find = this.find; d.lck = this.lck; return d; }
   relayout() {
+    this.lck = -1;                                                         // 14.9 item 3: every change of the text (and a new document) sets WR_LCK to none
     this.lens = wrapAll(this.codes); this.starts = new Array(this.lens.length); let s = 0;
     for (let i = 0; i < this.lens.length; i++) { this.starts[i] = s; s += this.lens[i]; }
   }
@@ -196,15 +212,44 @@ export class Doc {
     if (this.mark === 0) this.mark = 1; else { this.mark = 0; this.anchor = this.caret; }
     return this.stamp() !== was;
   }
-  /** E_DOWN in the text view at (px, py) (12.4: mark 0: anchor = caret; mark 1: the anchor stays; the mark unchanged). */
-  click(px, py) {
-    const was = this.stamp();
-    const j = this.top + Math.floor((py - TVR.y) / PITCH), ln = Math.min(j, this.nl - 1);
-    this.run = null; this.caret = this.posInLine(ln, px - TEXTX);
-    if (this.mark === 0) this.anchor = this.caret;
-    this.shown();
-    return this.stamp() !== was;
+  /** The line an E_DOWN at (px, py) is in (11.5): top + floor((py - 30) / 9), or the last line when that is past it. */
+  lineAt(py) { return Math.min(this.top + Math.floor((py - TVR.y) / PITCH), this.nl - 1); }
+  /** 14.2: the clicked code of an E_DOWN at (px, py): the k in [s, s + n') with 27 + tw(s, k) <= px < 27 + tw(s, k + 1), s for px < 27; -1 (none) right of the last drawn code or on an empty line. */
+  clickedCode(px, py) {
+    const ln = this.lineAt(py), s = this.starts[ln], n = this.lens[ln], n1 = n - (n > 0 && this.codes[s + n - 1] === 13 ? 1 : 0);
+    if (n1 < 1) return -1;
+    if (px < TEXTX) return s;
+    let x = TEXTX;
+    for (let k = s; k < s + n1; k++) { const x1 = x + PW[this.codes[k]]; if (px >= x && px < x1) return k; x = x1; }
+    return -1;
   }
+  /** 14.2: the run around code k: word codes, spaces, or the code alone; never across a 13 (a 13 is neither). */
+  runAround(k) {
+    const c = this.codes[k];
+    if (!isWord(c) && c !== 32) return [k, k + 1];
+    const same = isWord(c) ? isWord : (x) => x === 32;
+    let a = k, b = k + 1;
+    while (a > 0 && same(this.codes[a - 1])) a--;
+    while (b < this.L && same(this.codes[b])) b++;
+    return [a, b];
+  }
+  /**
+   * E_DOWN in the text view at (px, py) with the kernel's double-click flag `flag` (14.2 as amended by 14.9 item 3; 12.4 for the rest): a double-click selects the run around the clicked code; otherwise
+   * W2's click (mark 0: anchor = caret; mark 1: the anchor stays).  WR_LCK = the clicked code (or none) afterwards.  Returns true when anything changed.
+   */
+  press(px, py, flag = false) {
+    const was = this.stamp(), a0 = this.anchor, code = this.clickedCode(px, py);
+    const dbl = this.mark === 0 && !!flag && code >= 0 && code === this.lck;
+    this.run = null;
+    if (dbl) { const [a, b] = this.runAround(code); this.anchor = a; this.caret = b; this.mark = 0; }
+    else { this.caret = this.posInLine(this.lineAt(py), px - TEXTX); if (this.mark === 0) this.anchor = this.caret; }
+    this.shown();
+    this.lck = code;
+    this.lastDouble = dbl;
+    return this.stamp() !== was || this.anchor !== a0;
+  }
+  /** E_DOWN without the flag (W2's click). */
+  click(px, py) { return this.press(px, py, false); }
   /** E_MOVE with the capture (12.4): the line clamped to the lines shown, no autoscroll; the anchor stays. */
   drag(px, py) {
     const was = this.stamp();
@@ -225,10 +270,10 @@ export class Doc {
   }
   static consumes(code) { return (code >= 32 && code <= 126) || [8, 9, 10, 11, 12, 13, 18].includes(code); }
   // ---- the Edit menu (12.4)
-  /** The enabled bits of the items 1-5 (Cut, Copy, Paste, the separator, Select all). */
-  editEnabled() { return [this.S >= 1 && this.S <= CLIPMAX, this.S >= 1 && this.S <= CLIPMAX, this.clip.length >= 1, false, true]; }
-  /** The menu entry's enable word as the kernel keeps it (WINDOWS 8 / 18; bit n - 1 - k for item k of n = 5). */
-  editBits() { return this.editEnabled().reduce((w, e, k) => w | (e ? 1 << (4 - k) : 0), 0); }
+  /** The enabled flags of the 8 items (12.4, 14.3): Cut, Copy, Paste, the separator, Select all, the separator, Find... (always), Find again (F not empty). */
+  editEnabled() { return [this.S >= 1 && this.S <= CLIPMAX, this.S >= 1 && this.S <= CLIPMAX, this.clip.length >= 1, false, true, false, true, this.find.length >= 1]; }
+  /** The menu entry's enable word as the kernel keeps it (WINDOWS 8 / 18; bit n - 1 - k for item k of n = 8). */
+  editBits() { return this.editEnabled().reduce((w, e, k) => w | (e ? 1 << (NEDIT - 1 - k) : 0), 0); }
   /** The lines of the text a Paste of the clipboard would leave (the selection replaced) and its length. */
   pasteResult() {
     const a = this.selStart, b = this.selEnd, codes = this.codes.slice(0, a).concat(this.clip, this.codes.slice(b));
@@ -238,7 +283,8 @@ export class Doc {
   /** E_MENU 2, `item`: returns false when the item is disabled (the kernel never sends it: nothing is done) or does nothing (a refused Paste). */
   menuItem(item) {
     const en = this.editEnabled();
-    if (item < 1 || item > 4 || !en[item === ITEM.ALL ? 4 : item - 1]) return false;      // item ids 1-3, then the separator (id 0), then Select all (id 4)
+    if (item < 1 || item > 6 || !en[ITEM_IDX[item]]) return false;      // item ids 1-3, the separator (id 0), Select all (4), a separator, Find... (5, the dialog: the driver's), Find again (6)
+    if (item === ITEM.FIND) return false;
     const was = this.stamp();
     if (item === ITEM.CUT) { this.clip = this.selCodes(); this.deleteSel(); this.shown(); }
     else if (item === ITEM.COPY) { this.clip = this.selCodes(); this.mark = 0; this.run = null; }          // the selection is kept (12.4); every menu action ends a run (R11)
@@ -246,8 +292,31 @@ export class Doc {
       if (!this.pasteOk()) return false;                                                    // CONTRACT? a refused Paste changes nothing at all, the run too (R12)
       const r = this.pasteResult(), a = this.selStart;
       this.codes = r.codes; this.caret = a + this.clip.length; this.anchor = this.caret; this.mark = 0; this.changed = true; this.run = null; this.relayout(); this.shown();
-    } else { this.anchor = 0; this.caret = this.L; this.mark = 0; this.run = null; this.shown(); }           // every menu action ends a run (R11)
+    } else if (item === ITEM.AGAIN) return this.search(this.find).found;                                  // 14.5: no dialog; Not found changes nothing
+    else { this.anchor = 0; this.caret = this.L; this.mark = 0; this.run = null; this.shown(); }           // every menu action ends a run (R11)
     return true;
+  }
+  /** 14.5: the position of the first match of F (an array of codes), or -1 (R14). */
+  findPos(F) {
+    const n = F.length, L = this.L, m = L - n + 1;
+    if (n < 1 || m < 1) return -1;
+    const p0 = this.selEnd, match = (p) => { for (let i = 0; i < n; i++) if (fold(this.codes[p + i]) !== fold(F[i])) return false; return true; };
+    for (let p = p0; p < m; p++) if (match(p)) return p;
+    for (let p = 0; p < Math.min(p0, m); p++) if (match(p)) return p;
+    return -1;
+  }
+  /** The search with F: found -> the match selected (anchor = p, caret = p + |F|, mark 0, the run ended, shown); returns { found, pos }.  Not found: nothing changes. */
+  search(F) {
+    const p = this.findPos(F);
+    if (p < 0) return { found: false, pos: -1 };
+    this.anchor = p; this.caret = p + F.length; this.mark = 0; this.run = null; this.shown();
+    return { found: true, pos: p };
+  }
+  /** "Find" in the dialog with the Field text `text` (14.4): empty: nothing (F kept); else F = text and the search. */
+  findDialog(text) {
+    if (text.length === 0) return { found: null, pos: -1, empty: true };
+    this.find = text.slice(0, FMAX);
+    return this.search(this.find);
   }
   /** E_MENU 1, 1 ("New") on a document that is not changed (no dialog): 11.6 + 12.1 (the clipboard is kept). */
   newDoc() { this.reset(); }
@@ -479,23 +548,23 @@ export function selfTest(out = []) {
   { const d = new Doc(codesOf('abc'), 0); d.click(TEXTX, 31); d.drag(511, 31); const a = d.caret; d.drag(0, 31); eq('12.4 E_MOVE at px 511 / 0: the last position / position 0 of the line', [a, d.caret, d.anchor], [3, 0, 0]); }
   { const d = new Doc(codesOf('\r'.repeat(30)), 0); d.click(30, 31); d.drag(100, 31 + 9 * 7); const c1 = [d.caret, d.top]; d.scrollTo(4); eq('12.2 E_SCROLL changes neither the selection nor the mark', [c1, d.caret, d.anchor, d.mark, d.top], [[7, 0], 7, 0, 0, 4]); }
   // ---- the Edit menu, the clipboard
-  eq('12.4 the Edit menu: items Cut 1, Copy 2, Paste 3, a separator (never enabled), Select all 4; flags 1, 1, 1, 2, 0', EDIT_MENU.items.map((i) => [i.id, i.flags]), [[1, 1], [2, 1], [3, 1], [0, 2], [4, 0]]);
-  eq('12.4 enabled bits at the start: only Select all (bit 0 of the entry\'s word, n - 1 - k with n = 5, k = 4)', [new Doc().editBits(), new Doc().editEnabled()], [1, [false, false, false, false, true]]);
-  { const d = mk('abcdef', 4, 1); eq('12.4 enabled bits with a selection (S = 3), no clipboard: Cut, Copy and Select all', d.editBits(), 0x10 | 0x08 | 0x01); d.clip = codesOf('q'); eq('... and Paste with a clipboard', d.editBits(), 0x1D); }
-  { const d = mk('abcdef', 3); d.clip = codesOf('q'); eq('12.4 an empty selection: Cut and Copy disabled, Paste enabled (C >= 1)', d.editBits(), 0x05); }
+  eq('12.4 / 14.3 the Edit menu: items Cut 1, Copy 2, Paste 3, a separator (never enabled), Select all 4, a separator, Find... 5, Find again 6; flags 1, 1, 1, 2, 0, 2, 0, 1', EDIT_MENU.items.map((i) => [i.id, i.flags]), [[1, 1], [2, 1], [3, 1], [0, 2], [4, 0], [0, 2], [5, 0], [6, 1]]);
+  eq('12.4 / 14.3 enabled bits at the start: Select all and Find... (bit n - 1 - k of the entry\'s word, n = 8: k = 4 and 6: 0x08 + 0x02)', [new Doc().editBits(), new Doc().editEnabled()], [0x0A, [false, false, false, false, true, false, true, false]]);
+  { const d = mk('abcdef', 4, 1); eq('12.4 enabled bits with a selection (S = 3), no clipboard: Cut, Copy and Select all', d.editBits(), 0x80 | 0x40 | 0x08 | 0x02); d.clip = codesOf('q'); eq('... and Paste with a clipboard', d.editBits(), 0xEA); }
+  { const d = mk('abcdef', 3); d.clip = codesOf('q'); eq('12.4 an empty selection: Cut and Copy disabled, Paste enabled (C >= 1)', d.editBits(), 0x2A); }
   { const d = mk('abcdef', 4, 1); d.menuItem(ITEM.CUT); eq('12.4 Cut: clipboard "bcd", the selection deleted, caret = start, mark 0, changed', [textOf(d.clip), textOf(d.codes), st(d), d.changed], ['bcd', 'aef', [1, 1, 0], true]); }
   { const d = mk('abcdef', 1, 4, 1); d.menuItem(ITEM.COPY); eq('12.4 Copy: clipboard "bcd", the selection kept (anchor 4, caret 1), mark 0, not changed', [textOf(d.clip), textOf(d.codes), st(d), d.changed], ['bcd', 'abcdef', [1, 4, 0], false]); }
   { const d = mk('abcdef', 3); eq('12.4 Cut / Copy with S = 0 are disabled: the kernel never sends them (menuItem false, nothing done)', [d.menuItem(ITEM.CUT), d.menuItem(ITEM.COPY), d.menuItem(ITEM.PASTE), d.clip.length], [false, false, false, 0]); }
   { const d = mk('abcdef', 2); d.clip = codesOf('XY'); d.menuItem(ITEM.PASTE); eq('12.4 Paste, empty selection: inserted at the caret, caret after, anchor = caret, changed', [textOf(d.codes), st(d), d.changed], ['abXYcdef', [4, 4, 0], true]); }
   { const d = mk('abcdef', 4, 1, 1); d.clip = codesOf('XY'); d.menuItem(ITEM.PASTE); eq('12.4 Paste over a selection [1, 4): deleted, then the 2 codes inserted at 1; mark 0', [textOf(d.codes), st(d)], ['aXYef', [3, 3, 0]]); }
   { const d = mk('abcdef', 2); d.menuItem(ITEM.ALL); const a = st(d); d.mark = 1; d.menuItem(ITEM.ALL); eq('12.4 Select all: anchor 0, caret L, mark 0 (also with the mark on)', [a, st(d)], [[6, 0, 0], [6, 0, 0]]); }
-  { const d = new Doc(); d.menuItem(ITEM.ALL); eq('12.4 Select all in an empty document: an empty selection (Cut / Copy stay disabled)', [st(d), d.editBits()], [[0, 0, 0], 1]); }
+  { const d = new Doc(); d.menuItem(ITEM.ALL); eq('12.4 Select all in an empty document: an empty selection (Cut / Copy stay disabled)', [st(d), d.editBits()], [[0, 0, 0], 0x0A]); }
   { const d = new Doc(codesOf('\r'.repeat(39)), 0); d.menuItem(ITEM.ALL); eq('12.4 Select all in a 40-line document, top 0: the view follows the caret (line 39): top = 39 - 15 = 24', [d.caret, d.anchor, d.top], [39, 0, 24]); }
   { const d = mk('abcdef', 4, 1); d.clip = codesOf('keep'); d.mark = 1; d.codes = codesOf('xyz'); d.caret = d.anchor = 2; d.reset(); eq('12.1 "New" keeps the clipboard, clears the rest (caret, anchor, mark, top, changed)', [textOf(d.clip), d.L, st(d), d.top, d.changed], ['keep', 0, [0, 0, 0], 0, false]); }
   // ---- selections of 2,048 and 2,049 codes; Paste's limits
   { const t = codesOf('ab '.repeat(700)), d = new Doc(t, 0), e = new Doc(t, 0);        // 2,100 codes
     d.anchor = 0; d.caret = 2048; e.anchor = 0; e.caret = 2049;
-    eq('12.4 a selection of 2,048 codes: Cut and Copy enabled; of 2,049: disabled (Select all and Paste as before)', [d.S, d.editBits(), e.S, e.editBits()], [2048, 0x19, 2049, 0x01]);
+    eq('12.4 a selection of 2,048 codes: Cut and Copy enabled; of 2,049: disabled (Select all and Paste as before)', [d.S, d.editBits(), e.S, e.editBits()], [2048, 0xCA, 2049, 0x0A]);
     d.menuItem(ITEM.COPY); eq('12.5 Copy of 2,048 codes: the clipboard holds exactly the codes', [d.clip.length, d.clip.every((c, i) => c === t[i])], [2048, true]);
     eq('12.4 a refused Cut of 2,049 codes (disabled): nothing done', [e.menuItem(ITEM.CUT), e.L], [false, 2100]);
     d.mark = 0; d.anchor = d.caret = 2100; eq('12.4 Paste of 2,048 codes into 2,100: 4,148, accepted (and the selection of Select all: 2,100 > 2,048, Cut disabled)', [d.menuItem(ITEM.PASTE), d.L], [true, 4148]); }
@@ -550,5 +619,57 @@ export function selfTest(out = []) {
   { const mkRun = () => { const d = mk2(54, 2, 1); d.run = 24; return d; };    // a live run, selection [2, 54)
     const runs = [ITEM.COPY, ITEM.ALL, ITEM.CUT, ITEM.PASTE].map((it) => { const d = mkRun(); d.clip = codesOf('q'); d.menuItem(it); return d.run; });
     eq('R11 (coordinator): every Edit action that takes effect (Copy, Select all, Cut, Paste) ends the UP / DOWN run', runs, [null, null, null, null]); }
+  // ======================================================================================================================================================
+  // W4 (docs/WRITE.md 14, 14.9): hand-worked cases.  "ab cd": a 7, b 7, space 4, c 6, d 7: the codes' pixel spans from x = 27: a [27, 34), b [34, 41), space [41, 45), c [45, 51), d [51, 58).
+  eq('14.3 Find again is enabled when F is not empty (bit 0 of the Edit word); Find... always (bit 1)', (() => { const d = new Doc(); const a = d.editBits(); d.find = codesOf('x'); return [a & 3, d.editBits() & 3]; })(), [2, 3]);
+  eq('14.3 the item ids map to the item indexes (separators count): Cut 0, Copy 1, Paste 2, Select all 4, Find... 6, Find again 7', [1, 2, 3, 4, 5, 6].map((i) => ITEM_IDX[i]), [0, 1, 2, 4, 6, 7]);
+  {
+    const d = new Doc(codesOf('ab cd'), 0), cc = (px, py = 31) => d.clickedCode(px, py);
+    eq('14.2 the clicked code: px 27 / 33 -> a (0); 34 / 40 -> b (1); 41 / 44 -> the space (2); 45 / 50 -> c (3); 51 / 57 -> d (4)', [27, 33, 34, 40, 41, 44, 45, 50, 51, 57].map((x) => cc(x)), [0, 0, 1, 1, 2, 2, 3, 3, 4, 4]);
+    eq('14.2 px < 27 is the line\'s first code; px 58 (right of the last drawn code) is none', [cc(24), cc(26), cc(58), cc(300)], [0, 0, -1, -1]);
+  }
+  { const d = new Doc(codesOf('ab\r\rcd'), 0); eq('14.2 lines [3, 1, 2]: a final 13 is not a clickable code (px 41 on line 0 is none); an empty paragraph (n\' = 0) has none; the last line by x; a click past the last line is in the last line', [d.lens, d.clickedCode(40, 31), d.clickedCode(41, 31), d.clickedCode(30, 40), d.clickedCode(30, 49), d.clickedCode(36, 49), d.clickedCode(36, 170), d.clickedCode(41, 49)], [[3, 1, 2], 1, -1, -1, 4, 5, 5, -1]); }
+  { const d = new Doc(codesOf('foo  bar, x1'), 0), r = (k) => d.runAround(k);
+    eq('14.2 runs: a word code takes the run of word codes (digits too), a space the run of spaces, any other code alone', [r(1), r(3), r(4), r(6), r(8), r(9), r(10), r(11)], [[0, 3], [3, 5], [3, 5], [5, 8], [8, 9], [9, 10], [10, 12], [10, 12]]); }
+  { const d = new Doc(codesOf('ab\rcd ef'), 0); eq('14.2 a run never crosses a 13: b -> [0, 2]; c -> [3, 5]; the space -> [5, 6]', [d.runAround(1), d.runAround(3), d.runAround(5)], [[0, 2], [3, 5], [5, 6]]); }
+  { const d = new Doc(codesOf('ab cd'), 0); d.press(36, 31, false);
+    eq('14.9 item 3: the first E_DOWN sets WR_LCK to its clicked code (b = 1), caret 1 or 2 by the click rule', [d.lck, d.anchor === d.caret], [1, true]);
+    d.press(36, 31, true); eq('a flagged E_DOWN on the same code with the mark 0: the double-click selects "ab" [0, 2), mark 0, lck stays 1', [d.anchor, d.caret, d.mark, d.lck, d.lastDouble], [0, 2, 0, 1, true]);
+    d.press(36, 31, false); eq('the third click (no flag) is W2\'s click: an empty selection', [d.anchor === d.caret, d.lastDouble, d.lck], [true, false, 1]);
+    d.press(36, 31, true); eq('the fourth (flagged, the same code) double-clicks again', [d.anchor, d.caret], [0, 2]); }
+  { const d = new Doc(codesOf('ab cd'), 0); d.press(30, 31, false); d.press(36, 31, true); eq('a flagged E_DOWN on a neighbouring code (a then b) is not a double-click', [d.lastDouble, d.lck, d.anchor === d.caret], [false, 1, true]); }
+  { const d = new Doc(codesOf('ab cd'), 0); d.press(36, 31, false); d.key(120); eq('an edit between the two clicks: WR_LCK = none, so a flagged E_DOWN is not a double-click', [d.lck, (d.press(36, 31, true), d.lastDouble)], [-1, false]); }
+  { const d = new Doc(codesOf('ab cd'), 0); d.press(36, 31, false); d.key(18); d.press(36, 31, true); eq('the mark on: a flagged E_DOWN on the same code is a click (it extends: the anchor stays), not a double-click', [d.lastDouble, d.mark, d.anchor, d.lck], [false, 1, d.anchor, 1]); }
+  { const d = new Doc(codesOf('ab cd'), 0); d.press(36, 31, false); d.press(100, 31, true); eq('a flagged E_DOWN right of the last code: none; no double-click; lck none', [d.lastDouble, d.lck], [false, -1]); d.press(36, 31, true); eq('... and the next flagged E_DOWN on b does not double-click (lck was none)', d.lastDouble, false); }
+  { const d = new Doc(codesOf('ab cd'), 0); d.press(36, 31, false); d.reset(); eq('"New" sets lck to none', d.lck, -1); }
+  { const d = new Doc(codesOf('ab cd'), 0); d.press(36, 31, false); d.run = 5; d.press(36, 31, true); eq('a double-click ends the UP / DOWN run', d.run, null); }
+  { const d = new Doc(codesOf('\r'.repeat(19) + 'word'), 0); d.top = 3; d.press(35, 31 + 9 * 12, false); d.press(35, 31 + 9 * 12, true); eq('top 3: the E_DOWN row 12 is line 15, an empty paragraph (n\' = 0): no clicked code, so a flagged press there is not a double-click', [d.lck, d.lastDouble], [-1, false]); }
+  { const d = new Doc(codesOf('x'.repeat(40) + ' ' + 'y'.repeat(40)), 0); d.press(100, 31, false); d.press(100, 31, true);
+    eq('14.2 a word that wraps across display lines: a run of 40 x is on line 0 (W 444 holds 63 x of 7); the double-click selects the codes around the click in the document', [d.lens, d.anchor, d.caret], [[41, 40], 0, 40]); }
+  // ---- 14.5 the search
+  { const d = new Doc(codesOf('abcabc ABC'), 2);
+    eq('14.5 from the caret 2: F "abc" -> p 3 (the match at 0 is before the caret)', d.findPos(codesOf('abc')), 3);
+    eq('14.5 F "bca": p 1 ... the caret 2 is past it: wrap to 1', d.findPos(codesOf('bca')), 1);
+    d.anchor = 3; d.caret = 6; eq('14.5 a selection [3, 6): the search starts at its end (6): "abc" folds with "ABC": p 7', d.findPos(codesOf('abc')), 7);
+    d.anchor = 7; d.caret = 10; eq('14.5 from 10 = L: nothing from 10 to m = 8; wraps to 0', d.findPos(codesOf('abc')), 0);
+    d.anchor = 6; d.caret = 1; eq('14.5 p0 is max(anchor, caret) = 6, not the caret', d.findPos(codesOf('abc')), 7);
+    eq('14.5 no match, an F longer than the text, an F as long as the text', [d.findPos(codesOf('zzz')), d.findPos(codesOf('abcabc ABCD')), d.findPos(codesOf('abcabc abc'))], [-1, -1, 0]); }
+  { const d = new Doc(codesOf('xxabc'), 0); eq('14.5 F at L - |F| (p 2)', d.findPos(codesOf('abc')), 2);
+    const e = new Doc(codesOf('abcxx'), 3); eq('14.5 F at 0 found by the wrap (the caret is at 3, m = 3: the first range is empty)', e.findPos(codesOf('abc')), 0);
+    const f = new Doc(codesOf('aXaXa'), 2); eq('14.5 F "Xa" with the caret between two matches: the one after (3)', f.findPos(codesOf('Xa')), 3);
+    const g = new Doc(codesOf('abab'), 2); eq('14.5 a match spanning the wrap point: "bab" at 1 crosses the caret 2: found once, at 1', [g.findPos(codesOf('bab')), (g.search(codesOf('bab')), [g.anchor, g.caret])], [1, [1, 4]]);
+    eq('14.5 ... then again: the search starts after the selection (4): nothing there, the wrap finds the same match (p 1) again', g.search(codesOf('bab')).pos, 1); }
+  { const d = new Doc(codesOf('Hello World [z] @ {Z}'), 0);
+    eq('14.5 case folding: "WORLD" finds "World", "hello" finds "Hello"; "z" finds "Z" and "z"', [d.findPos(codesOf('WORLD')), d.findPos(codesOf('hello')), d.findPos(codesOf('z')), d.findPos(codesOf('Z'))], [6, 0, 13, 13]);
+    eq('14.5 other codes compare exactly: "[" does not find "{" (91 and 123 are 32 apart but not letters), "@" does not find "`"', [new Doc(codesOf('{'), 0).findPos(codesOf('[')), new Doc(codesOf('`'), 0).findPos(codesOf('@')), new Doc(codesOf('[ @'), 0).findPos(codesOf('['))], [-1, -1, 0]); }
+  { const d = new Doc(codesOf('one two one'), 4); d.mark = 1; d.run = 7; const r = d.search(codesOf('one'));
+    eq('14.5 found: anchor = p, caret = p + |F|, mark 0, the UP / DOWN run ended (14.9 item 6)', [r.found, r.pos, d.anchor, d.caret, d.mark, d.run], [true, 8, 8, 11, 0, null]);
+    const e = new Doc(codesOf('one two one'), 4); e.mark = 1; e.run = 7; const q = e.search(codesOf('zzz'));
+    eq('14.5 not found: nothing changes (the selection, the mark and the run stay)', [q.found, e.anchor, e.caret, e.mark, e.run], [false, 4, 4, 1, 7]); }
+  { const d = new Doc(codesOf('abc'), 0);
+    eq('14.4 an empty "Find" keeps F and does nothing; a non-empty one sets F and searches', (() => { d.find = codesOf('b'); const a = d.findDialog([]); const f1 = d.find.slice(); const b = d.findDialog(codesOf('c')); return [a.empty, textOf(f1), textOf(d.find), b.found, d.anchor, d.caret]; })(), [true, 'b', 'c', true, 2, 3]); }
+  { const d = new Doc(codesOf('abc'), 0); d.find = codesOf('b'); d.menuItem(ITEM.AGAIN); const a = [d.anchor, d.caret]; const e = new Doc(codesOf('abc'), 0); e.menuItem(ITEM.AGAIN);
+    eq('14.3 Find again searches with F (no dialog); with F empty it is disabled (the kernel never sends it): nothing is done', [a, [e.anchor, e.caret], e.menuItem(ITEM.AGAIN), e.menuItem(ITEM.FIND)], [[1, 2], [0, 0], false, false]); }
+  { const d = new Doc(codesOf('abc'), 0); d.find = codesOf('xyz'); d.reset(); const clipKept = d.find.length; eq('14.5 "New" keeps F', clipKept, 3); }
   return bad;
 }

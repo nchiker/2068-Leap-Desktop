@@ -296,14 +296,14 @@ if (cartOk && has('4')) {
     env.frames_(o.frames ?? 3);
     const sd = W.stateDiff(env, doc), d = sd.doc.concat(sd.lt, sd.bar, W.stateDiff2(env, doc).sel, W.stateDiff2(env, doc).clip).filter((x) => !(o.menuOpen && x.startsWith('K_FOCUS')));
     sec.ok(d.length === 0, () => `${what}: ${d[0]} [${W.describe(doc)}]`);
-    const want = W.wantBits(doc), got = [W.menuBits(env, 0) & 1, W.menuBits(env, 1) & 0x1F];
+    const want = W.wantBits(doc), got = [W.menuBits(env, 0) & 1, W.menuBits(env, 1) & 0xFF];
     sec.ok(got[0] === want[0] && got[1] === want[1], () => `${what}: enable bits ${got} want ${want} (S ${doc.S}, clipboard ${doc.clip.length})`);
     if (!o.menuOpen) { const s = W.liveDiff(env, doc, { full: true }); sec.ok(s === null, () => `${what}: screen ${s} [${W.describe(doc)}]`); }
   };
   const key = (code, what) => { L.typeCode(env, code, 3, 3); W.Doc_key(doc, code); chk(what || `key ${code}`); };
   const typeText = (s) => { for (const c of s) { L.typeCode(env, c.charCodeAt(0), 3, 3); doc.key(c.charCodeAt(0)); } chk(`typed ${JSON.stringify(s.slice(0, 20))}...`, { frames: 6 }); };
   chk('Write just launched');
-  sec.ok(doc.editBits() === 1 && W.menuBits(env, 1) === 1, () => `at the start only Select all is enabled (bits ${W.menuBits(env, 1)} want 1)`);
+  sec.ok(doc.editBits() === 0x0A && W.menuBits(env, 1) === 0x0A, () => `at the start only Select all and Find... are enabled (bits ${W.menuBits(env, 1)} want 10)`);
   // 1. every item disabled but Select all, no text: open the menu, look, release on a disabled item
   for (const k of [0, 1, 2, 3]) {
     const s0 = stateKey(env), name = ['Cut', 'Copy', 'Paste', 'the separator'][k];
@@ -361,11 +361,11 @@ if (cartOk && has('5')) {
     const t = text(2100);
     run('2,100 codes: selections of 2,049 and 2,048', t, 'w2-2100', (d) => {
       drv.menuItem(4);
-      sec.ok(d.S === d.L && !d.editEnabled()[0] && !d.editEnabled()[1] && (W.menuBits(env, 1) & 0x18) === 0, () => `Select all of ${d.L} codes: S ${d.S}; Cut and Copy must be disabled (S > 2,048): bits ${W.menuBits(env, 1).toString(2)}`);
+      sec.ok(d.S === d.L && !d.editEnabled()[0] && !d.editEnabled()[1] && (W.menuBits(env, 1) & 0xC0) === 0, () => `Select all of ${d.L} codes: S ${d.S}; Cut and Copy must be disabled (S > 2,048): bits ${W.menuBits(env, 1).toString(2)}`);
       drv.mark(); shrinkTo(d, 2049);
-      sec.ok(d.S === 2049 && (W.menuBits(env, 1) & 0x18) === 0, () => `S ${d.S}: enable bits ${W.menuBits(env, 1).toString(2)}, Cut and Copy must be off`);
+      sec.ok(d.S === 2049 && (W.menuBits(env, 1) & 0xC0) === 0, () => `S ${d.S}: enable bits ${W.menuBits(env, 1).toString(2)}, Cut and Copy must be off`);
       K(8);
-      sec.ok(d.S === 2048 && (W.menuBits(env, 1) & 0x18) === 0x18, () => `S ${d.S}: enable bits ${W.menuBits(env, 1).toString(2)}, Cut and Copy must be on`);
+      sec.ok(d.S === 2048 && (W.menuBits(env, 1) & 0xC0) === 0xC0, () => `S ${d.S}: enable bits ${W.menuBits(env, 1).toString(2)}, Cut and Copy must be on`);
       drv.menuItem(2);
       const cl = W.readState2(env);
       sec.ok(cl.cln === 2048 && cl.clip.every((c, i) => c === t.codes[i]), () => `Copy of 2,048 codes: WR_CLN ${cl.cln}, the codes at $7800 must be the first 2,048 of the document`);
@@ -447,7 +447,7 @@ if (cartOk && has('5')) {
       drv.mark(); K(8, 30); drv.key(120);                              // over 30 codes: L 5,091
       sec.ok(W.readState(env).codes.length === WM.CAP - 29 && d.L === WM.CAP - 29, () => `a code typed over a selection of 30 in a full document: L ${W.readState(env).codes.length}, want ${WM.CAP - 29}`);
       drv.menuItem(4);
-      sec.ok(!d.editEnabled()[0] && !d.editEnabled()[1] && (W.menuBits(env, 1) & 0x18) === 0, () => 'Select all of 5,091 codes: Cut and Copy disabled');
+      sec.ok(!d.editEnabled()[0] && !d.editEnabled()[1] && (W.menuBits(env, 1) & 0xC0) === 0, () => 'Select all of 5,091 codes: Cut and Copy disabled');
       drv.key(65);
       sec.ok(W.readState(env).codes.length === 1 && d.L === 1, () => `typing over Select all: L ${W.readState(env).codes.length}, want 1`);
     });
@@ -501,7 +501,7 @@ if (cartOk && has('7')) {
     env.frames_(o.frames ?? 3);
     const w2s = W.stateDiff2(env, doc), sd = W.stateDiff(env, doc), d = sd.doc.concat(sd.lt, sd.bar, w2s.sel, w2s.clip).filter((x) => !(o.dialog && x.startsWith('K_FOCUS')));
     sec.ok(d.length === 0, () => `${what}: ${d[0]} [${W.describe(doc)}]`); n++;
-    const want = W.wantBits(doc), got = [W.menuBits(env, 0) & 1, W.menuBits(env, 1) & 0x1F];
+    const want = W.wantBits(doc), got = [W.menuBits(env, 0) & 1, W.menuBits(env, 1) & 0xFF];
     sec.ok(got[0] === want[0] && got[1] === want[1], () => `${what}: enable bits ${got} want ${want} (S ${doc.S}, clipboard ${doc.clip.length})`);
     const sc = W.liveDiff(env, doc, { full: true, dialog: !!o.dialog }); sec.ok(sc === null, () => `${what}: screen ${sc} [${W.describe(doc)}]`);
     return d.length === 0 && sc === null;
@@ -511,7 +511,7 @@ if (cartOk && has('7')) {
   const typeText = (s, every = 12) => { let i = 0; for (const c of s) { const code = c === '\n' ? 13 : c.charCodeAt(0); L.typeCode(env, code, 3, 3); W.Doc_key(doc, code); if (++i % every === 0) if (!chk(`typing, after ${i} codes`, { frames: 1 })) return false; } return chk(`typed ${JSON.stringify(s.slice(0, 20))}...`); };
   const menuByKeys = (items, item, what) => {
     // MENU opens the first menu with an enabled item ("File": New), RIGHT goes to "Edit" with its first enabled item highlighted, DOWN walks the enabled items (wrapping), ENTER chooses
-    const en = doc.editEnabled(); const order = [1, 2, 3, 4].filter((i) => en[i === 4 ? 4 : i - 1]);
+    const en = doc.editEnabled(); const order = [1, 2, 3, 4].filter((i) => en[WM.ITEM_IDX[i]]);
     const steps = order.indexOf(item);
     if (steps < 0) { sec.ok(false, `${what}: the model has item ${item} disabled (set-up)`); return false; }
     L.typeCode(env, 16, 3, 3); L.typeCode(env, 9, 3, 3);
@@ -577,7 +577,7 @@ if (cartOk && has('7')) {
   sec.ok(L.launchByDoubleClick(env, 3), 'Write started again'); env.frames_(12);
   doc = new WM.Doc();
   chk('a new start: the clipboard is gone (C = 0), Paste disabled');
-  sec.ok(rd16(m, S.WR_CLN) === 0 && (W.menuBits(env, 1) & 0x1F) === 1, () => `after a new start: WR_CLN ${rd16(m, S.WR_CLN)}, Edit bits ${W.menuBits(env, 1)} (want 0 and 1)`);
+  sec.ok(rd16(m, S.WR_CLN) === 0 && (W.menuBits(env, 1) & 0xFF) === 0x0A, () => `after a new start: WR_CLN ${rd16(m, S.WR_CLN)}, Edit bits ${W.menuBits(env, 1)} (want 0 and 1)`);
   sec.end(`${n} state / screen checks`);
 }
 
@@ -613,7 +613,7 @@ if (cartOk && has('8')) {
     W.focusTv(env);
     // WR_MENU: Select all, Copy / Cut (enabled by the model), Paste, each checked against the model
     for (const item of [4, 2, 3, 1, 3, 4, 1, 3]) {
-      if (!d.editEnabled()[item === 4 ? 4 : item - 1] || (item === 3 && d.run !== null && !d.pasteOk())) continue;
+      if (!d.editEnabled()[WM.ITEM_IDX[item]] || (item === 3 && d.run !== null && !d.pasteOk())) continue;
       const r = drv.menuItem(item); if (r) { const u = r.stack; if (u > mn.v) mn = { v: u, what: `${name}, item ${item} (${W.describe(d)})` }; }
       if (sec.nf > 6) break;
     }

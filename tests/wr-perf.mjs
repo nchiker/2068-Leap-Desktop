@@ -331,7 +331,7 @@ if (w2ok) {
       W.focusTv(env);
       const r = W.sendDraw(env, o.tv); diTotal += r.di; if (r.stack - 2 > worstD.v) worstD = { v: r.stack - 2, what: `${name}, selection ${dd.S}` };
       for (const item of [4, 2, 3, 1, 3]) {
-        if (!dd.editEnabled()[item === 4 ? 4 : item - 1] || (item === 3 && dd.run !== null && !dd.pasteOk())) continue;
+        if (!dd.editEnabled()[WM.ITEM_IDX[item]] || (item === 3 && dd.run !== null && !dd.pasteOk())) continue;
         const r2 = mk(dd, item); if (r2.stack > worstM.v) worstM = { v: r2.stack, what: `${name}, item ${item}` };
       }
     }
