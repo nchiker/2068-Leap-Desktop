@@ -14,6 +14,8 @@
 import { checks } from './lib.mjs';
 import * as H from './shell-lib.mjs';
 import * as T from './tk-lib.mjs';
+import * as LMOD from './look-model.mjs';
+import { layoutOf } from './wm-model3.mjs';
 
 const { L, SM, hex, rd16 } = H;
 const { argv, argNum } = L;
@@ -218,6 +220,47 @@ function shellGroup() {
     sec.ok(boxDiff === 0, () => `${boxDiff} pixels differ in the place where a close box would be: the shell's window has none`);
     sec.end('window, 3 icons (bitmaps from icons.txt, names, selection) in 8 screens');
   }
+  // ---- LOOK 7: the open "Leap" menu under the bar's line (LOOK 3.1) and the Mac arrow (LOOK 3.6), against look-model
+  {
+    const sec = new Sec('2e the open "Leap" menu (LOOK 3.1): the title box XORed in rows 0-6 only (the bar\'s line stays), the drop-down with no top line of its own, its sides from row 8, the shadow 2 columns right and 1 row under, the highlight on the item under the pointer; the whole screen against look-model; released away from the items the shell comes back unchanged (save-under)');
+    const LM = LMOD, lay = layoutOf([SM.LEAP_MENU]), en = [[true, true, true, true, true]];
+    const mask = () => L.pointerMask(m, S);
+    const screenWith = (h) => { const icons2 = H.iconAddrs(env), g = SM.renderShell({ sel: icons2.indexOf(rd16(m, S.K_FOCUS)) }); LM.openLook(g, [SM.LEAP_MENU], lay, en, 0, h); return g; };
+    L.moveTo(env, 500, 180); env.frames_(4);
+    const d0 = H.shellDiff(env); sec.ok(d0 === null, () => `before the menu: ${d0}`);
+    L.moveTo(env, 20, 4); m.mouse.buttons = L.MOUSE_LEFT; env.frames_(4);
+    { const d = H.diffDisp(H.readDisp(m), SM.toDisp(screenWith(-1)), mask()); sec.ok(d === null, () => `the menu open, no highlight: ${d}`); }
+    // the contract's own statements: the line at row 7 is intact under the title box, the box is inverted in rows 0-6
+    { const dd = H.readDisp(m), mk = mask(), b = lay.boxes[0], dr = lay.drops[0];
+      // pixels under the pointer's byte rectangle are left out (the arrow covers part of the title and the first rows)
+      const seen = (x, y) => mk[y * 64 + (x >> 3)] !== 0, bit = (x, y) => (dd[y * 64 + (x >> 3)] >> (7 - (x & 7))) & 1;
+      const tally = (pts) => { let n = 0, t = 0; for (const [x, y] of pts) if (seen(x, y)) { t++; n += bit(x, y); } return [n, t]; };
+      const row = (x0, x1, y) => Array.from({ length: x1 - x0 }, (_, i) => [x0 + i, y]);
+      const col = (x, y0, y1) => Array.from({ length: y1 - y0 }, (_, i) => [x, y0 + i]);
+      const [line, lineT] = tally(row(b.x, b.x + b.w, 7));
+      sec.ok(line === lineT && lineT > 0, () => `the bar's line under the open title: ${line} of ${lineT} visible pixels ink`);
+      let inv = 0; for (let y = 0; y < 7; y++) for (let x = b.x + 20; x < b.x + b.w; x++) if (seen(x, y)) inv += bit(x, y);
+      sec.ok(inv > 0, () => `the title box is not inverted (${inv} ink pixels in rows 0-6, right of the pointer)`);
+      const [side, sideT] = tally([...col(dr.x, 8, 8 + dr.h), ...col(dr.x + dr.w - 1, 8, 8 + dr.h)]);
+      sec.ok(side === sideT, () => `the drop-down's sides from row 8: ${side} of ${sideT} visible pixels ink`);
+      const [sh, shT] = tally([...col(dr.x + dr.w, 10, 8 + dr.h), ...col(dr.x + dr.w + 1, 10, 8 + dr.h), ...row(dr.x + 2, dr.x + dr.w + 2, 8 + dr.h)]);
+      sec.ok(sh === shT, () => `the shadow (2 columns right, 1 row under): ${sh} of ${shT} visible pixels ink`); }
+    for (const k of [0, 2, 3, 4]) {
+      L.moveTo(env, 30, 9 + 10 * k + 5); env.frames_(3);
+      const d = H.diffDisp(H.readDisp(m), SM.toDisp(screenWith(k)), mask()); sec.ok(d === null, () => `the menu open, item ${k} highlighted: ${d}`);
+    }
+    L.moveTo(env, 400, 150); env.frames_(3); m.mouse.buttons = L.MOUSE_UP; env.frames_(8);
+    const d2 = H.shellDiff(env); sec.ok(d2 === null, () => `after the menu is closed (released away from it): ${d2}`);
+    sec.ok(rd16(m, S.K_FOCUS) !== 0 && m.ram[S.K_PROG] === 0, 'still the shell');
+    // the arrow: P_ARROW drawn by the ISR at the pointer, the Mac arrow of LOOK 3.6, over the desk and over paper inside the window
+    for (const [px, py, what] of [[300, 150, 'the desk'], [301, 123, 'the desk (odd x, odd y)'], [230, 85, 'the paper inside the shell window'], [200, 30, 'the title bar']]) {
+      L.moveTo(env, px, py); env.frames_(4);
+      const g = SM.renderShell({ sel: H.iconAddrs(env).indexOf(rd16(m, S.K_FOCUS)) }); LM.drawArrow(g, LM.ARROW_MAC, px, py);
+      const d = H.diffDisp(H.readDisp(m), SM.toDisp(g));
+      sec.ok(d === null, () => `the pointer at (${px}, ${py}) over ${what}: the whole screen with the Mac arrow drawn there: ${d}`);
+    }
+    sec.end('open menu (plain and 4 highlights), the bar line / title box / sides / shadow statements, the close, the Mac arrow at 4 places');
+  }
   // ---- clicks, double clicks, TAB, arrows, ENTER against ShellSim, random
   {
     const sec = new Sec('2b clicks, double clicks (gaps near 20 frames), TAB / BACKTAB / arrows, ENTER and clicks off the icons against ShellSim: K_FOCUS, K_PROG, S_LAST / S_LASTF, K_CAPTURE and the screen after every action');
@@ -396,7 +439,7 @@ function cwindowGroup() {
 
   // ---- 3a. the look: the close box on the front CWindow only
   {
-    const sec = new Sec('3a CWindow look (SHELL 10.1): Window look + the close box CLR fill (x+w-19, y+1, 15, 7) / SET frame (x+w-18, y+2, 13, 5), only while the window is in front; random stacks of Windows and CWindows opened, raised and closed, the whole screen against the model after each step');
+    const sec = new Sec('3a CWindow look (SHELL 10.1): Window look + the close box CLR fill (x+8, y+1, 15, 7) / SET frame (x+10, y+2, 11, 5), the Mac look of LOOK 3, only while the window is in front; random stacks of Windows and CWindows opened, raised and closed, the whole screen against the model after each step');
     const st = { screens: 0, boxes: 0, noBox: 0, raises: 0, closes: 0 };
     for (let i = 0; i < NLOOK && sec.nf < 10; i++) {
       const r = rng.next();
@@ -451,7 +494,7 @@ function cwindowGroup() {
   };
   // ---- 3b. tracking: press, move out and back in, release in or out
   {
-    const sec = new Sec('3b close box tracking (10.1): a press in (x+w-19, y+1, 15, 7) of the front CWindow draws the pressed look (XOR fill (x+w-17, y+3, 11, 3)); E_MOVE: the look follows whether the point is in the box; E_UP in the box: released and E_CMD posted (A 10, C View_id, E slot, D 0), outside: released, nothing posted; other events dropped; through TK_DISPATCH and K_DISPATCH');
+    const sec = new Sec('3b close box tracking (10.1): a press in (x+8, y+1, 15, 7) of the front CWindow draws the pressed look (XOR fill (x+11, y+3, 9, 3)); E_MOVE: the look follows whether the point is in the box; E_UP in the box: released and E_CMD posted (A 10, C View_id, E slot, D 0), outside: released, nothing posted; other events dropped; through TK_DISPATCH and K_DISPATCH');
     const st = { cases: 0, closed: 0, aborted: 0, moves: 0, pressedLooks: 0, unpressedLooks: 0, via: { TK: 0, K: 0 }, edge: 0, halts: 0, keysDropped: 0 };
     for (let ci = 0; ci < NTRACK && sec.nf < 10; ci++) {
       const rc = randRect(), id = rng.int(0, 255), title = randTitle(Math.max(0, rc.w - 30));
@@ -578,6 +621,159 @@ function cwindowGroup() {
       sec.ok(same === null, () => `key ${key} (${frontKind} in front): the screen changed: ${same}`);
     }
     sec.end(`${st.close} CLOSE keys on a front CWindow, ${st.plain} CLOSE keys on a front plain Window (dropped), ${st.other} other keys`);
+    clear();
+  }
+  // ======================================================================================================================
+  // LOOK 7 rows (docs/LOOK.md 3, 7): each element of the look against the contract's own statements (pixel by pixel, written here, not taken from look-model), and against the
+  // model's whole screen.  The desk is the 25% pattern ($88 on even rows, $22 on odd rows; bit 7 the leftmost pixel).
+  const dispBit = (d, x, y) => (d[y * 64 + (x >> 3)] >> (7 - (x & 7))) & 1;
+  const deskBit = (x, y) => (((y & 1) ? 0x22 : 0x88) >> (7 - (x & 7))) & 1;
+  const longTitle = () => { const n = rng.int(0, 30); let s = ''; for (let k = 0; k < n; k++) s += rng.pick('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 '); return s; };
+  const stackModel = () => SM.paintWindows(wins.map((q) => ({ kind: q.kind, x: q.x, y: q.y, w: q.w, h: q.h, title: q.title })), {});
+  // ---- 3e. the desk (25% grey) and the menu bar (paper rows 0-6, a line at row 7)
+  {
+    const sec = new Sec('3e the desk is the 25% pattern ($88 / $22) over (0, 8, 512, 184) and the bar is paper rows 0-6 with an ink line at row 7 (LOOK 3.1, 3.4): on an empty desk, with a window open, and after it is closed (the repaint); the whole screen against the look model');
+    const check = (what) => {
+      const d = T.readDisp(m), mk = L.pointerMask(m, S);
+      const free = (x, y) => !wins.some((q) => x >= q.x && x < q.x + q.w && y >= q.y && y < q.y + q.h);
+      let bad = 0, first = '';
+      for (let y = 8; y < 192; y++) for (let x = 0; x < 512; x++) if (free(x, y) && dispBit(d, x, y) !== deskBit(x, y)) { bad++; if (!first) first = `(${x}, ${y}) is ${dispBit(d, x, y)}, want ${deskBit(x, y)}`; }
+      sec.ok(bad === 0, () => `${what}: ${bad} desk pixel(s) off the 25% pattern, first ${first}`);
+      let line = 0; for (let x = 0; x < 512; x++) line += dispBit(d, x, 7);
+      sec.ok(line === 512, () => `${what}: the bar's line (row 7) has ${line} ink pixels, want 512`);
+      let ink = 0; for (let y = 0; y < 7; y++) for (let x = 120; x < 512; x++) ink += dispBit(d, x, y);   // right of the title "Leap": paper
+      sec.ok(ink === 0, () => `${what}: ${ink} ink pixels in the bar's rows 0-6 right of the title`);
+      const df = T.diffDisp(d, SM.toDisp(stackModel()), mk);
+      sec.ok(df === null, () => `${what}: the whole screen against the model: ${df}`);
+    };
+    clear(); check('empty desk');
+    const w = open('Window', { x: 128, y: 48, w: 256, h: 96 }, 'Temp', 1); check('a window open');
+    close(w); check('after the window is closed');
+    sec.end('3 screens: 184 desk rows, the bar\'s line and paper rows');
+    clear();
+  }
+  // ---- 3f. a window's pixels, LOOK 3.2
+  {
+    const sec = new Sec('3f a window (LOOK 3.2): frame (x, y, w-2, h-1), shadow (x+w-2, y+1, 2, h-1) and (x+2, y+h-1, w-2, 1), the two corners paper, the separator (x+1, y+8, w-4), the stripes at y+2, y+4, y+6 from x+2 for w-6 on the active window only, the title cut to w-66 and centred at x + floor((w-2-tw)/2) with a paper gap of 6 each side on the active bar, the content paper; the whole screen against the model; windows 48 to 320 wide (the narrow ones cut their titles)');
+    const st = { screens: 0, active: 0, inactive: 0, cut: 0, empty: 0, narrow: 0 };
+    for (let i = 0; i < 60 && sec.nf < 8; i++) {
+      clear();
+      const w = 16 * rng.int(3, 20), h = 8 * rng.int(2, 15), x = 16 * rng.int(0, (512 - w) / 16), y = 8 * rng.int(1, (192 - h) / 8);
+      const title = longTitle(), kind = rng.pick(['Window', 'CWindow']), act = rng.chance(0.6);
+      const oc = [{ x: 0, y: 8 }, { x: 416, y: 8 }, { x: 0, y: 160 }, { x: 416, y: 160 }].find((o) => o.x + 96 <= x || o.x >= x + w || o.y + 32 <= y || o.y >= y + h);
+      const other = { x: oc.x, y: oc.y, w: 96, h: 32 };
+      let me;
+      try {
+        if (act) { open('Window', other, 'Other', 2); me = open(kind, { x, y, w, h }, title, 3); }
+        else { me = open(kind, { x, y, w, h }, title, 3); open('Window', other, 'Other', 2); }
+      } catch (e) { sec.ok(false, `window (${x}, ${y}, ${w}, ${h}) refused: ${e.message}`); continue; }
+      const d = T.readDisp(m), b = (xx, yy) => dispBit(d, xx, yy);
+      st.screens++; if (act) st.active++; else st.inactive++; if (w < 112) st.narrow++;
+      const ones = (x0, y0, w0, h0) => { let n = 0; for (let yy = y0; yy < y0 + h0; yy++) for (let xx = x0; xx < x0 + w0; xx++) n += b(xx, yy); return n; };
+      const tag = `window (${x}, ${y}, ${w}, ${h}) ${kind} ${act ? 'active' : 'inactive'} "${title}"`;
+      sec.ok(ones(x, y, w - 2, 1) === w - 2 && ones(x, y + h - 2, w - 2, 1) === w - 2 && ones(x, y, 1, h - 1) === h - 1 && ones(x + w - 3, y, 1, h - 1) === h - 1, () => `${tag}: the frame (x, y, w-2, h-1) is not all ink`);
+      sec.ok(ones(x + w - 2, y + 1, 2, h - 1) === 2 * (h - 1) && ones(x + 2, y + h - 1, w - 2, 1) === w - 2, () => `${tag}: the shadow is not all ink`);
+      sec.ok(ones(x + w - 2, y, 2, 1) === 0 && ones(x, y + h - 1, 2, 1) === 0, () => `${tag}: a corner the shadow leaves is not paper`);
+      sec.ok(ones(x + 1, y + 8, w - 4, 1) === w - 4, () => `${tag}: the separator (x+1, y+8, w-4) is not all ink`);
+      sec.ok(ones(x + 1, y + 9, w - 4, h - 11) === 0, () => `${tag}: the content (x+1, y+9, w-4, h-11) holds ${ones(x + 1, y + 9, w - 4, h - 11)} ink pixels, want 0`);
+      const codes = SM.codesOf(title); let n = 0; for (let k = 1; k <= codes.length; k++) if (g0.textw(codes.slice(0, k)) <= w - 66) n = k;
+      const tws = n ? g0.textw(codes.slice(0, n)) : 0, tx = x + Math.floor((w - 2 - tws) / 2);
+      if (n < codes.length) st.cut++; if (n === 0) st.empty++;
+      for (const r of [2, 4, 6]) {
+        let bad = 0;
+        for (let xx = x + 2; xx < x + w - 4; xx++) {
+          if (act && kind === 'CWindow' && xx >= x + 8 && xx < x + 23) continue;       // the close box's zone
+          const inGap = n > 0 && xx >= tx - 6 && xx < tx + tws + 6, titleCol = n > 0 && xx >= tx && xx < tx + tws;
+          if (!act) { if (!titleCol && b(xx, y + r) !== 0) bad++; }                    // inactive: no stripes, paper but for the title's own pixels
+          else if (inGap) { if (!titleCol && b(xx, y + r) !== 0) bad++; }
+          else if (b(xx, y + r) !== 1) bad++;
+        }
+        sec.ok(bad === 0, () => `${tag}: stripe row y+${r} has ${bad} wrong pixel(s) (title ${n} codes, width ${tws}, tx ${tx}, gap ${tx - 6}..${tx + tws + 5})`);
+      }
+      const df = T.diffDisp(d, SM.toDisp(stackModel()), L.pointerMask(m, S));
+      sec.ok(df === null, () => `${tag}: the whole screen against the model: ${df}`);
+      void me;
+    }
+    sec.end(`${st.screens} windows (${st.active} active, ${st.inactive} inactive, ${st.narrow} narrower than 112), ${st.cut} with a cut title, ${st.empty} whose title is cut to nothing (no gap)`);
+    clear();
+  }
+  // ---- 3g. the close box's hit rectangle (x+8, y+1, 15, 7), at the left
+  {
+    const sec = new Sec('3g the close box hit rectangle (LOOK 3.3): a press at each corner and the centre of (x+8, y+1, 15, 7) tracks (pressed look) and posts one E_CMD on release; a press just outside it (left, right, above, below) or at the old place on the right (x+w-19 ..) posts nothing and leaves the screen as it was');
+    const st = { inside: 0, outside: 0 };
+    for (const rc of [{ x: 0, y: 8, w: 96, h: 32 }, { x: 128, y: 48, w: 256, h: 96 }, { x: 192, y: 80, w: 320, h: 112 }]) {
+      const bx = SM.boxRect(rc.x, rc.y, rc.w), id = 40 + st.inside;
+      for (const p of [[bx.x, bx.y], [bx.x + bx.w - 1, bx.y], [bx.x, bx.y + bx.h - 1], [bx.x + bx.w - 1, bx.y + bx.h - 1], [bx.x + 7, bx.y + 3]]) {
+        const out = trackOnce({ wins: [{ kind: 'CWindow', ...rc, title: 'Box', id }], down: p, frames: [[{ t: 'up', px: p[0], py: p[1] }]], via: st.inside % 2 ? 'TK' : 'K', tracking: true }, `inside ${p}`);
+        if (!out) { sec.ok(false, `press at ${p} did not run`); continue; }
+        st.inside++;
+        sec.ok(out.posted.length === 1 && out.posted[0].a === SM.E.CMD && out.posted[0].c === id, () => `press and release at (${p}) in the box of (${rc.x}, ${rc.y}, ${rc.w}): posts ${JSON.stringify(out.posted)}, want one E_CMD with C ${id}`);
+        sec.ok(out.states.length > 0 && out.states.every((s) => s.pressed), () => `press at (${p}): the box was not tracked as pressed at the HALT`);
+        for (const s of out.states) sec.ok(s.d === null, () => `press at (${p}): the screen with the box pressed: ${s.d}`);
+        const d = screenIs(false); sec.ok(d === null, () => `after the release at (${p}): the screen ${d}`);
+      }
+      for (const p of [[bx.x - 1, bx.y], [bx.x - 1, bx.y + bx.h - 1], [bx.x + bx.w, bx.y], [bx.x + bx.w, bx.y + bx.h - 1], [bx.x, bx.y - 1], [bx.x + bx.w - 1, bx.y - 1], [bx.x, bx.y + bx.h], [bx.x + bx.w - 1, bx.y + bx.h], [rc.x + rc.w - 12, rc.y + 4], [rc.x + rc.w - 19 + 2, rc.y + 3]]) {
+        const out = trackOnce({ wins: [{ kind: 'CWindow', ...rc, title: 'Box', id }], down: p, frames: [[{ t: 'up', px: p[0], py: p[1] }]], via: st.outside % 2 ? 'TK' : 'K', tracking: false }, `outside ${p}`);
+        if (!out) { sec.ok(false, `press at ${p} did not run`); continue; }
+        st.outside++;
+        sec.ok(out.posted.length === 0, () => `press at (${p}) outside the box of (${rc.x}, ${rc.y}, ${rc.w}): ${out.posted.length} E_CMD posted, want 0`);
+        const d = screenIs(false); sec.ok(d === null, () => `press at (${p}) outside the box of (${rc.x}, ${rc.y}, ${rc.w}): the screen ${d}`);
+      }
+    }
+    sec.end(`${st.inside} presses inside (corners and centre), ${st.outside} presses outside (8 around it, 2 at the old place on the right)`);
+    clear();
+  }
+  // ---- 3h. the drag outline over the desk and over a window (WINDOWS 17.4, unchanged)
+  {
+    const sec = new Sec('3h the drag outline (WINDOWS 17.4, unchanged by the look): while a window is dragged the screen is the stack with the XOR of the 1-pixel frame at the candidate (x, y, w, h) (dotted over the desk, solid over a window\'s paper), none at the start place; on E_UP it is erased and the window is moved');
+    const st = { cases: 0, overDesk: 0, overWin: 0, moved: 0, held: 0 };
+    const outline = (g, cx, cy, w, h) => {
+      const f = (xx, yy) => { if (xx >= 0 && xx < 512 && yy >= 0 && yy < 192) g.set(xx, yy, g.get(xx, yy) ^ 1); };
+      for (let i = 0; i < w; i++) { f(cx + i, cy); f(cx + i, cy + h - 1); }
+      for (let j = 1; j < h - 1; j++) { f(cx, cy + j); f(cx + w - 1, cy + j); }
+    };
+    for (let ci = 0; ci < 40 && sec.nf < 8; ci++) {
+      clear();
+      const rc = randRect(), kind = rng.pick(['Window', 'CWindow']);
+      let under = null;
+      if (ci % 4 !== 0) { const o = randRect(); if (o.x !== rc.x || o.y !== rc.y) under = o; }
+      if (under) open('Window', under, 'Under', 5);
+      const A = open(kind, rc, 'Drag', 6);
+      const p0 = [rc.x + 3, rc.y + 4];                                   // the title bar, left of a close box
+      const clampP = (q) => [Math.min(Math.max(q[0], 0), 511), Math.min(Math.max(q[1], 0), 191)];     // a pointer position is on the screen
+      const pts = [clampP([p0[0] + 16 * rng.int(-6, 6) + rng.int(-7, 7), p0[1] + 8 * rng.int(-4, 4) + rng.int(-3, 3)]), clampP([p0[0] + 16 * rng.int(-6, 6), p0[1] + 8 * rng.int(-4, 4)])];
+      const cand = (p) => ({ x: Math.min(Math.max(rc.x + 16 * Math.floor((p[0] - p0[0] + 8) / 16), 0), 512 - rc.w), y: Math.min(Math.max(rc.y + 8 * Math.floor((p[1] - p0[1] + 4) / 8), 8), 192 - rc.h) });
+      const evs = [{ t: 'move', p: pts[0] }, { t: 'move', p: pts[1] }, { t: 'up', p: pts[1] }];
+      let wakes = 0, c = { x: rc.x, y: rc.y }, err = null;
+      T.drainEvents(env); T.setVframes(env, 1000);
+      T.setEv(env, T.ptRec(SM.E.DOWN, p0[0], p0[1], 1));
+      const want = () => { const g = stackModel(); if (c.x !== rc.x || c.y !== rc.y) outline(g, c.x, c.y, rc.w, rc.h); return g; };
+      try {
+        T.runCall(env, S.K_DISPATCH, {}, {
+          onHalt: () => {
+            const d = T.diffDisp(T.readDisp(m), SM.toDisp(want())); if (d) err ||= `at the HALT after ${wakes} event(s), candidate (${c.x}, ${c.y}): ${d}`;
+            if (wakes >= evs.length) throw new Error('the drag loop still waits after the E_UP');
+            const e = evs[wakes++]; T.setVframes(env, 1000 + wakes);
+            T.ringPut(env, e.t === 'up' ? T.ptRec(SM.E.UP, e.p[0], e.p[1], 0) : T.ptRec(SM.E.MOVE, e.p[0], e.p[1], 1));
+            c = cand(e.p);
+          },
+        });
+      } catch (e) { sec.ok(false, `case ${ci}: ${e.message}`); T.drainEvents(env); continue; }
+      T.runCall(env, S.W_UPDATE, {}, { ints: false });                      // W_DRAG ends with W_MOVE: the repaint is W_UPDATE's
+      st.cases++;
+      const label = `case ${ci}: ${kind} (${rc.x}, ${rc.y}, ${rc.w}, ${rc.h})${under ? ` over (${under.x}, ${under.y}, ${under.w}, ${under.h})` : ''}, press (${p0}), moves ${JSON.stringify(pts)}`;
+      sec.ok(err === null, () => `${label}: ${err}`);
+      if (c.x !== rc.x || c.y !== rc.y) { st.moved++; A.x = c.x; A.y = c.y; }
+      const d = screenIs(false); sec.ok(d === null, () => `${label}: after the release (window at (${A.x}, ${A.y})): ${d}`);
+      sec.ok(T.rd16(m, S.W_SLOTS + 2 * A.slot) === A.a, () => `${label}: the window must be open still`);
+      const cands = [cand(pts[0]), cand(pts[1])];
+      if (cands.some((q) => q.x !== rc.x || q.y !== rc.y)) {
+        st.held++;
+        if (under && cands.some((q) => q.x < under.x + under.w && q.x + rc.w > under.x && q.y < under.y + under.h && q.y + rc.h > under.y)) st.overWin++; else st.overDesk++;
+      }
+    }
+    sec.ok(st.overDesk > 0 && st.overWin > 0, () => `the scripts must cover the outline over the desk (${st.overDesk}) and over a window (${st.overWin})`);
+    sec.end(`${st.cases} drags (${st.moved} moved, ${st.held} with an outline shown: ${st.overDesk} clear of other windows, ${st.overWin} over a window)`);
     clear();
   }
   void CW;

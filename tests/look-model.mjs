@@ -109,3 +109,13 @@ export function drawArrow(g, art, px, py) {
     g.set(x, y, ch === '#' ? 1 : 0);
   }
 }
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// desk5's look as the chosen one (LOOK 8): 25% grey desk, the Mac window, bar and menus.  Additions for the desk5 tests; they change no pixel above.
+export const DESK_PAT = PATTERNS.grey25;
+/** desk_draw (LOOK 3.4, 9): the 25% pattern over (0, 8, 512, 184); row y takes byte DESK_PAT[y & 1]. */
+export function deskLook(g) { patFill(g, DESK_PAT, 0, 8, 512, 184); }
+/** windowLook as desk5 draws it: the 25% desk under the shadow's corners; `opts` = { closeBox, pressed }. */
+export function macWindowLook(g, n, active, opts = {}) { windowLook(g, n, active, { pat: DESK_PAT, ...opts }); }
+/** The close box's hit rectangle (SHELL 10.1 as amended by LOOK 3.3) as an inclusive-exclusive test. */
+export const inBoxRect = (x, y, px, py) => { const b = boxRect(x, y); return px >= b.x && px < b.x + b.w && py >= b.y && py < b.y + b.h; };

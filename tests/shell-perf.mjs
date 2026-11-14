@@ -197,6 +197,45 @@ const { m } = env;
   void me;
 }
 
+// the figures at commit 800e9dc (before the look), measured by this block on that commit: whole-desk repaint 184,963; open 90,389; raise 91,944; draw 82,397; whole screen with a window 249,839.
+const LOOKB = { desk: null, open: Math.ceil(90389 * 1.1), raise: Math.ceil(91944 * 1.1), draw: Math.ceil(82397 * 1.1), all: Math.ceil(249839 * 1.1) };
+// ---- the chrome's speed (LOOK 4, 9): window open / raise / draw, a whole-desk W_UPDATE, on desk5 -----------------------------------------------
+// Direct calls under K with interrupts off (no frame is crossed).  The shell's window is closed first, so the map holds the bar and the desk only; then the windows
+// are plain empty `Window`s of 256 x 96 at (128, 48), as tests/wm-perf.mjs measures them on kern4.  Bounds: the figures at commit 800e9dc (before the look) plus 10%
+// (LOOK 4: window draw, open, raise and the whole-desk W_UPDATE may grow by at most 10% each); the whole-desk repaint is reported (LOOK 9).
+{
+  const e = H.bootShell({ watch: false }), me = e.m;
+  e.frames_(8); L.park(e);
+  const R = (a, regs = {}) => L.directCall(e, a, regs, 'K', 30_000_000);
+  const poke16 = (a, v) => { me.ram[a] = v & 0xFF; me.ram[a + 1] = (v >> 8) & 0xFF; };
+  const setGA = (...w) => w.forEach((v, i) => poke16(S.GA + 2 * i, v));
+  const title = rd16(me, rd16(me, S.S_WIN) + S.Window_title), shellWin = rd16(me, S.S_WIN);
+  R(S.W_CLOSE, { ix: shellWin }); R(S.W_UPDATE);                      // the bar and the desk only
+  const newW = (x, y, w, h) => {
+    // K_NEW returns IX = the new view (carry = arena full); the rectangle and the title are poked as wm-perf does
+    const cpu = me.cpu; R(S.K_NEW, { hl: S.CL_Window }); const a = (cpu.xh << 8) | cpu.xl;
+    poke16(a + S.View_x, x); me.ram[a + S.View_y] = y; poke16(a + S.View_w, w); me.ram[a + S.View_h] = h; poke16(a + S.Window_title, title);
+    return a;
+  };
+  const sum = (...ts) => ts.reduce((p, c) => p + c, 0);
+  // the whole-desk repaint: every cell dirty, no window (bar + desk): W_INVAL of the screen, then W_UPDATE
+  setGA(0, 0, 512, 192); const ti = R(S.W_INVAL); const tDesk = R(S.W_UPDATE);
+  row('whole-desk repaint: W_UPDATE with every cell dirty, no window (the bar and the 25% / paper desk), after the shell\'s window is closed (LOOK 9)', tDesk, LOOKB.desk, `T-states; the W_INVAL before it ${ti}`);
+  const A = newW(128, 48, 256, 96), B = newW(128, 48, 256, 96);
+  const tOpen = sum(R(S.W_OPEN, { ix: A }), R(S.W_UPDATE));
+  row('window open: W_OPEN + W_UPDATE of an empty 256 x 96 window over the desk (LOOK 4: <= 110% of the figure before the look)', tOpen, LOOKB.open, 'T-states');
+  const tOpenB = sum(R(S.W_OPEN, { ix: B }), R(S.W_UPDATE));
+  row('window open over a window: W_OPEN + W_UPDATE of a second 256 x 96 window on the first, report', tOpenB, null, 'T-states');
+  const tRaise = sum(R(S.W_RAISE, { ix: A }), R(S.W_UPDATE));
+  row('window raise: two empty 256 x 96 windows, W_RAISE of the hidden one + W_UPDATE (LOOK 4: <= 110% of the figure before the look)', tRaise, LOOKB.raise, 'T-states');
+  const tDraw = R(S.W_DRAWVIEW, { ix: A });
+  row('window draw: W_DRAWVIEW of the front empty 256 x 96 window (active look) (LOOK 4: <= 110% of the figure before the look)', tDraw, LOOKB.draw, 'T-states');
+  setGA(0, 0, 512, 192); R(S.W_INVAL); const tAll = R(S.W_UPDATE);
+  row('W_UPDATE of a whole-screen desk with two windows: every cell dirty, the bar, the desk and a 256 x 96 window (LOOK 4: <= 110% of the figure before the look)', tAll, LOOKB.all, 'T-states');
+  const tClose = sum(R(S.W_CLOSE, { ix: A }), R(S.W_UPDATE));
+  row('window close: W_CLOSE + W_UPDATE of the front window, report', tClose, null, 'T-states');
+}
+
 console.log('\n| Measure | Measured | Bound | Result |\n|---|---|---|---|');
 for (const r of rows) console.log(`| ${r.name} | ${fmt(r.measured)} | ${r.bound === null ? 'report' : '<= ' + fmt(r.bound)} | ${r.status} |`);
 console.log(`shell-perf: ${rows.filter((r) => r.status === 'pass').length} passed, ${missed} missed, ${rows.filter((r) => r.status === 'reported').length} reported`);

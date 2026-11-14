@@ -11,7 +11,7 @@ import * as SM from './shell-model.mjs';
 import * as M from './tk-model.mjs';
 import './tk-model2.mjs';                          // registers the List and Field looks (T2 / T3) with tk-model's renderWindow
 import { readDisp, diffDisp } from './wm-lib.mjs';
-import { drawBar } from './wm-model3.mjs';
+import { barLook as drawBar, deskLook } from './look-model.mjs';
 import * as WM from './wr-model.mjs';
 
 export { L, SM, M, readDisp, diffDisp };
@@ -123,7 +123,7 @@ export function controlsDiff(env, extra = []) {
   const tree = new M.TkTree({ x: wv.x, y: wv.y, w: wv.w, h: wv.h, slot: m.ram[dwin + S.Window_slot], title: SM.codesOf(readStrText(m, rd16(m, dwin + S.Window_title))) }, order);
   const foc = rd16(m, S.K_FOCUS); tree.focus = order.find((n) => n.addr === foc) || null;
   const g = new M.Gfx6Model();
-  g.setOp(SM.OP_CLR); g.fill(0, 8, 512, 184); drawBar(g, null, null);
+  deskLook(g); drawBar(g, null, null);
   M.renderWindow(tree, g); SM.closeBoxLook(g, wv.x, wv.y, wv.w);
   return diffDisp(readDisp(m), M.toDisp(g), withPointer(env, extra));
 }

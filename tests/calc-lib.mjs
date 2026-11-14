@@ -17,8 +17,10 @@ import { boot, M, Z } from './lib.mjs';
 import { parseSym, readDisp } from './wm-lib.mjs';
 import { makeWatch } from './bank-lib.mjs';
 import { Gfx6Model, OP_SET, OP_CLR, OP_XOR } from './gfx6-model.mjs';
-import { windowLook, buttonLook, toDisp } from './wm-model2.mjs';
-import { drawBar, layoutOf, menuSpec } from './wm-model3.mjs';
+import { buttonLook, toDisp } from './wm-model2.mjs';
+import { layoutOf, menuSpec } from './wm-model3.mjs';
+// desk5 has the Mac OS 1.0 look (docs/LOOK.md): the desk, bar, windows and the close box come from look-model.mjs
+import { deskLook, barLook as drawBar, macWindowLook as windowLook, closeBoxLook as macCloseBox, boxRect as macBoxRect } from './look-model.mjs';
 import { readKeymap, makeRng } from './review-lib.mjs';
 
 export { M, Z, makeRng, makeWatch, readDisp };
@@ -140,8 +142,8 @@ export function waitProgram(env, p, max = 120) {
 /** The icons of the shell (SHELL 10.4, 10.5, WRITE 11.2): "Calculator" at (48, 40), "Controls" at (112, 40), "Write" at (176, 40); 64 x 26. */
 export const ICON_RECT = { 1: { x: 48, y: 40, w: 64, h: 26 }, 2: { x: 112, y: 40, w: 64, h: 26 }, 3: { x: 176, y: 40, w: 64, h: 26 } };
 export const iconCentre = (p) => [ICON_RECT[p].x + 32, ICON_RECT[p].y + 13];
-/** CWindow's close box (SHELL 10.1): (x + w - 19, y + 1, 15, 7) of a window at (x, y, w). */
-export const closeBoxOf = (wx, wy, ww) => ({ x: wx + ww - 19, y: wy + 1, w: 15, h: 7 });
+/** CWindow's close box hit rectangle (LOOK 3.3, on the left): (x + 8, y + 1, 15, 7) of a window at (x, y); `ww` is unused. */
+export const closeBoxOf = (wx, wy, ww) => macBoxRect(wx, wy);
 /**
  * A double click on program p's icon: two clicks 9 frames apart on the same icon (the second E_DOWN falls within 20 frames of the first, SHELL 4), then wait for the
  * program's window.  Returns true when it runs.  Calculator's image-write watch is disarmed across the switch.
@@ -291,13 +293,9 @@ export const BUTTONS = (() => {
 export const centre = (b) => [b.x + (b.w >> 1), b.y + (b.h >> 1)];
 const codesOf = (s) => Array.from(s, (c) => c.charCodeAt(0));
 
-/** CWindow's close box (SHELL 10.1), drawn after the window's own look when it is the active one: CLR fill (x + w - 19, y + 1, 15, 7), SET frame (x + w - 18, y + 2, 13, 5);
- * pressed: XOR fill (x + w - 17, y + 3, 11, 3). */
-export function closeBoxLook(g, x, y, w, pressed = false) {
-  g.setOp(OP_CLR); g.fill(x + w - 19, y + 1, 15, 7);
-  g.setOp(OP_SET); g.frame(x + w - 18, y + 2, 13, 5);
-  if (pressed) { g.setOp(OP_XOR); g.fill(x + w - 17, y + 3, 11, 3); }
-}
+/** CWindow's close box (LOOK 3.3, on the left), drawn after the window's own look when it is the active one: CLR fill (x + 8, y + 1, 15, 7), SET frame (x + 10, y + 2, 11, 5);
+ * pressed: XOR fill (x + 11, y + 3, 9, 3).  `w` is kept for the callers' signature (unused). */
+export function closeBoxLook(g, x, y, w, pressed = false) { macCloseBox(g, x, y, pressed); }
 /**
  * The screen as the contract draws it (section 4 of CALCULATOR.md, amended by SHELL 9.4 / 10.1): the desk, the empty menu bar (Calculator has no menu now), the active
  * CWindow (window look plus the close box), CDisp showing `dstr` (CLR fill, SET frame, the text right aligned at x + w - 4 - tw, y + 4) and the 20 buttons, the one at
@@ -305,7 +303,7 @@ export function closeBoxLook(g, x, y, w, pressed = false) {
  */
 export function renderScreen(dstr, focusIndex = -1, flagsOf = () => 1) {
   const g = new Gfx6Model();
-  g.setOp(OP_CLR); g.fill(0, 8, 512, 184);
+  deskLook(g);
   drawBar(g, null, null);
   windowLook(g, { x: WIN.x, y: WIN.y, w: WIN.w, h: WIN.h, title: { codes: codesOf(WIN.title) } }, true);
   const cs = codesOf(dstr), tw = g.textw(cs);

@@ -33,8 +33,10 @@
 //  R12. A Paste that is refused changes nothing: the selection, the mark and the run stay.
 import { fileURLToPath } from 'node:url';
 import { Gfx6Model, OP_SET, OP_CLR, OP_XOR, fonts } from './gfx6-model.mjs';
-import { windowLook as wmWindowLook, buttonLook, labelLook, dialogLook, toDisp } from './wm-model2.mjs';
-import { drawBar, layoutOf, menuSpec } from './wm-model3.mjs';
+import { buttonLook, labelLook, dialogLook, toDisp } from './wm-model2.mjs';
+import { layoutOf, menuSpec } from './wm-model3.mjs';
+// desk5 has the Mac OS 1.0 look (docs/LOOK.md): the desk, bar, windows and the close box come from look-model.mjs
+import { deskLook, barLook as drawBar, macWindowLook as wmWindowLook, closeBoxLook as macCloseBox } from './look-model.mjs';
 import { vsLook } from './tk-model.mjs';
 
 export { Gfx6Model, OP_SET, OP_CLR, OP_XOR, toDisp };
@@ -276,8 +278,8 @@ export function tvLook(g, d, focus) {
     if (j >= 0 && j < NSHOWN) g.fill(Math.min(26 + d.caretTw(), 471), TVR.y + PITCH * j, 1, 9);
   }
 }
-/** CWindow's close box (SHELL 10.1). */
-export function closeBoxLook(g, x, y, w) { g.setOp(OP_CLR); g.fill(x + w - 19, y + 1, 15, 7); g.setOp(OP_SET); g.frame(x + w - 18, y + 2, 13, 5); }
+/** CWindow's close box (LOOK 3.3, on the left); `w` is unused. */
+export function closeBoxLook(g, x, y, w) { macCloseBox(g, x, y, false); }
 /** Write's window as drawn by W_UPDATE: the window look (active or not), the close box when active, the text view, the bar. */
 export function writeLook(g, d, { focus = true, active = true, barValue = null, title = WINR.title } = {}) {
   wmWindowLook(g, { x: WINR.x, y: WINR.y, w: WINR.w, h: WINR.h, title: { codes: codesOf(title) } }, active);
@@ -301,7 +303,7 @@ export function dialogDraw(g, focusBtn) {
  */
 export function renderScreen(d, { focus = true, covers = [], dialog = null, barValue = null, menus = MENUS, title = WINR.title } = {}) {
   const g = new Gfx6Model();
-  g.setOp(OP_CLR); g.fill(0, 8, 512, 184);
+  deskLook(g);
   drawBar(g, menus, layoutOf(menus));
   writeLook(g, d, { focus, active: covers.length === 0 && !dialog, barValue, title });
   covers.forEach((c, i) => wmWindowLook(g, { x: c.x, y: c.y, w: c.w, h: c.h, title: { codes: codesOf(c.title) } }, i === covers.length - 1 && !dialog));

@@ -18,7 +18,8 @@
 //  C6. WR_MENU is called under mapping A (it is code in DOCK 2-3).  C7. Cut / Copy write only the first C bytes of $7800-$7FFF.  C8. No-op keys / menu items while the caret is off the lines shown:
 //  whether the view follows is not settled (W1's R5): the generators skip them.
 import * as W from './wr-lib.mjs';
-import { drawOpen, layoutOf } from './wm-model3.mjs';
+import { layoutOf } from './wm-model3.mjs';
+import { openLook as drawOpen } from './look-model.mjs';
 import { readDisp, diffDisp } from './wm-lib.mjs';
 
 const { L, T, X, WM, hex, rd16, E } = W;

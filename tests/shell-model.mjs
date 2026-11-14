@@ -25,8 +25,10 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ROOT } from '../tools/build.mjs';
 import { Gfx6Model, OP_SET, OP_CLR, OP_XOR } from './gfx6-model.mjs';
-import { windowLook, buttonLook, labelLook, dialogLook, toDisp } from './wm-model2.mjs';
-import { drawBar, layoutOf, menuSpec } from './wm-model3.mjs';
+import { buttonLook, labelLook, dialogLook, toDisp } from './wm-model2.mjs';
+import { layoutOf, menuSpec } from './wm-model3.mjs';
+// desk5 has the Mac OS 1.0 look (docs/LOOK.md, LOOK_MAC): the desk, bar, windows and close box come from look-model.mjs.
+import { deskLook, barLook as drawBar, macWindowLook as windowLook, closeBoxLook as macCloseBox, boxRect as macBoxRect, inBoxRect } from './look-model.mjs';
 
 export { Gfx6Model, OP_SET, OP_CLR, OP_XOR, toDisp, windowLook, buttonLook, labelLook, dialogLook };
 export const codesOf = (s) => Array.from(s, (c) => c.charCodeAt(0));
@@ -89,7 +91,7 @@ export function aboutLook(g, okFocused, okFlags = 0x11) {
  */
 export function renderShell({ sel = 0, dialog = null } = {}) {
   const g = new Gfx6Model();
-  g.setOp(OP_CLR); g.fill(0, 8, 512, 184);
+  deskLook(g);
   drawBar(g, [LEAP_MENU], layoutOf([LEAP_MENU]));
   shellLook(g, sel, !dialog);
   if (dialog) aboutLook(g, !!dialog.okFocused);
@@ -98,14 +100,11 @@ export function renderShell({ sel = 0, dialog = null } = {}) {
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------
 // CWindow (10.1)
-/** The close box of a front CWindow: CLR fill (x + w - 19, y + 1, 15, 7), SET frame (x + w - 18, y + 2, 13, 5); pressed: XOR fill (x + w - 17, y + 3, 11, 3). */
-export function closeBoxLook(g, x, y, w, pressed = false) {
-  g.setOp(OP_CLR); g.fill(x + w - 19, y + 1, 15, 7);
-  g.setOp(OP_SET); g.frame(x + w - 18, y + 2, 13, 5);
-  if (pressed) { g.setOp(OP_XOR); g.fill(x + w - 17, y + 3, 11, 3); }
-}
-export const boxRect = (x, y, w) => ({ x: x + w - 19, y: y + 1, w: 15, h: 7 });
-export const inBox = (win, px, py) => { const b = boxRect(win.x, win.y, win.w); return px >= b.x && px < b.x + b.w && py >= b.y && py < b.y + b.h; };
+/** The close box of a front CWindow (LOOK 3.3, left): CLR fill (x + 8, y + 1, 15, 7), SET frame (x + 10, y + 2, 11, 5); pressed: XOR fill (x + 11, y + 3, 9, 3).  `w` is kept for the callers' signature (unused). */
+export function closeBoxLook(g, x, y, w, pressed = false) { macCloseBox(g, x, y, pressed); }
+/** The close box's hit rectangle (LOOK 3.3): (x + 8, y + 1, 15, 7); `w` unused. */
+export const boxRect = (x, y, w) => macBoxRect(x, y);
+export const inBox = (win, px, py) => inBoxRect(win.x, win.y, px, py);
 /**
  * A stack of windows painted back to front (every look is opaque, so the painter's result is what the map rule shows): `wins` = [{ kind: 'Window' | 'CWindow', x, y, w, h, title }], the
  * last one is the front.  Only the front CWindow has the close box (10.1: "only when the window has the active look (it is in front)"); `pressed` = the front's box pressed.
@@ -113,7 +112,7 @@ export const inBox = (win, px, py) => { const b = boxRect(win.x, win.y, win.w); 
  */
 export function paintWindows(wins, { pressed = false, bar = true } = {}) {
   const g = new Gfx6Model();
-  g.setOp(OP_CLR); g.fill(0, 8, 512, 184);
+  deskLook(g);
   if (bar) drawBar(g, [LEAP_MENU], layoutOf([LEAP_MENU])); else drawBar(g, null, null);
   wins.forEach((w, i) => {
     const front = i === wins.length - 1;
@@ -165,7 +164,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url) && process.argv.includes(
   // CWindow: the box is in the front window only
   { const g = paintWindows([{ kind: 'CWindow', x: 16, y: 24, w: 96, h: 64, title: 'A' }, { kind: 'Window', x: 64, y: 48, w: 96, h: 64, title: 'B' }]);
     const h = paintWindows([{ kind: 'Window', x: 64, y: 48, w: 96, h: 64, title: 'B' }, { kind: 'CWindow', x: 16, y: 24, w: 96, h: 64, title: 'A' }]);
-    eq('the box of A is drawn only when A is in front', [g.get(16 + 96 - 18, 24 + 4) !== h.get(16 + 96 - 18, 24 + 4)], [true]); }
+    eq('the box of A is drawn only when A is in front', [g.get(16 + 10, 24 + 4) !== h.get(16 + 10, 24 + 4)], [true]); }
   console.log(bad ? `shell-model self-test: ${bad} FAILED` : 'shell-model self-test: all ok');
   if (bad) process.exitCode = 1;
 }

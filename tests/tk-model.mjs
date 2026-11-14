@@ -25,7 +25,8 @@
 //  R7. (9.7 item 1) The repeat deadlines are the press frame + 15, then each deadline + 6, whatever a step costs; (item 5) 'inside the part' is the part's rectangle.
 import { fileURLToPath } from 'node:url';
 import { Gfx6Model, OP_SET, OP_CLR, OP_XOR } from './gfx6-model.mjs';
-import { labelLook, windowLook, toDisp } from './wm-model2.mjs';
+import { labelLook, toDisp } from './wm-model2.mjs';
+import { macWindowLook as windowLook } from './look-model.mjs';          // desk5's window look (docs/LOOK.md 3.2): tk tests run on desk5
 
 export { Gfx6Model, OP_SET, OP_CLR, OP_XOR, labelLook, windowLook, toDisp };
 export const E = { KEY: 1, MOVE: 2, DOWN: 3, UP: 4, REDRAW: 6, MENU: 7, CMD: 10, SCROLL: 11 };
