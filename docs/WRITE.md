@@ -978,3 +978,14 @@ three views (the word at offset 16) and puts a text into the Field (`TK_SETTEXT`
 
 The owner tried the W4 build in the test page: "double click and find work in my test run." The tests (14.7 as amended by
 14.9), the bounds and the ZEsarUX session follow.
+
+**9. Readings fixed after the W4 tests (2026-11-14; the code is as built):**
+- **The double-click flag is read from `K_EV`** (`K_EV + 3`, bit 2) by `List`, the shell's icons and the text view: the
+  same record through which the kernel's own pointer code (`w_point`, the focus walk) reads x. TOOLKIT 10.1's "a `List`
+  reads every event through DE" holds for the type, data 1 and y; dispatched events have DE = `K_EV`.
+- **"None" in `WR_LCK`** is any value whose high byte is $FF. It is $FFFF at the start. A change of the text, "New" and
+  Open set only the high byte to $FF; no clicked code reaches $FF00.
+- **The clicked code is found by an address walk** (`wr_kat`, as `wr_pos` walks). The first version called `wr_ptr` for
+  every code and measured 58,846 T against the 58,000 bound (14.7). Write is then **6,992** bytes, 8 under the cap; the app
+  library is planned to give bytes back.
+

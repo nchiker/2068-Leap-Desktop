@@ -3286,7 +3286,8 @@ wr_dbl:
     ret
 
 ; wr_kat: HL = a line, DE = r = px - 27 -> HL = the clicked code (14.2): the k with tw(s, k) <= r < tw(s, k + 1), s when r < 0;
-; $FFFF when there is none (r past the last code before a 13, or an empty line).  Clobbers AF, BC, DE.
+; $FFFF when there is none (r past the last code before a 13, or an empty line).  The line's codes are walked by address, C
+; counting the codes before the gap (as wr_pos).  WR_XS: the line's end.  Clobbers AF, BC, DE.
 wr_kat:
     push de
     push hl
@@ -3294,40 +3295,70 @@ wr_kat:
     ex (sp),hl
     call wr_lt
     pop hl                      ; s
-    pop de                      ; r
     ld b,a
     inc b
+    ld e,a
+    ld d,0
+    push hl
+    add hl,de
+    ld (WR_XS),hl               ; s + n: the code at step B is s + n - B
+    pop hl
+    call wr_ptr
+    push hl
+    ld de,(WR_GA)
+    ex de,hl
+    or a
+    sbc hl,de                   ; GA - the address
+    ld c,0
+    jr c,.g
+    ld a,h
+    or a
+    jr nz,.g
+    ld c,l                      ; C = the codes before the gap (0: none in the line)
+.g:
+    pop hl
+    pop de                      ; r
 .l:
     djnz .c
 .none:
     ld hl,$FFFF
     ret
 .c:
-    call wr_cat
+    ld a,(hl)
     cp 13
     jr z,.none                  ; a 13: none
     push hl
     ld h,PROP6_W >> 8
     ld l,a
-    ld c,(hl)                   ; its advance
+    ld a,(hl)                   ; its advance
     pop hl
     bit 7,d
-    ret nz                      ; r < 0
-    ld a,d
-    or a
+    jr nz,.got                  ; r < 0
+    inc d
+    dec d
     jr nz,.sub
-    ld a,e
-    cp c
-    ret c                       ; r < the advance: this code
+    cp e
+    jr z,.sub
+    jr nc,.got                  ; r < the advance: this code
 .sub:
-    ld a,e
-    sub c
+    neg                         ; r - the advance
+    add a,e
     ld e,a
-    jr nc,.n
+    jr c,.n
     dec d
 .n:
     inc hl
+    dec c
+    jr nz,.l
+    ld hl,(WR_GB)
     jr .l
+.got:
+    ld hl,(WR_XS)
+    ld c,b
+    ld b,0
+    or a
+    sbc hl,bc
+    ret
 
 ; wr_runk: HL = a code's offset -> HL = the start, DE = the end of the run around it (14.2): word codes, spaces, or the code
 ; alone.  Clobbers AF, BC.
