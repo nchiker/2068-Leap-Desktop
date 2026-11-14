@@ -973,3 +973,8 @@ three views (the word at offset 16) and puts a text into the Field (`TK_SETTEXT`
 
 **8. Size:** Write is **6,943** bytes (+519; the cap is 7,000). The RAM image is 591 bytes, and F and its Field are after it.
 
+
+### 14.10 Owner review (2026-11-14)
+
+The owner tried the W4 build in the test page: "double click and find work in my test run." The tests (14.7 as amended by
+14.9), the bounds and the ZEsarUX session follow.
