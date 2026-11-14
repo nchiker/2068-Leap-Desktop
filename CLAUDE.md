@@ -211,7 +211,7 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
 
    Then the pool's free-space measure with its 1,000-byte reserve (SIZE 2), replacing step 5's growth bound in
    `shell-perf`.
-3. **Notepad's faster search (SIZE 3).**
+3. **Notepad's faster search (SIZE 3): DEFERRED to the end of the project, an enhancement if wanted (owner, 2026-11-14: its bytes are wanted for other features).**
 4. **The ZEsarUX runs:**
    - W4's key-driven Find session (WRITE 14.7 item 7);
    - Key Caps in `tools/xemu/zesarux-desk5.py`: what it needs is listed in the Key Caps test agent's notes, `refk["kc"]`, the

@@ -27,7 +27,9 @@ might use is deleted. Shared code goes to the kernel pool, the DOCK 6 graphics l
   - chunk 5: from `K_PROGS`' table end to `$C000`.
 - **The reserve:** the total must stay at or above **1,000 bytes**, the reserve for step 6. The row reports each chunk.
 
-## 3. Notepad's search (WRITE 14.5)
+## 3. Notepad's search (WRITE 14.5): DEFERRED (owner, 2026-11-14) until the end of the project, as an enhancement if wanted
+
+The speed-up costs about +40 bytes of DOCK 2-3 that other features could use. Nothing else depends on it; the contract below is kept as it was.
 
 - **Speed-up:** the scan of F's first code steps through each run of codes between the gap and the ends without calling
   `wr_gap` or `wr_low` for every code. A letter is tested with its case mask, as 14.9 item 7 first planned.
