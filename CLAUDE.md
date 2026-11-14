@@ -132,5 +132,12 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
     suite passes. The window draw / open / raise bounds are the measured figures (owner: about +25,000 T, 7 ms). The test
     page fits the window at any size again (owner: whole-number scaling was too small; the grey's moire there is the
     browser's scaling). ZEsarUX 131 of 131, Fuse 6 of 6. **The owner tried it and accepted it: L1 is done.**
+- **W4 (2026-11-14), `docs/WRITE.md` 14 with the as-built amendments in 14.9:**
+  - **Built and committed:** double-click word selection, and Find... / Find again in Notepad. The kernel marks a double-click in `E_DOWN` data 3
+    bit 2 (`K_DCLICK`, `desk5` only). The shell and `List` use the flag. Find shares the Save dialog.
+  - **Sizes:** Notepad 6,943 of 7,000 bytes; pool +59 (step 5's growth about 3,245 of 3,400).
+  - **The owner tried it:** "double click and find work in my test run" (14.10).
+  - **Open:** a Sonnet agent was writing `wr-w4`, `kern-dclick` and the W4 `wr-perf` rows, and repairing `wr-w2`, `wr-w3`, `tk-t2` and `shell-s1` for the 8-item
+    Edit menu and the kernel flag. Check its commits (`git log`), then re-run every suite. Still to do: the ZEsarUX key-driven Find session (14.7 item 7), then close W4.
 - **Owner (2026-11-13):** W3 tried in the browser and accepted. Program 3 is now shown as **Notepad** (icon, "Leap" menu,
   title "Notepad: name", alerts); the code, `docs/WRITE.md` and the `WR_` symbols keep the name Write (WRITE 13.10).
