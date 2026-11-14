@@ -186,10 +186,10 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
 - **Use a LeapG git worktree** for code that would rebuild under a running suite (see Working method).
 
 **State:**
-- **Branches:** `main` holds everything, and the worktrees are removed. TSRun is still at `b4dc564`, our own commit.
+- **Branches:** `main` holds everything, and the worktrees are removed. TSRun is pinned at `6ccf56e` (the fork's main, 2026-11-14).
 - **Tests:** after the last Key Caps change, `kc-k1` passes 9 of 9. The merged build passed every suite before it (all 19 and
   `desk5-ref`).
-- **The test-speed baseline is recorded** in `docs/TESTSPEED.md` 7: every suite passes, 1,505 s one at a time. Each S step is
+- **The test-speed baseline is recorded** in `docs/TESTSPEED.md` 7: every suite passes, 1,505 s one at a time (now 210 s through the runner, section 11). Each S step was
   compared with it.
 - **The suites:**
   `al-a1 kc-k1 calc-c1 shell-s1 tk-t1 tk-t2 tk-t3 wr-w1 wr-w2 wr-w3 wr-w4 wr-demo fs-f1 kern-dclick web-smoke calc-perf
