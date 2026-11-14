@@ -28,14 +28,15 @@ the Puzzle follows Paint. Everything else is in section 13 as a question with a 
 
 ## 1. What it builds
 
-- **The program** `src/apps/paint.asm` (symbols `PT_`), in DOCK 2-3 (mapping A), one at a time like every program: the RAM image at
+- **The program** `src/apps/paint.asm` (symbols `PN_` and `pn_`: `PT_` is the pointer's), in DOCK 2-3 (mapping A), one at a time like every program: the RAM image at
   `PROG_IMG`, the arena `$C400-$DFFF`.
 - **Three view classes in its image** (each a `View` subclass with banked methods through `KTHUNK`s, as `KeyCaps`):
   `Canvas` (the picture and every tool), `Palette` (tools, patterns and brushes, **one class, three instances**: a descriptor says how many
   columns and rows, the cell size, what a cell draws, and which variable the choice goes to), and the status `Label` (the toolkit's own).
 - **Drawing code in DOCK 6** (mapping R, display only, arguments through hot RAM): pattern fill, shapes, flood fill (section 7), after the
   graphics library moves there (SIZE 4, section 11).
-- **Pool:** two bytes (`K_PROGS`), plus the shell's menu and icon edits; nothing else. A new kernel call is proposed only if a bound fails.
+- **Pool:** two bytes (`K_PROGS`) and **`K_BOX`** (about 60 bytes, `desk5` only: `K_BOXES`): a box of rows between the app arena and cold RAM in one crossing (`KFAR K_BOX`),
+  because the undo area is in cold RAM, which a program cannot see, and the copy's rows are 20 bytes apart; row by row through `K_LDIR` would be 4 crossings a row.
 
 ## 2. The window (pixels, mode 6)
 
@@ -44,9 +45,9 @@ Window `CWindow` (48, 16, 416, 176), title "Paint: name" (`AL_TITLE`, prefix "Pa
 
 | View | Class | Rect (x, y, w, h) | Id | Notes |
 |---|---|---|---|---|
-| Tool box | `Palette` | (53, 29, 64, 80) | 1 | 2 columns x 5 rows of cells 32 x 16; icons 32 x 16 |
-| Patterns | `Palette` | (53, 113, 64, 48) | 2 | 4 x 4 swatches of 16 x 12: the 8 x 8 pattern tiled |
-| Brushes | `Palette` | (53, 165, 64, 16) | 3 | 4 cells of 16 x 16 |
+| Tool box | `Palette` | **(55, 28, 66, 82)** | 1 | 2 columns x 5 rows of cells 32 x 16 at (56 + 32 c, 29 + 16 r), a frame 1 pixel outside each (shared); the icon is 16 x 16 at the cell's x + 8 (**byte-aligned**, so `G_BLIT` copy 0 draws it) |
+| Patterns (P2) | `Palette` | (55, 112, 66, 50) | 2 | 4 x 4 swatches of 16 x 12: the 8 x 8 pattern tiled |
+| Brushes (P2) | `Palette` | (55, 164, 66, 18) | 3 | 4 cells of 16 x 16 |
 | Canvas | `Canvas` | (126, 30, 324, 148) | 4 | border 2 px; the picture 320 x 144 at **(128, 32)** (x a multiple of 16) |
 | Status | `Label` | (127, 180, 324, 9) | 5 | the tool's name, or a message |
 
@@ -128,7 +129,7 @@ idea): the table is in Paint's own code, the handlers are labels.
 | 0 | Marquee (select) | P3 | Drag a rectangle (XOR band); a drag inside a selection moves a copy; click outside to drop. Cut, Copy, Paste are not planned (WRITE: no shortcuts) |
 | 1 | Pencil | **P1** | 1-pixel freehand with `G_LINE`, always ink (SET); the eraser clears |
 | 2 | Brush | P2 | Stamps of the chosen brush shape along the stroke, drawn with the chosen pattern |
-| 3 | Eraser | **P1** | A 12 x 12 paper (CLR) stamp along the stroke |
+| 3 | Eraser | **P1** | A **16 x 8** paper (CLR) stamp (a square on mode 6's 1 : 2 pixels) along the stroke, one stamp every 4th step of a Bresenham walk |
 | 4 | Spray | P2 | Random pixels inside a 16 x 16 disc around the pointer, a burst a frame, in the chosen pattern's ink |
 | 5 | Bucket | P3 | Flood fill from the clicked pixel with the chosen pattern, bounded by ink (4-connected) |
 | 6 | Line | P2 | XOR rubber band, then a line of the chosen brush width (1, 2, 4, 6) |
@@ -157,13 +158,14 @@ Built with `MB_SET`, as Notepad's: the table is in Paint's image.
 
 | Menu | Items |
 |---|---|
-| Leap (id 1) | the shell's items (Calculator, Key Caps, Notepad, About) plus **Paint** (the same table the programs share) |
-| File (id 2) | New, Open..., Save..., (separator), Quit |
-| Edit (id 3) | Undo, Clear |
-| Options (id 4), from P2 | Filled shapes (a check), Grid? **not planned**; Invert (P3, XOR the selection or the picture) |
+| File (id 1) | New, Open..., Save..., (separator), Quit |
+| Edit (id 2) | Undo (disabled until there is something to undo), Clear |
+| Options (id 3), from P2 | Filled shapes (a check); Invert (P3, XOR the selection or the picture) |
 
-`New`, `Open` and `Quit` ask "Discard the document?" first when the picture has changed. `Open` is `FS_PICK`; `Save` and the name dialog are
-the app library's (`AL_NAMEDLG`, default extension ".pbm"). `Clear` fills the picture with paper (one `G_FILL` of the picture rectangle, then the commit).
+There is no "Leap" menu in a program (Notepad has none): the shell's own "Leap" menu gains "Paint" (section 10). A program ends with File > Quit, the close box or SS+Q.
+
+`New`, `Open`, `Clear` and `Quit` ask "Discard the document?" first when the picture has changed. `Open` is `FS_PICK`; `Save` and the name dialog are
+the app library's (`AL_NAMEDLG`, default extension ".pbm"). `Clear` fills the picture with paper (one `G_FILL` of the picture rectangle, then the whole-picture save) and is not undoable.
 
 ## 9. Files (question 4)
 
@@ -172,8 +174,8 @@ the app library's (`AL_NAMEDLG`, default extension ".pbm"). `Clear` fills the pi
   desk's binary file mode** (`FS_OPEN` mode 3 to write, 2 to read; FILES 2). Extension ".pbm".
 - **Save:** open (binary, write), write the header, then per row: build the 40 bytes from the two parts of the copy into a row buffer (arena,
   40 bytes), `FS_WRITE` them; close. **EST** 5,760 bytes at 50 T a byte plus the row work (about 20 T a byte) = 400 k T, report.
-- **Open:** `FS_PICK`, `FS_OPEN` (binary, read), read the header (up to 16 bytes) and require exactly `P4`, 320 x 144 (anything else: the alert
-  "Not a 320 x 144 PBM picture"); read the rows into the copy (the inverse of Save: 40 bytes a row split into the two parts); then restore
+- **Open:** `FS_PICK`, `FS_OPEN` (binary, read), the file's length must be 5,771 and its first 11 bytes exactly `P4`, a newline, `320 144`, a newline (anything else, a comment or other white space included:
+  the alert "Not a 320 x 144 PBM picture."); read the rows into the copy (the inverse of Save: 40 bytes a row split into the two parts); then restore
   the whole picture to the screen by banded restore. A PBM with comments (`#` lines) is refused in P1 (the alert).
 - **The title and the name** follow Notepad (`AL_TITLE`, `AL_EXTNAME`). A picture never saved has no name.
 
@@ -230,7 +232,7 @@ margin, to be reset to the measure by the owner as before.
 
 | Measure | Bound |
 |---|---|
-| Pool bytes added by Paint | <= 16 |
+| Pool bytes added by Paint (`K_PROGS` + `K_BOX`) | <= 100 |
 | Pool free bytes after SIZE 4 | >= 5,000 (reserve 1,000 stays) |
 | DOCK 2-3: Paint's total (`PT_END` - `PT_START`) after P4 | <= 4,400, and DOCK 2-3 free >= 100 |
 | DOCK 6 used | <= 7,000 of 8,192 |

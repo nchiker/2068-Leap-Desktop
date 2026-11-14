@@ -279,14 +279,9 @@ K_LDIR:
 
     IFDEF K_BOXES
 ; K_BOX (docs/PAINT.md 6): a box of rows between the app arena and cold RAM in one crossing (KFAR K_BOX).  HL -> the box's first byte in the
-; arena (its rows IXL bytes apart), DE -> the cold RAM (rows packed), B = rows (>= 1), C = bytes a row (>= 1), IXL = the stride (>= C),
-; A = 0 arena to cold, 1 cold to arena, 2 swap.  Returns DE (and HL) past what they used.  Clobbers AF, BC, DE, HL, IXH.
+; arena, DE -> the cold RAM (rows packed), B = rows (>= 1), C = bytes a row (>= 1), IXH = the step from a row's end to the next row's start
+; in the arena (the stride - C), A = 0 arena to cold, 1 cold to arena, 2 swap.  Returns DE (and HL) past what they used.  Clobbers AF, BC, DE, HL.
 K_BOX:
-    push af
-    ld a,ixl
-    sub c
-    ld ixh,a                    ; the step from a row's end to the next row's start
-    pop af
     or a
     jr z,.save
     dec a

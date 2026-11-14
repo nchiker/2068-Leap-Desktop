@@ -2,13 +2,14 @@
 ; two view classes with their thunks, the strings and tables the kernel draws) is assembled for PROG_IMG; its variables follow the image
 ; and are cleared at start (PAINT 11), not copied.  Symbols take the prefix PN_ (variables, constants) and pn_ (code): PT_ is the pointer's.
 ; Slice P1a: the window, the tool box, the picture's banded redraw (PAINT 4), the menus and the loop.  P1b: the pencil and the eraser, the
-; commit (PAINT 5), Undo (PAINT 6) and Clear.  Files and the discard question: P1c.
+; commit (PAINT 5), Undo (PAINT 6) and Clear.  P1c: New, Open and Save (a PBM, PAINT 9), the discard question (APPLIB 4), as Notepad's.
 
 PN_WINID    EQU 255
 PN_PICLEN   EQU 4 + 40 * 144        ; the copy of the picture (PAINT 3): header (16, 40, 32, 144), then the two parts of 20 x 144 bytes
 PN_PART     EQU 20 * 144            ; the second part's offset from the first
 PN_BANDLEN  EQU 4 + 40 * 8          ; the band buffer (PAINT 4): header + 8 rows of 40 bytes
 PN_UNDO_MAX EQU 2048                ; the undo area: cold RAM $5800-$5FFF (PAINT 6)
+PN_FILELEN  EQU 11 + 40 * 144       ; a PBM file: the 11-byte header and the rows
 
 ; PN_START: the image, the variables, the menus, the picture and the band buffer, the window and its views, then the loop.  Never returns.
 PN_START:
@@ -40,6 +41,10 @@ PN_START:
     ld hl,PN_TWIN                   ; the window and its views (APPLIB 3)
     call AL_NEW
     ld (PN_WIN),ix
+    push hl
+    ld hl,PN_SUNT
+    call pn_nm                      ; "Untitled" and the title
+    pop hl
     call AL_VIEW                    ; the tool box
     call AL_VIEW                    ; the canvas
     ld (PN_CV),de
@@ -69,10 +74,36 @@ pn_loop:
 .cmd:
     ld a,(K_EV+1)
     cp PN_WINID
+    ld a,1
+    jr z,.ask                       ; the close box or SS+Q: quit
+    ld a,(PN_DK)
+    or a
+    jr nz,.dk
+    ld a,(PN_PEND)
+    or a
+    jr z,pn_loop
+    ld b,a
+    ld a,(K_EV+1)
+    dec a
+    jr z,.discard
+    dec a
     jr nz,pn_loop
-    KFAR K_QUIT                     ; the close box or SS+Q
+    call pn_dclose                  ; Cancel
+    jr pn_loop
+.discard:
+    push bc
+    call pn_dclose
+    pop af
+    call pn_do
+    jr pn_loop
+.ask:
+    call pn_ask
+    jr pn_loop
+.dk:
+    call pn_dkcmd
+    jr pn_loop
 
-; pn_menu: E_MENU (K_EV+1 the menu, K_EV+2 the item): File 1 (Quit 4), Edit 2 (Undo 1, Clear 2).
+; pn_menu: E_MENU (K_EV+1 the menu, K_EV+2 the item): File 1 (New 1, Open 2, Save 3, Quit 4), Edit 2 (Undo 1, Clear 2).
 pn_menu:
     ld hl,(K_EV+1)                  ; L = the menu, H = the item
     ld a,l
@@ -83,12 +114,45 @@ pn_menu:
     jp z,pn_undo
     dec a
     ret nz
-    jp pn_clear
+    ld a,4                          ; Clear
+    jr pn_ask
 .file:
     ld a,h
+    cp 3
+    jp z,pn_sopen
     cp 4
-    ret nz
+    jr z,.q
+    inc a                           ; New 2, Open 3
+    jr pn_ask
+.q:
+    ld a,1
+; pn_ask: A = 1 quit, 2 New, 3 Open, 4 Clear: the discard dialog first when the picture changed (APPLIB 4), else the action.
+pn_ask:
+    ld b,a
+    ld a,(PN_DIRTY)
+    or a
+    ld a,b
+    jr z,pn_do
+    ld (PN_PEND),a
+    ld hl,PN_DLG
+    jp AL_ASK
+pn_dclose:
+    ld ix,(PN_DLG)
+    KFAR W_CLOSE
+    xor a
+    ld (PN_PEND),a
+    ret
+; pn_do: A = 1 quit (never returns), 2 New, 3 Open, 4 Clear.
+pn_do:
+    dec a
+    jr nz,.n
     KFAR K_QUIT
+.n:
+    dec a
+    jp z,pn_new
+    dec a
+    jp z,pn_open
+    jp pn_clear
 
 ; pn_status: the status line = the chosen tool's name (PN_TNAMES), redrawn.  pn_say: HL -> a length-prefixed message (<= 25 codes).
 ; Clobbers AF, BC, DE, HL, IX.
@@ -676,7 +740,8 @@ pn_walk:
     ld (PN_WY),a
     ld hl,0
     ld (PN_WACC),hl
-    ld (PN_WC),a                    ; (any count: the first stamp is at the end of a few steps)
+    xor a
+    ld (PN_WC),a                    ; the steps counted from 0: a stamp after the 4th, 8th, ...
     ld hl,(PN_WN)
     ld a,h
     or l
@@ -939,9 +1004,11 @@ pn_box:
     ld b,a
     ld a,(PN_H)
     ld c,a
-    ld a,(PN_BOXM)
+    ld a,20
+    sub c
     push ix
-    ld ixl,20
+    ld ixh,a                        ; the step from a row's end to the next: 20 - H
+    ld a,(PN_BOXM)
     KFAR K_BOX
     pop ix
     ret
@@ -992,13 +1059,259 @@ pn_clear:
     jp pn_savepic
 
 ; ---------------------------------------------------------------------------------------------------------------------------
+; P1c: New, Open and Save (PAINT 8, 9), as Notepad's (WRITE 13).
+
+; pn_new: a new picture named "Untitled": paper, unchanged.
+pn_new:
+    call pn_clear
+    xor a
+    ld (PN_DIRTY),a
+    ld hl,PN_SUNT
+; pn_setname: HL -> a name (a length byte, 1-30 codes): the picture's name and the title "Paint: name" (AL_TITLE), the title row made
+; dirty.  pn_nm: the name and the title only.  IX kept.
+pn_setname:
+    scf
+    jr pn_nm1
+pn_nm:
+    or a
+pn_nm1:
+    ld de,PN_NAME
+    ld bc,31
+    ldir
+    push ix
+    ld ix,(PN_WIN)
+    ld hl,PN_STW
+    ld de,PN_NAME
+    ld bc,PN_TITLE
+    call AL_TITLE
+    pop ix
+    ret
+
+; pn_alert: HL = a message (in the image): the alert (the library's), made once, opened.
+pn_alert:
+    ex de,hl
+    ld hl,PN_ADLG
+    call AL_ALERT
+    ld a,2
+    ld (PN_DK),a
+    ret
+
+; pn_sopen: "Save...": the name dialog (APPLIB 5) with the picture's name in its Field.
+pn_sopen:
+    ld de,PN_PSAV
+    ld a,1
+    ld (PN_DK),a
+    ld hl,PN_SDLG
+    jp AL_NAMEDLG
+
+; pn_dkcmd: A = the dialog open (1 Save, 2 the alert): its E_CMD (K_EV + 1 = the id).  The dialog closes; id 1 of Save saves.
+pn_dkcmd:
+    ld c,a
+    xor a
+    ld (PN_DK),a
+    ld ix,(PN_ADLG)
+    bit 0,c
+    jr z,.cl
+    ld ix,(PN_SDLG)
+.cl:
+    push bc
+    KFAR W_CLOSE
+    pop bc
+    ld a,(K_EV+1)
+    dec a
+    ret nz                          ; Cancel
+    dec c
+    ret nz                          ; the alert's OK
+; pn_save: the name in PN_FBUF: ".pbm" added; the header and the 144 rows written in binary (PAINT 9); the picture is saved under the name.
+pn_save:
+    ld hl,PN_FBUF
+    ld a,(hl)
+    or a
+    ret z                           ; an empty name: nothing saved
+    ld de,PN_SEXT
+    call AL_EXTNAME
+    ld hl,PN_FBUF
+    ld a,3                          ; write, binary
+    call FS_OPEN
+    jr c,.fail
+    ld hl,PN_HDR
+    ld bc,11
+    call FS_WRITE
+    jr c,.fail
+    xor a
+    ld (PN_O),a
+    ld (PN_R),a
+.row:
+    call pn_src                     ; HL = the row's part-1 start
+    ld de,(PN_BAND)
+    call pn_rowget
+    ld hl,(PN_BAND)
+    ld bc,40
+    call FS_WRITE
+    jr c,.fail
+    ld hl,PN_R
+    inc (hl)
+    ld a,(hl)
+    cp 144
+    jr nz,.row
+    call FS_CLOSE
+    jr c,.fail
+    xor a
+    ld (PN_DIRTY),a
+    ld hl,PN_FBUF
+    jp pn_setname
+.fail:
+    ld hl,PN_MSAVE
+    jp pn_alert
+
+; pn_open: "Open..." once the discard dialog (if any) is passed: a file picked and checked (11 bytes of header "P4", 320 144, and
+; 144 rows of 40), read into the copy row by row, the picture redrawn from it.
+pn_open:
+    KFAR W_UPDATE                   ; the menu or the dialog just closed is repainted before the wait
+    ld hl,PN_PNAME
+    call FS_PICK
+    jr nc,.picked
+    cp FS_CANCEL
+    ret z
+    jr .cant
+.picked:
+    ld hl,PN_PNAME
+    ld a,2                          ; read, binary
+    call FS_OPEN
+    jr c,.cant
+    ld hl,PN_FILELEN
+    or a
+    sbc hl,bc
+    jr nz,.bad
+    ld de,(PN_BAND)
+    ld bc,11
+    call FS_READ
+    jr c,.rfail
+    ld hl,(PN_BAND)
+    ld de,PN_HDR
+    ld b,11
+.h:
+    ld a,(de)
+    cp (hl)
+    jr nz,.bad
+    inc hl
+    inc de
+    djnz .h
+    xor a
+    ld (PN_O),a
+    ld (PN_R),a
+.row:
+    ld de,(PN_BAND)
+    ld bc,40
+    call FS_READ
+    jr c,.rfail
+    call pn_src
+    ld de,(PN_BAND)
+    call pn_rowput
+    ld hl,PN_R
+    inc (hl)
+    ld a,(hl)
+    cp 144
+    jr nz,.row
+    call FS_CLOSE
+    call pn_redraw
+    xor a
+    ld (PN_DIRTY),a
+    call pn_nound
+    ld hl,PN_PNAME
+    jp pn_setname
+.bad:
+    call FS_CLOSE
+    ld hl,PN_MBAD
+    jp pn_alert
+.rfail:
+    call FS_CLOSE
+    call pn_redraw                  ; (the rows read so far replaced the copy's)
+    ld hl,PN_MREAD
+    jp pn_alert
+.cant:
+    ld hl,PN_MREAD
+    jp pn_alert
+
+; pn_redraw: the whole picture from the copy.  Clobbers AF, BC, DE, HL.
+pn_redraw:
+    xor a
+    ld (PN_K0),a
+    ld (PN_ADJ),a
+    ld (PN_O),a
+    ld (PN_R),a
+    ld a,40
+    ld (PN_NC),a
+    ld a,20
+    ld (PN_H),a
+    ld a,144
+    ld (PN_RE),a
+    call pn_shield
+    call pn_bands
+    jp pn_unshield
+
+; pn_rowget: HL = a row's part-1 start in the copy, DE -> a buffer: the row's 40 bytes made (the even columns are in part 2, the odd in
+; part 1).  pn_rowput: the reverse.  Clobber AF, BC, DE, HL.
+pn_rowget:
+    push hl
+    push de
+    ld bc,PN_PART
+    add hl,bc
+    ld b,20
+.e:
+    ld a,(hl)
+    ld (de),a
+    inc hl
+    inc de
+    inc de
+    djnz .e
+    pop de
+    inc de
+    pop hl
+    ld b,20
+.o:
+    ld a,(hl)
+    ld (de),a
+    inc hl
+    inc de
+    inc de
+    djnz .o
+    ret
+pn_rowput:
+    push hl
+    ld bc,PN_PART
+    add hl,bc
+    push de
+    ld b,20
+.e:
+    ld a,(de)
+    ld (hl),a
+    inc hl
+    inc de
+    inc de
+    djnz .e
+    pop de
+    inc de
+    pop hl
+    ld b,20
+.o:
+    ld a,(de)
+    ld (hl),a
+    inc hl
+    inc de
+    inc de
+    djnz .o
+    ret
+PN_HDR:     DB "P4", 10, "320 144", 10  ; the PBM header (11 bytes)
+
+; ---------------------------------------------------------------------------------------------------------------------------
 ; The window and its views (PAINT 2): APPLIB 3 entries.  The tool box (55, 28, 66, 82), the canvas (126, 30, 324, 148), the status line.
 PN_TWIN:
     DW CL_CWindow, 48
     DB 16
     DW 416
     DB 176, 0, PN_WINID, 8
-    DW PN_STITLE
+    DW PN_TITLE
     DW CL_Palette, 55
     DB 28
     DW 66
@@ -1031,7 +1344,15 @@ CL_Palette:                         ; Palette: the same, for the tool box (and l
     DW view_destroy, PN_PTD, PN_PTE, view_hittest, k_nop, k_nop
 PN_PTD:     KTHUNK pn_pdraw
 PN_PTE:     KTHUNK pn_pevent
-PN_STITLE:  DB 15, "Paint: Untitled"
+PN_SUNT:    DB 8, "Untitled"
+PN_STW:     DB 7, "Paint: "
+PN_SEXT:    DB ".pbm"
+PN_SSVAS:   DB 8, "Save as:"
+PN_SSAVE:   DB 4, "Save"
+PN_PSAV:    DW PN_SSVAS, PN_FBUF, PN_SSAVE, PN_NAME
+PN_MSAVE:   DB 24, "Cannot save the picture."
+PN_MREAD:   DB 21, "Cannot read the file."
+PN_MBAD:    DB 28, "Not a 320 x 144 PBM picture."
 PN_TNAMES:                          ; the tools' names, in the order of the tool box (PAINT 7)
     DB 7, "Marquee"
     DB 6, "Pencil"
@@ -1110,7 +1431,16 @@ PN_URN      EQU PN_UR0 + 1
 PN_DIRTY    EQU PN_URN + 1          ; 1 when the picture changed since it was new or saved
 PN_BOXM     EQU PN_DIRTY + 1        ; pn_box: the mode, the second part's offset
 PN_BOXD     EQU PN_BOXM + 1
-PN_VARS_END EQU PN_BOXD + 2
+PN_DLG      EQU PN_BOXD + 2         ; the discard dialog, the Save dialog, the alert (made on first use, APPLIB)
+PN_SDLG     EQU PN_DLG + 2
+PN_ADLG     EQU PN_SDLG + 2
+PN_PEND     EQU PN_ADLG + 2         ; 1 quit, 2 New, 3 Open, 4 Clear: waiting for the discard dialog
+PN_DK       EQU PN_PEND + 1         ; the dialog open: 1 Save, 2 the alert
+PN_TITLE    EQU PN_DK + 1           ; "Paint: " and the name: a length byte and up to 39 codes
+PN_NAME     EQU PN_TITLE + 40       ; the picture's name: a length byte and up to 30 codes
+PN_FBUF     EQU PN_NAME + 31        ; the Save dialog's Field
+PN_PNAME    EQU PN_FBUF + 31        ; the picked name (FS_PICK)
+PN_VARS_END EQU PN_PNAME + 32
 PN_VARS_LEN EQU PN_VARS_END - PN_VARS
     ASSERT PN_VARS_END <= AL_RAM && PN_IMG_LEN <= 1024
     ASSERT (CL_Canvas >> 8) == ((CL_Canvas + 11) >> 8) && (CL_Palette >> 8) == ((CL_Palette + 11) >> 8)
