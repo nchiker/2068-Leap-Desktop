@@ -250,7 +250,7 @@ if (['WR_AN', 'WR_MK', 'WR_CLN', 'WR_MENU', 'MB_ENT', 'ME_SIZE', 'ME_EN'].every(
   const names = ['w2-open', 'w2-typed', 'w2-sel', 'w2-menu', 'w2-copy', 'w2-paste', 'w2-dialog'];
   const distinct = names.every((n, i) => i === 0 || !same(rd_(n), rd_(names[i - 1])));
   const okW2 = up && open.K_PROG === 3 && typed.K_PROG === 3 && sel.K_PROG === 3 && menu.K_PROG === 3 && copy.K_PROG === 3 && paste.K_PROG === 3 && dlg.K_PROG === 3 && backUp && backSettled && back.K_PROG === 0 && backEq && distinct &&
-    vOpen.WR_CLN === 0 && vOpen.EDIT_EN === 1 && vSel.WR_MK === 1 && vSel.WR_AN !== vSel.WR_GS && vCopy.WR_CLN > 0 && vCopy.WR_MK === 0 && vPaste.WR_CLN === vCopy.WR_CLN && vPaste.WR_AN === vPaste.WR_GS && vPaste.WR_CHG === 1;
+    vOpen.WR_CLN === 0 && vOpen.EDIT_EN === 0x0A /* Select all and Find... (8 items, bit 7 - k: WRITE 14.3) */ && vSel.WR_MK === 1 && vSel.WR_AN !== vSel.WR_GS && vCopy.WR_CLN > 0 && vCopy.WR_MK === 0 && vPaste.WR_CLN === vCopy.WR_CLN && vPaste.WR_AN === vPaste.WR_GS && vPaste.WR_CHG === 1;
   console.log(`w2 session: open ${JSON.stringify(vOpen)}, typed ${JSON.stringify(vTyped)}, sel ${JSON.stringify(vSel)}, menu ${JSON.stringify(vMenu)}, copy ${JSON.stringify(vCopy)}, paste ${JSON.stringify(vPaste)}; w2-back equals shell ${backEq}`);
   w2 = { ok: okW2, keys: { open: WR_OPEN, typed: W2_TYPED, sel: W2_SEL, menu: W2_MENU, copy: W2_COPY, move: W2_MOVE, paste: W2_PASTE, close: CLOSEKEYS, enter: [ENTER] },
     vars: { open: vOpen, typed: vTyped, sel: vSel, menu: vMenu, copy: vCopy, paste: vPaste }, kprog: { open: open.K_PROG, typed: typed.K_PROG, sel: sel.K_PROG, menu: menu.K_PROG, copy: copy.K_PROG, paste: paste.K_PROG, dialog: dlg.K_PROG, back: back.K_PROG }, backEqShell: backEq };
