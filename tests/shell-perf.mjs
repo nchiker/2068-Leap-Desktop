@@ -198,7 +198,9 @@ const { m } = env;
 }
 
 // the figures at commit 800e9dc (before the look), measured by this block on that commit: whole-desk repaint 184,963; open 90,389; raise 91,944; draw 82,397; whole screen with a window 249,839.
-const LOOKB = { desk: null, open: Math.ceil(90389 * 1.1), raise: Math.ceil(91944 * 1.1), draw: Math.ceil(82397 * 1.1), all: Math.ceil(249839 * 1.1) };
+// Owner, 2026-11-14 (LOOK 10): the window rows' bounds are the figures measured with the look, rounded up (the +10% of LOOK 4 would
+// have cost a 70-90 byte line routine); the whole-screen W_UPDATE is reported, as the whole-desk repaint is (LOOK 9).
+const LOOKB = { desk: null, open: 116000, raise: 117000, draw: 108000, all: null };
 // ---- the chrome's speed (LOOK 4, 9): window open / raise / draw, a whole-desk W_UPDATE, on desk5 -----------------------------------------------
 // Direct calls under K with interrupts off (no frame is crossed).  The shell's window is closed first, so the map holds the bar and the desk only; then the windows
 // are plain empty `Window`s of 256 x 96 at (128, 48), as tests/wm-perf.mjs measures them on kern4.  Bounds: the figures at commit 800e9dc (before the look) plus 10%
@@ -223,15 +225,15 @@ const LOOKB = { desk: null, open: Math.ceil(90389 * 1.1), raise: Math.ceil(91944
   row('whole-desk repaint: W_UPDATE with every cell dirty, no window (the bar and the 25% / paper desk), after the shell\'s window is closed (LOOK 9)', tDesk, LOOKB.desk, `T-states; the W_INVAL before it ${ti}`);
   const A = newW(128, 48, 256, 96), B = newW(128, 48, 256, 96);
   const tOpen = sum(R(S.W_OPEN, { ix: A }), R(S.W_UPDATE));
-  row('window open: W_OPEN + W_UPDATE of an empty 256 x 96 window over the desk (LOOK 4: <= 110% of the figure before the look)', tOpen, LOOKB.open, 'T-states');
+  row('window open: W_OPEN + W_UPDATE of an empty 256 x 96 window over the desk (LOOK 10: the measured figure, rounded up; 90,389 before the look)', tOpen, LOOKB.open, 'T-states');
   const tOpenB = sum(R(S.W_OPEN, { ix: B }), R(S.W_UPDATE));
   row('window open over a window: W_OPEN + W_UPDATE of a second 256 x 96 window on the first, report', tOpenB, null, 'T-states');
   const tRaise = sum(R(S.W_RAISE, { ix: A }), R(S.W_UPDATE));
-  row('window raise: two empty 256 x 96 windows, W_RAISE of the hidden one + W_UPDATE (LOOK 4: <= 110% of the figure before the look)', tRaise, LOOKB.raise, 'T-states');
+  row('window raise: two empty 256 x 96 windows, W_RAISE of the hidden one + W_UPDATE (LOOK 10: the measured figure, rounded up; 91,944 before the look)', tRaise, LOOKB.raise, 'T-states');
   const tDraw = R(S.W_DRAWVIEW, { ix: A });
-  row('window draw: W_DRAWVIEW of the front empty 256 x 96 window (active look) (LOOK 4: <= 110% of the figure before the look)', tDraw, LOOKB.draw, 'T-states');
+  row('window draw: W_DRAWVIEW of the front empty 256 x 96 window (active look) (LOOK 10: the measured figure, rounded up; 82,397 before the look)', tDraw, LOOKB.draw, 'T-states');
   setGA(0, 0, 512, 192); R(S.W_INVAL); const tAll = R(S.W_UPDATE);
-  row('W_UPDATE of a whole-screen desk with two windows: every cell dirty, the bar, the desk and a 256 x 96 window (LOOK 4: <= 110% of the figure before the look)', tAll, LOOKB.all, 'T-states');
+  row('W_UPDATE of a whole-screen desk with two windows: every cell dirty, the bar, the desk and a 256 x 96 window (LOOK 9, 10: reported; 249,839 before the look)', tAll, LOOKB.all, 'T-states');
   const tClose = sum(R(S.W_CLOSE, { ix: A }), R(S.W_UPDATE));
   row('window close: W_CLOSE + W_UPDATE of the front window, report', tClose, null, 'T-states');
 }

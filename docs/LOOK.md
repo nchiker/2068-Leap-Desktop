@@ -188,3 +188,64 @@ of the choice.
 **Revised estimates (replace section 4's table rows):** desk 30-40; menu bar 10-25; `window_draw` 50-90 (no corner code);
 close box 0-5; arrow 0. **Total EST 100-170**, bound <= 250 (section 8).
 
+## 10. As built (slice L1, 2026-11-14)
+
+**Done on TSRun.** Code in `IF LOOK_MAC` blocks, set by `desk5.asm` only: `wm.asm` (`desk_draw`, `window_draw` and its
+table `W_LINES`), `menu.asm` (`mbar_draw`, the drop-down's top line, `mb_titlex`), `tk.asm` (the close box), `pointer.asm` (the
+arrow). `desk5.asm` defines `DESK_STR` and patches the tile.
+
+**How it differs from sections 3 and 9:**
+- **The tile is code 0's glyph,** not 127's. `DESK_STR` (`$E090`, 64 bytes) is RAM that boot clears and nothing writes, so
+  it needs no fill code. Code 0's 8x8 glyph was blank and is never drawn.
+- **`window_draw`** clears the whole rectangle, then draws its lines from a table of (dx, dy, dw, dh): 6 lines, 9 when active.
+  A negative entry counts from the right or the bottom. Then it draws the title.
+- **The arrow's tip is 2 columns wide** (`##o` in row 0). OBJECTS_EVENTS 14.6 asks for ink at columns 0-1 of row 0. The
+  section 3.6 block and `tests/look-model.mjs` show it; mock-ups 1-11 were redrawn.
+- **The close box** amends SHELL 10.1 on `desk5`. Its hit rectangle is (x + 8, y + 1, 15, 7).
+
+**Bytes:** pool +157 (chunk 5 +119, chunk 1 +38): the kernel +142, the menus +38, the close box -23. That is within the 250 of
+section 8. Step 5's pool growth stands at about 3,186 of 3,400 (214 left).
+
+- `kern3`, `kern4`, `bank5`, `gfx6t` and `hello` are unchanged byte for byte. Each was built with and without the change and
+  compared.
+
+**Speed** (TSRun T-states, `tests/shell-perf.mjs`; before = commit 800e9dc):
+
+| Measure | Before | After | Bound |
+|---|---|---|---|
+| Window draw (`W_DRAWVIEW`, empty 256 x 96, active) | 82,397 | 107,174 | <= 108,000 |
+| Window open (`W_OPEN` + `W_UPDATE`) | 90,389 | 115,166 | <= 116,000 |
+| Window raise (`W_RAISE` + `W_UPDATE`) | 91,944 | 116,721 | <= 117,000 |
+| Whole-desk repaint (every cell dirty, no window) | 184,963 | 389,420 | report |
+| Whole screen with a window (every cell dirty) | 249,839 | 440,519 | report |
+| Window close | 99,791 | 124,568 | report |
+| `K_LAUNCH` to Calculator's start | 264,044 | 313,621 | report |
+| Launch / quit, frames | 14-15 / 10-11 | 15-16 / 11-15 | <= 30 |
+
+- The window rows cost about 25,000 T more: about 7 ms, a third of a frame.
+  - The new calls are nine line fills, the title's width, and the gap in the stripes.
+  - Each 1-row `G_FILL` costs about 2,000-3,000 T, nearly all of it per-call setup.
+  - The old draw made 5 fills.
+- **Owner (2026-11-14):** the window rows' bounds are the measured figures, rounded up. Section 4's +10% would have needed a
+  dedicated line routine of 70-90 bytes, and even that would only just have made it. The whole-screen `W_UPDATE` is reported,
+  as section 9 already has it for the whole-desk repaint.
+- **`calc-perf`'s row** (desk5's pool bytes beyond kern4) moves from <= 100 to <= 190 (owner); it measures 189.
+
+**Tests** (Sonnet from this contract; re-run by the main model on the final build):
+- `calc-c1` 5/5, `shell-s1` 18/18, `tk-t1` 8/8, `tk-t2` 10/10, `tk-t3` 9/9, `tk-demo` 7/7, `wr-w1` 12/12, `wr-w2` 14/14,
+  `wr-w3` 7/7, `wr-demo` 7/7, `fs-f1` 8/8, `web-smoke` pass.
+- `calc-perf` 9 pass, `shell-perf` 27 pass, `tk-perf` 54 pass, `wr-perf` 33 pass.
+- The new rows are in `shell-s1`:
+  - the desk against its bytes;
+  - 60 windows from 48 to 320 wide, including cut titles and titles cut to nothing;
+  - the close box's hit rectangle, inside and just outside;
+  - 40 drags of the XOR outline over the desk and over windows;
+  - the open menu;
+  - the arrow at 4 places.
+- No `desk5` program has a window narrow enough to cut its title, so cut titles are tested on kernel windows opened on `desk5`.
+
+**The test page** (owner, 2026-11-14) scales the screen to a whole multiple of 640 x 480 (`web/main.js` `fitScreen`). At a
+fractional size the 25% grey showed moire stripes; the owner saw this in the browser.
+
+**Still to do:** the cross-emulator runs (ZEsarUX and Fuse, `desk5`) on the new look, and the owner's try.
+
