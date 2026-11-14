@@ -7,15 +7,15 @@
 //     --nrand N    random view tables in group 2 (default 40)
 //     --only LIST  groups: 1 AL_INIT's RAM, 2 AL_VIEWS (tables of every role, random tables), 3 AL_DIALOG (made once, then reused), 4 AL_EXTNAME, 5 AL_TITLE,
 //                  6 AL_ALERT, 7 AL_ASK, 8 AL_NAMEDLG, 9 stack <= 128 and the registers (IY and the alternate set, sentinel patterns).
-//                  The edge groups 2b (a Window parent takes no roles), 4b (AL_EXTNAME of an empty name) and 5b (AL_TITLE with an empty prefix or an empty name) run with 2, 4 and 5.
+//                  The edge groups 2b (a Window parent with roles 0 only), 4b (AL_EXTNAME of an empty name) and 5b (AL_TITLE with an empty prefix or an empty name) run with 2, 4 and 5.
 // The last line is "al-a1: N of M groups pass"; exit code 1 on any failure.
 //
 // What the model takes from the contract (and where it had to read between the lines):
 //   * AL_VIEWS: each table entry is made by K_NEW (13-byte entries, APPLIB 3), its rectangle / flags / id / word set, added as the parent's LAST child; for a Dialog parent role bit 0 / 1 sets
-//     Dialog_default / Dialog_cancel; role bit 2 = a Field of cap 30; IX = the parent on return.  For a Window parent the roles set nothing (the contract names a Dialog parent only).
+//     Dialog_default / Dialog_cancel; role bit 2 = a Field of cap 30; IX = the parent on return.  Roles 0 and 1 belong only in a Dialog's table (APPLIB 8): a Window parent is tested with role 0 (and Field role 4) only.
 //   * AL_DIALOG: the first call makes the Dialog (K_NEW, its 8 bytes: x w, y, w w, h, flags, id) and its views and stores it in the word; later calls return the stored dialog and make nothing.
 //   * AL_ALERT / AL_ASK / AL_NAMEDLG: section 4's rectangles; the dialog is open afterwards (a window in W_SLOTS, W_MODAL = the dialog) and the focus is on the default button (alert, ask) or the Field (name dialog).
-//   * AL_EXTNAME: ext added when the name has no "." (any position) and len + 4 <= 30; the empty name therefore becomes the extension alone.
+//   * AL_EXTNAME: ext added when the name has no "." (any position), the name is not empty and len + 4 <= 30; an empty name stays empty (APPLIB 8).
 //   * AL_TITLE: the buffer = length byte, prefix, name (<= 39 codes); Window_title = BC; W_INVAL of (x, y, w, 8) with carry SET on entry, none with carry clear (the lead's brief: "the dirty title row
 //     only with carry set"; the contract's table does not say it).
 import * as W from './wr-lib.mjs';
@@ -175,7 +175,7 @@ if (has('1')) {
 // 2. AL_VIEWS
 if (has('2')) {
   const sec = new Sec('2 AL_VIEWS: every view of the table made, rectangle / flags / id / word set, added as the parent\'s last child (existing children kept first); roles 1 (default), 2 (cancel), 3 (both), 4 (Field of cap 30); IX = the parent; K_NEW once per view; an empty table adds nothing');
-  const secW = new Sec('2b AL_VIEWS with a Window parent (APPLIB 2: the default and cancel buttons are set "for a Dialog parent"): the roles must not write the Dialog\'s default / cancel words (offsets 21-24) into a Window, which is 21 bytes');
+  const secW = new Sec('2b AL_VIEWS with a Window parent and roles 0 only (APPLIB 8: roles 1 and 2 belong in a Dialog\'s table): the views are added as its last children and nothing past the Window\'s 21 bytes (offsets 21-23 of its slot) changes');
   const ent = (cls, x, y, w, h, flags, id, role, word) => ({ cls: cls(), x, y, w, h, flags, id, role, word });
   const wordP = (s) => putStr(codes(s));
   function run(ctx, parentClsIn, mk, preKids = 0) {
@@ -194,7 +194,7 @@ if (has('2')) {
     sec.ok(r.regs.ix === dlg, () => `${ctx}: IX ${hex(r.regs.ix)} on return, want the parent ${hex(dlg)}`);
     sec.ok(cnt.c.newN === entries.length, () => `${ctx}: ${cnt.c.newN} K_NEW calls, want ${entries.length}`);
     checkViews(sec, ctx, dlg, entries, before, isDlg, defB, canB);
-    if (guard) secW.ok(eq(guard, Array.from(m.ram.subarray(dlg + 0x15, dlg + 0x18))), () => `${ctx}: a Window parent's bytes 21-23 (where a Dialog keeps its default / cancel words) were ${guard.map((v) => hex(v, 2)).join(' ')}, now ${Array.from(m.ram.subarray(dlg + 0x15, dlg + 0x18)).map((v) => hex(v, 2)).join(' ')}`);
+    if (guard) secW.ok(eq(guard, Array.from(m.ram.subarray(dlg + 0x15, dlg + 0x18))), () => `${ctx}: a Window parent's bytes 21-23 (past its 21 bytes) were ${guard.map((v) => hex(v, 2)).join(' ')}, now ${Array.from(m.ram.subarray(dlg + 0x15, dlg + 0x18)).map((v) => hex(v, 2)).join(' ')}`);
   }
   run('an empty table (Dialog)', S.CL_Dialog, () => []);
   run('an empty table (Dialog with a child)', () => S.CL_Dialog, () => [], 2);
@@ -208,9 +208,9 @@ if (has('2')) {
     ent(CLS.Button, 224, 108, 64, 16, 0x11, 1, 1, wordP('Save')), ent(CLS.Button, 304, 108, 64, 16, 1, 2, 2, wordP('Cancel'))]);
   run('a Check and a Label with a 16-bit x and w (x 300, w 400)', () => S.CL_Dialog, () => [ent(CLS.Check, 300, 20, 400, 11, 3, 9, 0, wordP('Check')), ent(CLS.Label, 511, 191, 1, 1, 0xFF, 0xFF, 0, 0)]);
   run('a table after two existing children', () => S.CL_Dialog, () => [ent(CLS.Label, 10, 11, 12, 13, 14, 15, 0, wordP('a')), ent(CLS.Button, 20, 21, 22, 23, 24, 25, 1, wordP('b'))], 2);
-  run('a Window parent, roles ignored', () => S.CL_Window, () => [ent(CLS.Label, 10, 11, 12, 13, 0, 0, 0, wordP('a')), ent(CLS.Button, 20, 21, 22, 23, 1, 2, 3, wordP('b')), ent(CLS.Button, 30, 31, 32, 33, 1, 3, 1, wordP('c'))]);
+  run('a Window parent, roles 0', S.CL_Window, () => [ent(CLS.Label, 10, 11, 12, 13, 0, 0, 0, wordP('a')), ent(CLS.Button, 20, 21, 22, 23, 1, 2, 0, wordP('b')), ent(CLS.Button, 30, 31, 32, 33, 1, 3, 0, wordP('c')), ent(CLS.Check, 40, 41, 42, 43, 0, 4, 0, wordP('d'))]);
   run('a Window parent with a child, a Field', () => S.CL_Window, () => [ent(CLS.Field, 10, 11, 120, 12, 1, 1, 4, putBytes(new Array(32).fill(0)))], 1);
-  // random tables: 1-6 views, one default and one cancel at most, Fields with role 4; Dialog and Window parents
+  // random tables: 1-6 views, one default and one cancel at most (Dialog parents only), Fields with role 4; Dialog and Window parents
   for (let k = 0; k < NRAND; k++) {
     const dialog = rng.chance(0.7), n = rng.int(1, 6);
     let haveDef = false, haveCan = false;
@@ -220,7 +220,7 @@ if (has('2')) {
         const kind = rng.pick(['Label', 'Button', 'Button', 'Check', 'Field']);
         let role = 0;
         if (kind === 'Field') role = 4;
-        else if (kind === 'Button') { const d = !haveDef && rng.chance(0.6), c = !haveCan && rng.chance(0.6); role = (d ? 1 : 0) | (c ? 2 : 0); if (d) haveDef = true; if (c) haveCan = true; }
+        else if (kind === 'Button' && dialog) { const d = !haveDef && rng.chance(0.6), c = !haveCan && rng.chance(0.6); role = (d ? 1 : 0) | (c ? 2 : 0); if (d) haveDef = true; if (c) haveCan = true; }
         const word = kind === 'Field' ? putBytes(new Array(32).fill(0)) : rng.chance(0.2) ? 0 : wordP(String.fromCharCode(...Array.from({ length: rng.int(0, 8) }, () => rng.int(65, 90))));
         out.push(ent(CLS[kind], rng.int(0, 511), rng.int(0, 191), rng.int(0, 511), rng.int(0, 191), rng.int(0, 255), rng.int(0, 255), role, word));
       }
@@ -285,9 +285,9 @@ if (has('3')) {
 // ---------------------------------------------------------------------------------------------------------------------------------------------
 // 4. AL_EXTNAME
 if (has('4')) {
-  const sec = new Sec('4 AL_EXTNAME: the extension is added when the name has no "." and the result is <= 30 codes (names of 1, 2, 10, 24-30 codes with and without a ".", the "." first / inside / last, another extension); the name buffer past 30 and the extension untouched; AF BC DE HL clobbered only');
-  const secE = new Sec('4b AL_EXTNAME of an empty name: APPLIB 2 adds the extension when the name has no "." and the result fits, so "" becomes ".txt" (WRITE 13.2 stops an empty name before this rule; the library\'s own contract does not say so)');
-  const model = (name, ext) => (!name.includes(46) && name.length + 4 <= 30 ? [...name, ...ext] : name.slice());
+  const sec = new Sec('4 AL_EXTNAME: the extension is added when the name has no "." and the result is <= 30 codes (names of 1, 2, 10, 24-30 codes with and without a ".", the "." first / inside / last, another extension; the empty name in 4b); the name buffer past 30 and the extension untouched; AF BC DE HL clobbered only');
+  const secE = new Sec('4b AL_EXTNAME of an empty name (APPLIB 8): it stays empty, the extension is not added');
+  const model = (name, ext) => (name.length > 0 && !name.includes(46) && name.length + 4 <= 30 ? [...name, ...ext] : name.slice());
   const mkName = (n, dotAt) => { const cs = Array.from({ length: n }, (_, i) => 97 + (i % 26)); if (dotAt >= 0 && dotAt < n) cs[dotAt] = 46; return cs; };
   const sec4 = sec, cases = [];
   for (const n of [0, 1, 2, 10, 24, 25, 26, 27, 28, 29, 30]) {
