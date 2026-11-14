@@ -286,3 +286,8 @@ compare the display RAM (`$4000-$57FF`, `$6000-$77FF`, with drawing off) and the
 
 **The mock-ups** (`node tools/paint-mock.mjs` -> `docs/paint/pt1-window.png`, `pt1-shell.png`): the Paint window at 1:1 and at 2x in the Mac look,
 with the tool icons, the pattern swatches and the brush cells; and the shell's window with four icons. Current beside proposed for the shell.
+
+**Mock-up notes (2026-11-14, from the generator's report):** in the mock the palette grids draw each cell's right column and bottom row as its
+border, so the top row and left column sit 1 pixel outside the section 2 rectangles (still inside the content area); the tool icons are 16 x 12
+in a 31 x 15 interior; the selected pattern has a 2-pixel solid frame (an XOR ring is invisible on the checker); the 16 patterns include a weave, a
+2 x 2 checker and a back diagonal; the Options menu is a title only. These are the figures P1 builds unless the owner changes them.
