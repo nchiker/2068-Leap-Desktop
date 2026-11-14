@@ -36,8 +36,8 @@ mapped (BANKING). So:
 | `AL_ALERT` | HL -> the program's alert word; DE -> a message (a length byte and codes in RAM; a 13 breaks it into two lines) | Opens the alert (section 4), making it the first time. | AF, BC, DE, HL, IX |
 | `AL_ASK` | HL -> the program's ask word | Opens "Discard the document?" with Discard (id 1, default) and Cancel (id 2, cancel), making it the first time. | AF, BC, DE, HL, IX |
 | `AL_NAMEDLG` | HL -> the program's name-dialog word; DE -> 4 words: the Label's text, the Field's buffer (31 bytes), the Button's text, the text to put in the Field | Sets the dialog's Label, Field buffer and Button, puts the text in the Field (caret at the end) and opens the dialog with the Field focused, making it the first time (section 4). Returns IX = the Field. | AF, BC, DE, HL, IX |
-| `AL_TITLE` | IX = a window; HL -> a prefix ("Notepad: "); DE -> a name (both length-prefixed, together <= 39 codes); BC -> the title buffer (40 bytes) | Builds the title: the prefix, then the name. It sets the window's title word and marks the title row dirty (`W_INVAL` of (x, y, w, 8)). | AF, BC, DE, HL |
-| `AL_EXTNAME` | HL -> a name (length-prefixed, cap 30); DE -> an extension (4 codes, ".txt") | Adds the extension when the name has no "." and the result fits in 30 codes (WRITE 13.2's rule). | AF, BC, DE, HL |
+| `AL_TITLE` | IX = a window; HL -> a prefix ("Notepad: "); DE -> a name (both length-prefixed, either may be empty, together <= 39 codes); BC -> the title buffer (40 bytes); carry set to mark the title row dirty | Builds the title: the prefix, then the name. It sets the window's title word; with carry set on entry, it also marks the title row dirty (`W_INVAL` of (x, y, w, 8)). | AF, BC, DE, HL |
+| `AL_EXTNAME` | HL -> a name (length-prefixed, cap 30); DE -> an extension (4 codes, ".txt") | Adds the extension when the name has no "." and the result fits in 30 codes (WRITE 13.2's rule). An empty name is left empty: a program saves nothing under an empty name. | AF, BC, DE, HL |
 
 Dialogs report through the program's own event loop, as now: a button's `E_CMD` carries its id, and the program knows which
 dialog it opened. Closing is the program's `W_CLOSE` of its own word. The library adds no event handling.
@@ -50,7 +50,7 @@ The table is the one Notepad's `wr_mkdlg` reads (WRITE 13.9). Each view takes 13
 |---|---|
 | 0-1 | Its class (`DW`). A class of 0 ends the table. |
 | 2-9 | x (`DW`), y (`DB`), w (`DW`), h (`DB`), flags (`DB`), id (`DB`): the View fields at offsets 8-15, in order. |
-| 10 | Its role: bit 0 the Dialog's default button, bit 1 its cancel button, bit 2 a `Field` of cap 30, bit 3 the word goes at offset 17 (a Window's title, an Icon's name). |
+| 10 | Its role: bit 0 the Dialog's default button, bit 1 its cancel button (bits 0 and 1 only in a Dialog's table: they write the parent's Dialog fields), bit 2 a `Field` of cap 30, bit 3 the word goes at offset 17 (a Window's title, an Icon's name). |
 | 11-12 | The word at offset 16 (17 with role bit 3): a Label's or Button's text, a Field's buffer, a Window's title. |
 
 A dialog table starts with the Dialog's own 8 bytes, then a view table.
@@ -120,3 +120,12 @@ suites) on the new build. Symbols the tests read stay, with these exceptions, wh
 - the stack of each call.
 
 **Main model:** re-runs everything before the owner is told.
+
+## 8. Readings fixed by the tests (2026-11-14, `tests/al-a1.mjs`)
+
+- **`AL_TITLE` with an empty prefix or name** copied 64 KB (`LDIR` with BC = 0). It now copies nothing for an empty part:
+  `al_ldir`, +6 bytes.
+- **`AL_EXTNAME` leaves an empty name empty** (section 2).
+- **Roles 0 and 1 are for a Dialog's table only** (section 3): on any other parent they would write past a Window's fields.
+- **The alert and the ask open with the focus on their default button,** as the discard dialog always did.
+
