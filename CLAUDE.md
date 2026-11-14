@@ -116,9 +116,8 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
   desktop, 1-pixel drop shadows on windows and menus, and a Mac-style arrow pointer. Our own bitmaps, not Apple's. Start with a
   contract and PNG mock-ups from the JS models (current beside proposed) for the owner. gfx6 has no pattern fill yet; the pool
   has about 371 bytes of step 5's growth left (DOCK 6 under R is an option for drawing code).
-  - **Contract drafted, waiting for the owner's choice (2026-11-13):** `docs/LOOK.md`, mock-ups in `docs/look/`
-    (`node tools/look-mock.mjs`), draft model `tests/look-model.mjs`. Choices (LOOK 6): the look as a whole; the desk (25% grey
-    with today's drag outline, recommended; or 50% with a pattern-XOR outline, since today's XOR outline vanishes on 50%); the arrow;
-    scope (`desk5` only through `LOOK_MAC`, recommended). Nothing is built yet.
+  - **Contract `docs/LOOK.md`; the owner chose (2026-11-13, LOOK 8):** the proposed look, a **25% grey** desk with today's
+    drag outline, the **Mac arrow**, **`desk5` only** (`LOOK_MAC`). Bound <= 250 pool bytes. Mock-ups in `docs/look/`
+    (`node tools/look-mock.mjs`); `tests/look-model.mjs` is the reference model. Next: slice L1 (LOOK 7).
 - **Owner (2026-11-13):** W3 tried in the browser and accepted. Program 3 is now shown as **Notepad** (icon, "Leap" menu,
   title "Notepad: name", alerts); the code, `docs/WRITE.md` and the `WR_` symbols keep the name Write (WRITE 13.10).

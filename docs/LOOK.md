@@ -1,4 +1,4 @@
-# The look slice: a Mac OS 1.0 style (step 5; contract, draft for the owner's choice, 2026-11-13)
+# The look slice: a Mac OS 1.0 style (step 5; contract, owner's choices made 2026-11-13: section 8)
 
 The owner's list (CLAUDE.md, 2026-11-13), and no more than it: a white menu bar (black text, a line under, the selected title
 inverted), striped active title bars with the title centred, the close box on the left, a grey (dithered) desktop, 1-pixel drop
@@ -150,3 +150,16 @@ screen pixel.
   byte.
 - **Cross-emulator:** the `desk5` ZEsarUX and Fuse runners re-run (their references are TSRun's, so they need no change).
 - **The owner** tries it in the browser.
+
+## 8. Owner's choices (2026-11-13)
+
+"I like the new look - 25% grey ... I like the Mac Arrow - Desk5 only is fine."
+
+1. **The look as proposed** (3.1-3.3, 3.5).
+2. **The desk: 25% grey** (`$88, $22`), today's drag outline (6.2 (a)). The pattern-`XOR` outline and its gfx6 op are not built.
+3. **The Mac arrow** (3.6).
+4. **`desk5` only,** through `LOOK_MAC`; `kern3`, `kern4` and `bank5` keep today's look.
+
+The byte bound is therefore section 4's **<= 250**. Section 3.4's 50% option and its rows in sections 4 and 5 stay as the record
+of the choice.
+
