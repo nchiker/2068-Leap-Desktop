@@ -54,6 +54,8 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
 
 - Every routine gets a headless test against a reference model written from its spec (`tests/hello.mjs` is the pattern).
 - Cross-emulator runs: `tools/xemu/` (ZEsarUX through ZRCP, Fuse through a movie converted to `.scr` frames).
+- **TSRun is a fork shared with Leap-IDE** (`nchiker/TSRun`): follow the rules in `docs/TESTSPEED.md` 6 (main only moves by
+  fast-forward, pin commits on main, push TSRun first, tell the other session; core changes are proposed to it first).
 - Stepping TSRun instruction by instruction can drop that frame's interrupt: count interrupts only over frames run normally.
 - Never run two tests of the same cartridge at once **when they build it** (`build/<name>` collides). Suites that only read a
   prebuilt `build/<name>.dck`, such as every `desk5` suite through `loadDesk5`, may run side by side (owner, 2026-11-14;

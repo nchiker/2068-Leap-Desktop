@@ -57,3 +57,29 @@ cores with 8 jobs:
 - Here, `web-smoke`'s page waits get long timeouts.
 - Any wall-clock check is measured as the best of N, spread over time.
 - The T-state rows of the perf suites are not affected: they are counted, not timed.
+
+## 6. Sharing the TSRun fork with Leap-IDE (agreed with the Arcade session, 2026-11-14, at the owner's request)
+
+**State:**
+- `6ccf56e` ("AY: closed-form silent advance") is final on `nchiker/TSRun` main, on top of our two commits (Kempston
+  mouse, host bridge).
+- No other core changes are planned.
+- Video off is TSRun's existing `setVideoOn(m, false)`. Snapshot and restore stay in each project's own test harness (Arcade's
+  is `arcade/tests/fast-boot.mjs`), to be copied, not imported.
+- Arcade's proof test `tests/tsrun-ay-silent.mjs` imports only `tsrun/ay.js`. It holds its own copy of the old per-tick
+  code. It takes about 40 s; `AY_SEEDS` defaults to 4000, and `AY_BENCH=0` skips the timing section.
+
+**Rules both projects keep:**
+1. TSRun main moves only by fast-forward: never rebase or force-push it.
+2. Each project pins a commit that is on main, never a side branch.
+3. Before pushing to TSRun main, `git fetch` and build on the current tip. If main moved, rebase the local commit (never
+   main) and re-run your own checks.
+4. Every core change is off by default, or proves identical behaviour, so the other project can adopt it without
+   re-testing behaviour.
+5. Each project verifies its own move of the pin before committing the bump.
+6. Push TSRun first, then the project that pins it.
+7. Tell the other session after pushing to TSRun main. A core change that one project wants (for example video off or
+   snapshots in `machine.js`) is proposed to the other session first.
+
+**S3:** LeapG moves its pin to `6ccf56e` once the open branches are merged. It first copies the proof test (with a
+`docs/PROVENANCE.md` entry), then runs every suite, which must give identical results.
