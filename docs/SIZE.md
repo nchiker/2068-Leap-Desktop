@@ -80,3 +80,24 @@ The speed-up costs about +40 bytes of DOCK 2-3 that other features could use. No
   byte): the decoder now knows `RST $28` takes a 2-byte operand (bound unchanged, 0). The timing rows moved by a few T (`K_POLL` is shorter: List draw
   233,181 to 233,183; Write's cut / paste +2; `kc-k1`'s single-key redraw ends within 60,679 T of the interrupt, was 60,575, bound 61,000: **the margin is now
   321 T**) and the stack-depth samples in `kc-k1` moved by a few bytes (the interrupt lands on other instructions). The `desk5-ref` run passes.
+
+## 8. P0 built: the DOCK 6 graphics library (2026-11-14; PAINT 11.1)
+
+- **Built (`desk5` and `desk5l`; `hello`, `gfx6t`, `spike6`, `kern3`, `kern3demo`, `kern4`, `kern4demo`, `bank5` and `probe23` are byte-identical to
+  before, checked with `cmp` of the DCKs):**
+  - `src/gfx6/s3.asm` is split: the text of `G_SCROLLV`, `G_BLIT` and `G_LINE` (with their helpers) is in `s3sv.asm`, `s3bl.asm` and `s3ln.asm`, and `s3.asm`
+    includes each where it was under `IFNDEF G_LIB6`. `mul16` and `div3216` stay in `s3.asm` (the toolkit uses them), as do `G_SAVERECT`, `G_RESTRECT`
+    and `G_PRESHIFT`.
+  - `desk5.asm` defines `G_LIB6` and assembles the three files at `ORG $C000` (chunk 6), then the shell's `icons.inc`; `tools/build.mjs` builds
+    `desk5` and `desk5l` as chunks 0-6 (57,353 bytes).
+  - **Check's X** is five `tk_fill`s ((3,2,1,1), (8,2,2,1), (4,3,4,2), (8,5,2,1), (3,5,1,1)); `tk_line` is gone. The pixels are unchanged
+    (`tk-perf`: the screen equals the model) and the draw is faster: 31,185 to 30,761 T (bound 31,200, still met).
+  - **The shell's icons** are in DOCK 6, so `G_BLIT`'s set pointer is a chunk 6 address under R. The shell's RAM image fell from 660 to 180 bytes, and its
+    DOCK 2-3 bytes from 1,115 to 635.
+- **Measured:** the library is 3,776 bytes (`GFX6_CODE_END` `$33BE` to `$24FE`); chunk 6 holds 4,256 of 8,192 (`$C000-$D0A0`, 480 of them the icons).
+  **The pool's free bytes: 5,898** (chunks 0-1 5,102, chunk 5 796; was 2,121); `desk5` DOCK 2-3 has 4,540 + 480 = about 5,020 free.
+- **Tests:** all 20 suites pass; every log is the same as before except addresses, byte counts, and timing rows that moved by a few T (`wr-perf`'s scroll
+  rows +21 T, the crossing's mapping; `shell-s1`'s frames 3,726 to 3,718). `calc-c1`'s memory watch now sees 33,990 accesses to `$C000-$DFFF` under R (0 before).
+- **Checked by grep:** `pointer.asm` uses none of the moved labels (it calls `G_PRESHIFT` at start, which stays); the only other callers of the moved
+  routines were Check's X (replaced), the shell (`KFAR G_BLIT`) and Notepad (`KFAR G_SCROLLV`).
+- **G_LINE under R** has no `desk5` caller until Paint: `tests/g6-line.mjs` runs it from mapping A on the model's random lines.
