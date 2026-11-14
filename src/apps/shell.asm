@@ -74,7 +74,7 @@ s_loop:
     jr z,.cmd
     KFAR TK_DISPATCH
     jr s_loop
-.menu:                          ; Leap (1): About (1), Calculator (3), Controls (4), Write (5)
+.menu:                          ; Leap (1): About (1), Calculator (3), Key Caps (4), Write (5)
     ld a,(K_EV+2)
     cp 1
     jr z,.about
@@ -244,10 +244,10 @@ S_TITLE:    DB 12, "Leap Desktop"
 S_ABOUTT:   DB 20, "Leap Desktop, step 5"
 
 S_NCALC:    DB 10, "Calculator"
-S_NCTRL:    DB 8, "Controls"
+S_NCTRL:    DB 8, "Key Caps"
 S_NWRITE:   DB 7, "Notepad"
 S_NAMES:    DW S_NCALC, S_NCTRL, S_NWRITE
-S_SETS:     DW ICON_CALC, ICON_CTRL, ICON_WRITE
+S_SETS:     DW ICON_CALC, ICON_KEYS, ICON_WRITE
 S_MENUS:
     DB 1
     DW S_M1
@@ -256,7 +256,7 @@ S_M1:
     DB 1, 0, 21, "About Leap Desktop..."
     DB 2, 2, 0                  ; a separator
     DB 3, 0, 10, "Calculator"
-    DB 4, 0, 8, "Controls"
+    DB 4, 0, 8, "Key Caps"
     DB 5, 0, 7, "Notepad"
 S_WIN:      DW 0
 S_ABOUT:    DW 0

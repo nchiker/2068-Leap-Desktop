@@ -69,8 +69,12 @@ with `G_TEXTP` in SET at (x + floor((36 - tw) / 2), y + 5), where tw is the labe
   - 1 while CAPS SHIFT is held (`K_MODS` bit 0);
   - otherwise 2 while SYMBOL SHIFT is held (bit 1);
   - otherwise the checked radio's: Plain 0, Caps Shift 1, Symbol Shift 2.
-- **Each frame without an event:** when P or any of the 8 `K_NOW` bytes differs from what the keyboard was last drawn
-  with, the keyboard is redrawn (`W_DRAWVIEW`). It is not redrawn otherwise.
+- **Each frame without an event**, the keyboard's drawn state (P and a copy of `K_NOW`, `KC_DOWN`) is updated:
+  - **P changed:** the whole keyboard is redrawn (`W_DRAWVIEW`, `M_DRAW`'s full mode).
+  - **Only keys changed:** `W_DRAWVIEW` in mode 1 (`KC_MODE`). Each cap whose key differs between the old state (`KC_OLD`)
+    and the new one gets the XOR fill (x + 1, y + 1, 34, 16), and nothing else is drawn. A full redraw of 40 caps takes
+    several frames, and this keeps a key press to one frame.
+  - **Nothing changed:** nothing is drawn.
 - **`E_KEY`** with code c (before the event is dispatched):
   - the status line becomes "Last key: " followed by the label of c (as section 2; a code with no name is shown as its
     character), then " (code " c in decimal ")";
@@ -111,3 +115,12 @@ with `G_TEXTP` in SET at (x + floor((36 - tw) / 2), y + 5), where tw is the labe
   menu, and the ZEsarUX `desk5` runner's Controls session. They become Key Caps' rows. `List` and `Field` keep their own
   suites (`tk-t2`, `tk-t3`) and the dialogs.
 - **Regression:** every `desk5` suite.
+
+## 6. As built (2026-11-14)
+
+- **Size:** Key Caps is **951** bytes, image 220, against the 1,225 bytes Controls took.
+- **Screens checked on TSRun:** the open window; each of the three planes; keys held, one or three at once, with and without
+  CAPS SHIFT; and the status line with codes up to 3 digits.
+- **Speed:** a full `M_DRAW` takes several frames (about 10 KFAR crossings a cap), so it is kept for a change of plane only
+  (section 3).
+
