@@ -9,16 +9,17 @@
 //   * iconLook / shellLook / aboutLook / renderShell: the shell's screen as gfx6-model drawing (SHELL 10.4 / 10.5: the window, the icons' bitmaps drawn at (x + 16, y) opaque, the names centred
 //     at (x + floor((64 - tw) / 2), y + 17), the selected name's box (tx - 2, y + 17, tw + 4, 9) XORed; the "Leap" menu in the bar; the About Dialog in front);
 //   * cwindowLook (10.1): a Window's look plus, only when it is the front one, the close box; paintWindows: the screen of a stack of windows, back to front;
-//   * ShellSim: the shell's pointer / key logic (SHELL 4, 10.4): focus = selection, a second E_DOWN on the same icon within 20 frames opens it, ENTER opens the focused icon,
+//   * ShellSim: the shell's pointer / key logic (SHELL 4, 10.4): focus = selection, a flagged E_DOWN (the kernel's double-click, WRITE 14.9) on the icon of the last press opens it, ENTER opens the focused icon,
 //     TAB / DOWN / RIGHT and BACKTAB / UP / LEFT move the focus (OBJECTS_EVENTS 6: the kernel's defaults, wrapping over the focusable views, here the two icons);
 //   * Launcher bookkeeping constants: the programs, the menu table of the "Leap" menu.
 //
 // Readings of the contract (also in the report):
 //  R1. "Selected (= focused, K_FOCUS = the icon)" (10.4): an icon is drawn selected exactly when K_FOCUS is that icon.  With the About dialog up the focus is on the OK button, so no icon is
 //      selected; the model takes K_FOCUS from the machine for the screen and checks the focus transitions separately.
-//  R2. The 20-frame rule: "V_FRAMES - its frame <= 20" (10.4): the frames are V_FRAMES when each E_DOWN is handled; the harness measures them from the shell's own variables where they
-//      are given (S_LAST, S_LASTF in the task's symbol list) and checks the exact boundary 20 / 21.
-//  R3. "If the last E_DOWN on an icon was on this one": E_DOWNs elsewhere (the window, the desk) do not count; a non-opening E_DOWN on an icon remembers that icon and the frame.
+//  R2. (WRITE 14.9, which replaces SHELL 10.4's "V_FRAMES - its frame <= 20") The double-click is the kernel's: an E_DOWN carries data 3 bit 2 when the previous press anywhere was <= 20 frames
+//      earlier, within 8 across and 4 down, and not itself a double-click.  The shell opens an icon on a flagged E_DOWN when the icon is S_LAST (the icon of its last press).  The harness
+//      reads the flag from the ring record, and tests/kern-dclick.mjs judges the flag; the gap is measured in frames of the real ISR with m.mouse (20 opens, 21 does not).
+//  R3. E_DOWNs elsewhere (the window, the desk) are not seen by an icon: S_LAST is not touched; the kernel's flag still counts them as presses (a press elsewhere between the two breaks the double).
 //  R4. The shell's window is a plain Window: no close box, and SYMBOL SHIFT + Q (CLOSE) is not consumed there (10.1 TK_DISPATCH: "otherwise not consumed, so it is dropped").
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -127,13 +128,18 @@ export function paintWindows(wins, { pressed = false, bar = true } = {}) {
 export class ShellSim {
   constructor() { this.reset(); }
   reset() { this.focus = 0; this.last = null; this.opened = 0; }            // focus = the icon index (the first icon is focused at the start: the window's activation, WINDOWS 14)
-  /** E_DOWN on icon i at the frame f (V_FRAMES when handled): focus and selection move to it; a second one on the same icon within 20 frames opens it.  Returns the program or 0. */
-  down(i, f) {
+  /**
+   * E_DOWN on icon i with the kernel's double-click flag `flag` (data 3 bit 2, WRITE 14.9 items 1-2): focus and selection move to it.  The icon opens when the flag is set and the icon is S_LAST,
+   * the icon of the shell's last press; otherwise the icon is remembered (S_LAST = i).  Returns the program or 0.
+   */
+  down(i, flag) {
     this.focus = i;
-    if (this.last && this.last.icon === i && ((f - this.last.frame) & 0xFFFF) <= DBL_FRAMES) { this.opened = ICONS[i].prog; return this.opened; }
-    this.last = { icon: i, frame: f };
+    if (flag && this.last && this.last.icon === i) { this.opened = ICONS[i].prog; return this.opened; }
+    this.last = { icon: i };
     return 0;
   }
+  /** A press that no icon sees (the window's blank part, the desk): S_LAST is not touched (R3). */
+  blank() {}
   /** A key code reaching the shell's loop: ENTER on the focused icon opens it; the kernel's defaults move the focus.  Returns the program or 0. */
   key(code) {
     if (code === KEY.ENTER) { this.opened = ICONS[this.focus].prog; return this.opened; }
@@ -156,10 +162,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url) && process.argv.includes(
     let n = 0; for (let y = 0; y < 192; y++) for (let x = 0; x < 512; x++) if (g.get(x, y) !== h.get(x, y)) { n++; if (x < tx - 2 || x >= tx + tw + 2 || y < 57 || y >= 66) n += 1000; }
     eq('selected inverts only the name box', n > 0 && n < 1000, true); }
   // the double click rule
-  { const s = new ShellSim(); eq('first click', [s.down(0, 100), s.focus], [0, 0]); eq('20 frames later opens', s.down(0, 120), 1);
-    const t = new ShellSim(); t.down(1, 5); eq('21 frames does not open', [t.down(1, 26), t.last.frame], [0, 26]); eq('and then 20 later opens', t.down(1, 46), 2);
-    const u = new ShellSim(); u.down(0, 1); u.down(1, 3); eq('A, B, A: the third does not open', u.down(0, 5), 0);
-    const w = new ShellSim(); w.down(1, 0xFFF8); eq('across the V_FRAMES wrap', w.down(1, 8), 2); }
+  { const s = new ShellSim(); eq('first click', [s.down(0, false), s.focus], [0, 0]); eq('a flagged press on the same icon opens', s.down(0, true), 1);
+    const t = new ShellSim(); t.down(1, false); eq('an unflagged press on the same icon does not open', [t.down(1, false), t.last.icon], [0, 1]); eq('and then a flagged one opens', t.down(1, true), 2);
+    const u = new ShellSim(); u.down(0, false); u.down(1, false); eq('A, B, A (flagged): the last press was on B: the third does not open', u.down(0, true), 0);
+    const w = new ShellSim(); w.down(1, false); eq('a flagged press on another icon: no open, S_LAST moves', [w.down(0, true), w.last.icon, w.down(0, true)], [0, 0, 1]); }
   { const s = new ShellSim(); s.key(KEY.TAB); eq('TAB', s.focus, 1); s.key(KEY.UP); eq('UP', s.focus, 0); s.key(KEY.RIGHT); eq('RIGHT', s.focus, 1); eq('ENTER on the second icon', s.key(KEY.ENTER), 2); }
   // CWindow: the box is in the front window only
   { const g = paintWindows([{ kind: 'CWindow', x: 16, y: 24, w: 96, h: 64, title: 'A' }, { kind: 'Window', x: 64, y: 48, w: 96, h: 64, title: 'B' }]);

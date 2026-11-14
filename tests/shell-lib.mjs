@@ -149,28 +149,37 @@ export function leapMenu(env, item) {
   L.moveTo(env, 30, 9 + 10 * (item - 1) + 5); env.frames_(2);
   m.mouse.buttons = L.MOUSE_UP; env.frames_(8);
 }
-/**
- * Two presses on the same icon whose E_DOWNs are handled `gap` frames apart (SHELL 4: V_FRAMES at the handling).  The icon is focused first (TAB), so that a press does not cost a focus
- * redraw and is handled in the frame it is made.  The first press is made and the shell's own record of it (S_LASTF, S_LAST) read: F1.  The second press is then made so that it is handled
- * at F1 + gap (it goes in the frame after V_FRAMES = F1 + gap - 1; gap >= 2: the release needs a frame).  Returns { f1, f2, handledAt, gapSeen }: f2 = S_LASTF after the second press
- * (the shell remembers the frame of a press that does not open), gapSeen = f2 - f1, so the caller can see that the gap was really `gap`.
- */
-export function doubleClickGap(env, p, gap) {
-  const { m, S } = env, [cx, cy] = L.iconCentre(p), want = iconAddrs(env)[p - 1];
-  for (let i = 0; i < 3 && rd16(m, S.K_FOCUS) !== want; i++) { L.typeCode(env, 14); env.frames_(2); }
-  L.moveTo(env, cx, cy); env.frames_(2);
-  const old = rd16(m, S.S_LASTF);
+/** E_DOWN flag (data 3 bit 2) of the last E_DOWN record the ISR appended since the ring's tail was `t0` (null when none). */
+export function flagSince(env, t0) {
+  const { m, S } = env; let f = null;
+  for (let t = t0; t !== m.ram[S.K_RTAIL]; t = (t + 4) & 0xFF) { const a = S.K_RING + (t & 0x3F); if (m.ram[a] === 3) f = (m.ram[a + 3] & 4) !== 0; }
+  return f;
+}
+/** A press at (x, y) with the pointer moved there and the button put down in ONE frame (the E_DOWN is at (x, y)), held `hold` frames, released (one frame, the release frame counts).  Returns { frame: the harness frame count of the press, flag }. */
+export function pressPoint(env, x, y, hold = 1) {
+  const { m, S } = env, [px, py] = L.pointerPos(m, S);
+  m.mouse.x = (m.mouse.x + (x - px)) & 0xFF; m.mouse.y = (m.mouse.y - (y - py)) & 0xFF;
+  const t0 = m.ram[S.K_RTAIL];
   m.mouse.buttons = L.MOUSE_LEFT; env.frame();
-  let k = 0;
-  while (rd16(m, S.S_LASTF) === old && k++ < 8) env.frame();
-  const f1 = rd16(m, S.S_LASTF);
+  const frame = env.frames, flag = flagSince(env, t0);
+  for (let i = 1; i < hold; i++) env.frame();
   m.mouse.buttons = L.MOUSE_UP; env.frame();
-  let guard = 0;
-  while (((rd16(m, S.V_FRAMES) + 1 - f1) & 0xFFFF) < gap && guard++ < 400) env.frame();
-  m.mouse.buttons = L.MOUSE_LEFT; env.frame();
-  const f2 = rd16(m, S.S_LASTF);
-  const handledAt = rd16(m, S.V_FRAMES);
-  m.mouse.buttons = L.MOUSE_UP; env.frames_(2);
-  return { f1, f2, handledAt, gapSeen: (f2 - f1) & 0xFFFF };
+  return { frame, flag };
+}
+/**
+ * Two presses whose ISR polls are `gap` frames apart (WRITE 14.9 item 1: the kernel's double-click flag; the frames are counted by this harness, one per env.frame(), and the E_DOWN is queued in the
+ * frame in which the button is first seen down).  The first press is on icon p's centre (or `first` = [x, y]); the second at the first moved by `off` = [dx, dy] (the pointer moves and the button goes
+ * down in one frame, so the second E_DOWN is at the offset), or at the absolute point `second`.  The icon is focused first (TAB), so that a press does not cost a focus redraw, and 25 idle frames
+ * run before the first press (K_DCN is 0).  Returns { f1, f2, gapSeen: f2 - f1, flag1, flag2 }: the harness frame counts at the two presses and data 3 bit 2 of the two E_DOWN records.
+ */
+export function doubleClickGap(env, p, gap, { off = [0, 0], first = null, second = null } = {}) {
+  const { m, S } = env, [cx, cy] = first || L.iconCentre(p), want = iconAddrs(env)[p - 1];
+  for (let i = 0; i < 3 && rd16(m, S.K_FOCUS) !== want; i++) { L.typeCode(env, 14); env.frames_(2); }
+  L.moveTo(env, cx, cy); env.frames_(25);
+  const a = pressPoint(env, cx, cy, 1);                                  // press frame f1, release frame f1 + 1
+  env.frames_(Math.max(0, gap - 2));                                     // frames f1 + 2 .. f1 + gap - 1
+  const b = pressPoint(env, second ? second[0] : cx + off[0], second ? second[1] : cy + off[1], 1);   // frame f1 + gap
+  env.frames_(2);
+  return { f1: a.frame, f2: b.frame, gapSeen: b.frame - a.frame, flag1: a.flag, flag2: b.flag };
 }
 export const KEYS_OK = (env, code, hold = 3, rel = 3) => L.typeCode(env, code, hold, rel);

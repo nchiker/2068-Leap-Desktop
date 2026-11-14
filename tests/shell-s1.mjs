@@ -263,11 +263,11 @@ function shellGroup() {
   }
   // ---- clicks, double clicks, TAB, arrows, ENTER against ShellSim, random
   {
-    const sec = new Sec('2b clicks, double clicks (gaps near 20 frames), TAB / BACKTAB / arrows, ENTER and clicks off the icons against ShellSim: K_FOCUS, K_PROG, S_LAST / S_LASTF, K_CAPTURE and the screen after every action');
+    const sec = new Sec('2b clicks, double clicks (gaps near 20 frames), TAB / BACKTAB / arrows, ENTER and clicks off the icons against ShellSim: K_FOCUS, K_PROG, S_LAST, K_CAPTURE and the screen after every action (the double-click is the kernel\'s flag, WRITE 14.9)');
     const sim = new SM.ShellSim();
     freshShell(env, sec);
     const base0 = H.captureState(env);
-    const stat = { downs: 0, opens: 0, keys: 0, enters: 0, blanks: 0, near20: 0, openedAt20: 0, notAt21: 0, moves: 0, ambiguous: 0 };
+    const stat = { downs: 0, opens: 0, keys: 0, enters: 0, blanks: 0, near20: 0, openedAt20: 0, notAt21: 0, moves: 0, flagSame: 0 };
     const hist = [];
     const rec = (s) => { hist.push(s); if (hist.length > 7) hist.shift(); };
     const afterLaunch = (p, why) => {
@@ -297,21 +297,24 @@ function shellGroup() {
       const d = H.shellDiff(env);
       sec.ok(d === null, () => `${what}: screen ${d} [${hist.join('; ')}]`);
     };
-    // A press: the pointer on the icon, (optionally waiting until the gap since the shell's last remembered press is reached), the button down for 1-3 frames.  The frame at which the shell
-    // handles the E_DOWN is V_FRAMES after the press's frame when the icon is already focused; a press that moves the focus first redraws two icons and may be handled a frame or two
-    // later (the shell's own S_LASTF tells for a press that does not open).  So `vmin` .. `vmax` bounds it and a press whose outcome depends on which is "ambiguous": the machine decides
-    // and the model follows (counted, not judged).
+    // A press: the pointer on the icon, (optionally waiting until `gap` frames have passed since the last press anywhere), the button down for 1-3 frames.  The kernel decides the
+    // double-click (WRITE 14.9 item 1) and marks the E_DOWN (data 3 bit 2): the flag is read from the ring record the ISR queued in the press frame (kern-dclick.mjs judges the flag itself);
+    // the shell's rule (14.9 item 2) is then: an icon opens when the flag is set and the icon is S_LAST, the icon of the shell's last press.
+    let lastPressFrame = null;
     const press = (i, gap) => {
       const p = i + 1, [cx, cy] = L.iconCentre(p);
       L.moveTo(env, cx, cy);
-      const ref = sim.last ? sim.last.frame : null;
-      if (gap !== undefined && ref !== null) { let g = 0; while (((rd16(m, S.V_FRAMES) + 1 - ref) & 0xFFFF) < gap && g++ < 300) env.frame(); }
-      const focusChange = rd16(m, S.K_FOCUS) !== icons[i], oldF = rd16(m, S.S_LASTF), oldI = rd16(m, S.S_LAST);
+      if (gap !== undefined && lastPressFrame !== null) { let g = 0; while (env.frames + 1 - lastPressFrame < gap && g++ < 300) env.frame(); }
+      const oldI = rd16(m, S.S_LAST), t0 = m.ram[S.K_RTAIL];
       m.mouse.buttons = L.MOUSE_LEFT; env.frame();
-      const vmin = rd16(m, S.V_FRAMES);
+      const t1 = m.ram[S.K_RTAIL];
+      let flag = null;
+      for (let t = t0; t !== t1; t = (t + 4) & 0xFF) { const a = S.K_RING + (t & 0x3F); if (m.ram[a] === 3) flag = (m.ram[a + 3] & 4) !== 0; }
+      const gapFrames = lastPressFrame === null ? null : env.frames - lastPressFrame;
+      lastPressFrame = env.frames;
       env.frames_(rng.int(0, 2)); m.mouse.buttons = L.MOUSE_UP; env.frames_(rng.int(1, 2));
-      for (let k = 0; k < 6 && m.ram[S.K_PROG] === 0 && rd16(m, S.S_LASTF) === oldF && rd16(m, S.S_LAST) === oldI; k++) env.frame();
-      return { vmin, vmax: focusChange ? vmin + 4 : vmin, focusChange, opened: m.ram[S.K_PROG] };
+      for (let k = 0; k < 6 && m.ram[S.K_PROG] === 0 && rd16(m, S.S_LAST) === oldI && flag !== true; k++) env.frame();
+      return { flag, gapFrames, opened: m.ram[S.K_PROG] };
     };
     sim.focus = Math.max(0, icons.indexOf(rd16(m, S.K_FOCUS)));                       // 2a left the focus where its last TAB put it
     verifyShell('start');
@@ -320,30 +323,24 @@ function shellGroup() {
       if (r < 0.50) {
         const i = rng.int(0, 2);
         const gap = rng.chance(0.55) ? rng.pick([2, 3, 4, 6, 10, 15, 18, 19, 20, 20, 21, 21, 22, 25, 30, 45]) : undefined;
-        const prev = sim.last ? { ...sim.last } : null;
+        const prevIcon = sim.last ? sim.last.icon : null;
         const pr = press(i, gap);
         stat.downs++;
-        let want = 0, ambiguous = false;
-        if (prev && prev.icon === i) {
-          const oMin = ((pr.vmin - prev.frame) & 0xFFFF) <= SM.DBL_FRAMES, oMax = ((pr.vmax - prev.frame) & 0xFFFF) <= SM.DBL_FRAMES;
-          if (oMin === oMax) want = oMin ? i + 1 : 0; else ambiguous = true;
-          const g = (pr.vmin - prev.frame) & 0xFFFF; if (g >= 19 && g <= 22) stat.near20++;
-          rec(`press icon ${i} handled@${pr.vmin}${pr.focusChange ? '..' + pr.vmax : ''} gap ${g}${ambiguous ? ' (ambiguous)' : ''}`);
-        } else rec(`press icon ${i} handled@${pr.vmin}${pr.focusChange ? '..' + pr.vmax : ''}`);
-        if (ambiguous) stat.ambiguous++;
-        const gapMin = prev && prev.icon === i ? (pr.vmin - prev.frame) & 0xFFFF : null;
-        if (!ambiguous) sec.ok(pr.opened === want, () => `press on icon ${i} (${hist.join('; ')}): the shell ${pr.opened ? `opened program ${pr.opened}` : 'did not open'}, the model says ${want ? `open program ${want}` : 'no open'} (the last remembered press ${JSON.stringify(prev)})`);
+        sec.ok(pr.flag !== null, () => `press on icon ${i}: no E_DOWN in the ring [${hist.join('; ')}]`);
+        const flag = !!pr.flag, want = sim.down(i, flag);
+        if (pr.gapFrames !== null && pr.gapFrames >= 19 && pr.gapFrames <= 22) stat.near20++;
+        rec(`press icon ${i} gap ${pr.gapFrames} flag ${flag ? 1 : 0} (last icon ${prevIcon})`);
+        sec.ok(pr.opened === want, () => `press on icon ${i} (${hist.join('; ')}): the shell ${pr.opened ? `opened program ${pr.opened}` : 'did not open'}, the rule (flag set and the icon is S_LAST) says ${want ? `open program ${want}` : 'no open'}`);
+        if (flag && prevIcon === i) stat.flagSame++;
         if (pr.opened) {
-          stat.opens++; if (gapMin === 20) stat.openedAt20++;
-          sim.opened = pr.opened; sim.focus = i;
-          afterLaunch(pr.opened, `press icon ${i} (gap ${gapMin})`);
+          stat.opens++; if (pr.gapFrames === 20) stat.openedAt20++;
+          afterLaunch(pr.opened, `press icon ${i} (gap ${pr.gapFrames})`);
+          lastPressFrame = null;
         } else {
-          if (gapMin === 21) stat.notAt21++;
-          // the machine's own record of the press: the icon and the frame (S_LAST, S_LASTF)
-          const lf = rd16(m, S.S_LASTF);
-          sec.ok(rd16(m, S.S_LAST) === icons[i] && lf >= pr.vmin && lf <= pr.vmax, () => `press icon ${i}: S_LAST ${hex(rd16(m, S.S_LAST))} S_LASTF ${lf}, want the icon ${hex(icons[i])} and a frame in ${pr.vmin}..${pr.vmax} [${hist.join('; ')}]`);
-          sim.focus = i; sim.last = { icon: i, frame: lf };
-          verifyShell(`press icon ${i} handled@${pr.vmin}`);
+          if (pr.gapFrames === 21 && prevIcon === i) stat.notAt21++;
+          // the shell's own record of the press: the icon (S_LAST)
+          sec.ok(rd16(m, S.S_LAST) === icons[i], () => `press icon ${i}: S_LAST ${hex(rd16(m, S.S_LAST))}, want the icon ${hex(icons[i])} [${hist.join('; ')}]`);
+          verifyShell(`press icon ${i}`);
         }
       } else if (r < 0.80) {
         const code = rng.pick([14, 14, 15, 10, 11, 8, 9]);
@@ -355,40 +352,71 @@ function shellGroup() {
       } else if (r < 0.96) {
         // a press on the window's blank part and on the desk: no icon sees it (reading R3 of shell-model.mjs: it does not disturb the double click)
         const [x, y] = rng.pick([[250, 90], [262, 56], [400, 150], [60, 160]]);
-        L.click(env, x, y, 3, 4); stat.blanks++; rec(`click blank (${x}, ${y})`);
+        L.click(env, x, y, 3, 4); lastPressFrame = env.frames - 4; sim.blank(); stat.blanks++; rec(`click blank (${x}, ${y})`);
         verifyShell(`click at (${x}, ${y})`);
       } else { const [x, y] = [rng.int(0, 511), rng.int(10, 190)]; L.moveTo(env, x, y); env.frames_(1); stat.moves++; rec(`move (${x}, ${y})`); verifyShell('move'); }
     }
     // the boundary, exactly (reading R2: the frames are V_FRAMES when each E_DOWN is handled, as the shell's S_LASTF records them)
-    sec.end(`${stat.downs} presses (${stat.ambiguous} ambiguous: the focus redraw makes the handling frame uncertain, not judged; ${stat.opens} double clicks opened; ${stat.near20} with a gap of 19-22; ${stat.openedAt20} opened at exactly 20; ${stat.notAt21} refused at exactly 21), ${stat.keys} keys, ${stat.enters} ENTERs, ${stat.blanks} blank clicks, ${env.frames} frames`);
+    sec.end(`${stat.downs} presses (${stat.flagSame} flagged on the icon of the last press; ${stat.opens} double clicks opened; ${stat.near20} with a gap of 19-22; ${stat.openedAt20} opened at exactly 20; ${stat.notAt21} refused at exactly 21), ${stat.keys} keys, ${stat.enters} ENTERs, ${stat.blanks} blank clicks, ${env.frames} frames`);
   }
-  // ---- the double click boundary, exactly, on a fresh shell each time it opened
+  // ---- the double click boundary, exactly, measured through the real ISR
   {
-    const sec = new Sec('2c double click timing: a second E_DOWN on the same icon <= 20 frames (V_FRAMES, as handled) after the first opens the program, 21 or more does not; the shell remembers the frame; also across the V_FRAMES wrap');
-    const gaps = [2, 3, 4, 5, 8, 10, 15, 18, 19, 20, 21, 22, 23, 25, 30, 40, 100, 200];
+    const sec = new Sec('2c double click timing (WRITE 14.9 items 1-2): two presses on the same icon whose polls are f2 - f1 frames apart (the real ISR, m.mouse): <= 20 opens the program, 21 or more does not; the distance (8 across / 4 down opens, 9 / 5 does not); a press elsewhere between; a flagged press on the neighbouring icon; the kernel\'s flag is read from the ring');
+    const gaps = [2, 3, 4, 5, 8, 10, 15, 18, 19, 20, 21, 22, 23, 25, 30, 40, 100];
     const stat = { opened: 0, kept: 0 };
-    for (const wrap of [false, true]) for (const p of [1, 2, 3]) for (const gap of gaps) {
+    const finishTrial = (what, p, wantOpen, r) => {
+      if (r) sec.ok(r.gapSeen === r.gapWant, () => `${what}: the harness made a gap of ${r.gapSeen}, wanted ${r.gapWant} (calibration)`);
+      const n = L.waitProgram(env, p, 40), opened = n >= 0 && m.ram[S.K_PROG] === p;
+      sec.ok(opened === wantOpen, () => `${what}: the program ${opened ? 'opened' : 'did not open'}, want ${wantOpen ? 'open' : 'no open'}${r ? ` (E_DOWNs polled in frames ${r.f1} and ${r.f2}, flags ${r.flag1 ? 1 : 0} and ${r.flag2 ? 1 : 0})` : ''}`);
+      if (!opened) { stat.kept++; sec.ok(rd16(m, S.K_FOCUS) === icons[p - 1] || !r, () => `${what}: K_FOCUS ${hex(rd16(m, S.K_FOCUS))} after a click`); }
+      else { stat.opened++; sec.ok(L.quitByCloseBox(env, p), `${what}: the shell did not come back`); env.frames_(4); }
+      return opened;
+    };
+    const trial = (what, p, gap, o, wantOpen, wantFlag2 = wantOpen) => {
       if (m.ram[S.K_PROG] !== 0) L.waitShell(env);
-      env.frames_(30);                                                            // the last press is more than 20 frames ago
-      if (wrap) { const v = 0xFFFF - rng.int(2, Math.min(gap, 40)) ; env.m.ram[S.V_FRAMES] = v & 0xFF; env.m.ram[S.V_FRAMES + 1] = v >> 8; env.resync(); }
-      const r = H.doubleClickGap(env, p, gap);
-      const n = L.waitProgram(env, p, 40);
-      const opened = n >= 0 && m.ram[S.K_PROG] === p;
-      const want = gap <= 20;
-      sec.ok(opened === want, () => `icon ${p}, gap ${gap}${wrap ? ' across the V_FRAMES wrap' : ''}: the program ${opened ? 'opened' : 'did not open'}, want ${want ? 'open' : 'no open'} (E_DOWNs handled at ${r.f1} and ${r.handledAt}, S_LASTF now ${r.f2})`);
-      if (!opened) {
-        // not opened: the shell now remembers the second press's frame, and the icon is the focus
-        sec.ok(r.gapSeen === gap, () => `icon ${p}, gap ${gap}${wrap ? ' (wrap)' : ''}: S_LASTF moved by ${r.gapSeen}, the harness made the gap ${gap} (calibration)`);
-        sec.ok(rd16(m, S.K_FOCUS) === icons[p - 1], () => `icon ${p}: K_FOCUS ${hex(rd16(m, S.K_FOCUS))} after a click`);
-        stat.kept++;
-      } else {
-        stat.opened++;
-        // leave the program by its close box: the shell again
-        sec.ok(L.quitByCloseBox(env, p), `icon ${p}, gap ${gap}: the shell did not come back`);
-        env.frames_(4);
-      }
+      env.frames_(30);
+      const r = H.doubleClickGap(env, p, gap, o); r.gapWant = gap;
+      sec.ok(r.flag1 === false, () => `${what}: the first press (K_DCN 0 before) has the flag`);
+      sec.ok(r.flag2 === wantFlag2, () => `${what}: the second press' flag ${r.flag2 ? 1 : 0}, want ${wantFlag2 ? 1 : 0} (the kernel's rule: 20 frames, 8 across, 4 down)`);
+      return finishTrial(what, p, wantOpen, r);
+    };
+    for (const p of [1, 2, 3]) for (const gap of gaps) trial(`icon ${p}, gap ${gap}`, p, gap, {}, gap <= 20);
+    // the distance (a gap of 6): inside the 64 x 26 icon, centre (x + 32, y + 13)
+    for (const [dx, dy, want] of [[8, 0, true], [-8, 0, true], [0, 4, true], [0, -4, true], [8, 4, true], [-8, -4, true], [9, 0, false], [-9, 0, false], [0, 5, false], [0, -5, false], [9, 5, false], [12, 0, false], [0, 9, false]]) {
+      const p = rng.pick([1, 2, 3]);
+      trial(`icon ${p}, gap 6, second press at (${dx >= 0 ? '+' : ''}${dx}, ${dy >= 0 ? '+' : ''}${dy}) from the first`, p, 6, { off: [dx, dy] }, want);
     }
-    sec.end(`${gaps.length * 4} trials (3 icons, with and without the V_FRAMES wrap), ${stat.opened} opened, ${stat.kept} refused`);
+    // a press elsewhere between the two: the kernel's flag is about the previous press anywhere, so the second press on the icon is not a double
+    for (const p of [1, 3]) {
+      if (m.ram[S.K_PROG] !== 0) L.waitShell(env);
+      env.frames_(30);
+      const [cx, cy] = L.iconCentre(p), foc = H.iconAddrs(env)[p - 1];
+      for (let i = 0; i < 3 && rd16(m, S.K_FOCUS) !== foc; i++) { L.typeCode(env, 14); env.frames_(2); }
+      L.moveTo(env, cx, cy); env.frames_(25);
+      const a = H.pressPoint(env, cx, cy); env.frames_(2);
+      const mid = H.pressPoint(env, 400, 150); env.frames_(2);           // the bare desk
+      const b = H.pressPoint(env, cx, cy);
+      sec.ok(a.flag === false && mid.flag === false && b.flag === false, () => `icon ${p}: a press on the desk between two presses on the icon: flags ${a.flag}, ${mid.flag}, ${b.flag}, want all false`);
+      finishTrial(`icon ${p}: press, desk press, press (6 frames in all)`, p, false, null);
+    }
+    // the neighbouring icon: icon 1's right edge (x 111) then icon 2's left edge (x 113): near (dx 2), so the kernel flags the second press, but it is not the icon of the last press: no open;
+    // the second press made icon 2 the last press, and it was a double-click, so a third press (not flagged) does not open; a fourth press (flagged against the third) on icon 2 does
+    {
+      if (m.ram[S.K_PROG] !== 0) L.waitShell(env);
+      env.frames_(30);
+      for (let i = 0; i < 3 && rd16(m, S.K_FOCUS) !== icons[0]; i++) { L.typeCode(env, 14); env.frames_(2); }
+      L.moveTo(env, 111, 50); env.frames_(25);
+      const a = H.pressPoint(env, 111, 50); env.frames_(2);
+      const b = H.pressPoint(env, 113, 50); env.frames_(3);
+      sec.ok(a.flag === false && b.flag === true, () => `neighbouring icons: flags ${a.flag}, ${b.flag}, want false, true (2 pixels apart, 5 frames)`);
+      sec.ok(m.ram[S.K_PROG] === 0 && rd16(m, S.S_LAST) === icons[1], () => `a flagged press on icon 2 after one on icon 1: K_PROG ${m.ram[S.K_PROG]}, S_LAST ${hex(rd16(m, S.S_LAST))} (want 0 and icon 2 ${hex(icons[1])})`);
+      const c = H.pressPoint(env, 113, 50); env.frames_(3);
+      sec.ok(c.flag === false && m.ram[S.K_PROG] === 0, () => `the press after a double-click: flag ${c.flag}, K_PROG ${m.ram[S.K_PROG]}, want false and the shell (the second press was a double-click)`);
+      const d = H.pressPoint(env, 114, 51); 
+      finishTrial('neighbouring icons: the fourth press (flagged against the third, on the icon of the last press)', 2, true, null);
+      sec.ok(d.flag === true, () => `the fourth press: flag ${d.flag}, want true`);
+    }
+    sec.end(`${stat.opened + stat.kept} trials (${stat.opened} opened, ${stat.kept} refused): gaps 2-100 on 3 icons, 13 offsets, presses elsewhere between, neighbouring icons`);
   }
   // ---- ENTER and TAB / arrows from the user's side (the keys are checked again in 2b)
   {
