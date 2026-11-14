@@ -124,3 +124,43 @@ with `G_TEXTP` in SET at (x + floor((36 - tw) / 2), y + 5), where tw is the labe
 - **Speed:** a full `M_DRAW` takes several frames (about 10 KFAR crossings a cap), so it is kept for a change of plane only
   (section 3).
 
+## 7. The TS2068 layout (owner, 2026-11-14; replaces sections 1-2's window, layout and caps where they differ)
+
+**Why:** the owner said "it resembles the Spectrum keyboard not the 2068". The design that showed three values on every
+key (`docs/keycaps/kc2-*.png`) was turned down: "simplify what is on the key legends like the current version does". The
+approved mock-ups are `docs/keycaps/kc3-*.png`, made with `node tools/kc-mock.mjs`.
+
+**The views:**
+
+| View | Rect (x, y, w, h) |
+|---|---|
+| Window | (32, 24, 448, 160) |
+| Radios | at y = 40, x as before |
+| Keyboard | (40, 54, 432, 102) |
+| Status line | (48, 162, 400, 9) |
+
+**The rows,** in TSRun's board order (`tsrun/keyboard.js`). Caps are 2 pixels apart.
+
+| Row | y | First x | Cap height | Caps (key index k: width) |
+|---|---|---|---|---|
+| 0 | 54 | 40 | 18 | 1 2 3 4 5 6 7 8 9 0 (k 15-19, 24-20): 36 each |
+| 1 | 76 | 49 | 18 | Q-P (k 10-14, 29-25): 36 each |
+| 2 | 98 | 58 | 18 | A-L (k 5-9, 34-31): 36 each; ENTER (k 30): 70 |
+| 3 | 120 | 40 | 18 | CAPS SHIFT (k 0): 43; Z-M (k 1-4, 39-37): 36 each; SYMBOL SHIFT (k 36): 36; BREAK (k 40): 36; CAPS SHIFT (k 0): 43 |
+| 4 | 142 | 128 | 14 | SPACE (k 35): 254 |
+
+**One cap** at (x, y) with width w and height h:
+- **The frame:** (x, y, w, h).
+- **The label:** centred, at (x + floor((w - tw) / 2), y + (h - 8) / 2).
+- **When down:** the XOR fill (x + 1, y + 1, w - 2, h - 2).
+
+**What each cap shows:**
+- **Labels:** as section 2, plus BREAK (k 40), which is always "Brk".
+- **The SPACE bar** follows the plane: "Space", "Brk" under CAPS SHIFT, "Space" under SYMBOL SHIFT.
+- **Keys down:**
+  - both CAPS SHIFT caps show k 0;
+  - BREAK is down when keys 0 and 35 both are.
+
+**As built:** Key Caps is **1047** bytes, image 219, against the 1,225 bytes Controls took. The screens match the mock-ups
+on TSRun: plain, CAPS SHIFT with `1`, BREAK, and the Symbol Shift radio with `E`.
+

@@ -190,46 +190,49 @@ kc_lbl:
     ld b,a
     ret
 
-; kc_draw: KeyCaps' M_DRAW (KEYCAPS 2).  KC_MODE 0: paper, then the 40 caps in the plane KC_P, those down in KC_DOWN pressed.
-; KC_MODE 1 (kc_poll): only the pressed fill of each cap whose key differs between KC_OLD and KC_DOWN, toggled (XOR).
+; kc_draw: KeyCaps' M_DRAW (KEYCAPS 2).  KC_MODE 0: paper, then every cap of KC_ROWS in the plane KC_P, those down in KC_DOWN
+; pressed.  KC_MODE 1 (kc_poll): only the pressed fill of each cap whose key differs between KC_OLD and KC_DOWN, toggled (XOR).
 kc_draw:
     ld a,(KC_MODE)
     or a
     jr nz,.nclr
     KFAR w_clear                ; the view's rectangle to paper
 .nclr:
-    ld hl,KC_KEYS
-    ld (KC_KP),hl
     ld hl,KC_ROWS
-    ld (KC_RP),hl
 .row:
-    ld hl,(KC_RP)
-    ld e,(hl)                   ; the row's first x (40 + s_r), its y
-    inc hl
-    ld a,(hl)
-    inc hl
-    ld (KC_RP),hl
+    ld a,(hl)                   ; the row: y, first x, cap height; 0 ends
     or a
-    ret z                       ; the end
+    ret z
     ld (KC_Y),a
+    inc hl
+    ld e,(hl)
     ld d,0
     ld (KC_X),de
-    ld a,10
-    ld (KC_C),a
+    inc hl
+    ld a,(hl)
+    ld (KC_H),a
+    inc hl
 .cap:
-    ld hl,(KC_KP)
+    ld a,(hl)                   ; k ($FF ends the row), then the cap's width
+    inc hl
+    inc a
+    jr z,.row
+    dec a
+    ld (KC_K),a
     ld a,(hl)
     inc hl
-    ld (KC_KP),hl
-    ld (KC_K),a
+    ld (KC_W),a
+    ld (KC_RP),hl
     ld a,(KC_MODE)
     or a
     jr nz,.down
     KFAR G_SETOP                ; SET (A = 0)
     call kc_ga
-    ld hl,36
+    ld hl,(KC_W)                ; (KC_H follows KC_W: H = 0 below)
+    ld h,0
     ld (GA+4),hl
-    ld l,18
+    ld a,(KC_H)
+    ld l,a
     ld (GA+6),hl
     KFAR G_FRAME
     ld a,(KC_K)
@@ -239,6 +242,9 @@ kc_draw:
     inc c
     cp 36
     jr z,.lbl                   ; SYMBOL SHIFT
+    ld c,3
+    cp 40
+    jr z,.lbl                   ; BREAK: "Brk"
     ld e,a
     ld d,0
     ld hl,KEYMAP
@@ -265,47 +271,40 @@ kc_draw:
     ld (GA+6),hl
     KFAR G_TEXTW                ; HL = tw
     ex de,hl
-    ld hl,36
+    ld a,(KC_W)
+    ld l,a
+    ld h,0
     or a
     sbc hl,de
     sra h
-    rr l                        ; floor((36 - tw) / 2)
+    rr l                        ; floor((w - tw) / 2)
     ld de,(KC_X)
     add hl,de
     ld (GA),hl
-    ld a,(KC_Y)
-    add a,5
+    ld a,(KC_H)                 ; y + (h - 8) / 2
+    sub 8
+    rra
+    ld hl,KC_Y
+    add a,(hl)
     ld l,a
     ld h,0
     ld (GA+2),hl
     KFAR G_TEXTP
 .down:
-    ld a,(KC_K)                 ; KC_DOWN[k / 5] bit (k mod 5)
-    ld hl,KC_DOWN
-.d5:
-    cp 5
-    jr c,.bit
-    sub 5
-    inc hl
-    jr .d5
-.bit:
-    ld b,a
-    ld c,(hl)                   ; mode 0: down; mode 1: changed
+    ld hl,KC_DOWN               ; mode 0: down; mode 1: changed
+    call kc_kdn
+    ld c,a
     ld a,(KC_MODE)
     or a
     jr z,.t
-    ld de,KC_OLD - KC_DOWN
-    add hl,de
-    ld a,(hl)
+    ld hl,KC_OLD
+    call kc_kdn
     xor c
     ld c,a
 .t:
     ld a,c
-    inc b
-.rot:
-    rrca
-    djnz .rot
-    jr nc,.next
+    or a
+    jr z,.next
     ld a,2
     KFAR G_SETOP                ; XOR
     call kc_ga
@@ -314,20 +313,28 @@ kc_draw:
     ld (GA),hl
     ld hl,GA+2
     inc (hl)
-    ld hl,34
+    ld a,(KC_W)
+    sub 2
+    ld l,a
+    ld h,0
     ld (GA+4),hl
-    ld l,16
+    ld a,(KC_H)
+    sub 2
+    ld l,a
     ld (GA+6),hl
     KFAR G_FILL
 .next:
+    ld a,(KC_W)                 ; x += w + 2
+    add a,2
     ld hl,(KC_X)
-    ld de,40
-    add hl,de
+    add a,l
+    ld l,a
+    jr nc,.nx
+    inc h
+.nx:
     ld (KC_X),hl
-    ld hl,KC_C
-    dec (hl)
-    jp nz,.cap
-    jp .row
+    ld hl,(KC_RP)
+    jp .cap
 ; kc_ga: GA = (KC_X, KC_Y).  Clobbers AF, HL.
 kc_ga:
     ld hl,(KC_X)
@@ -337,47 +344,82 @@ kc_ga:
     ld h,0
     ld (GA+2),hl
     ret
+; kc_kdn: HL -> 8 half-row bytes: A = $FF when key KC_K is down there, else 0.  Key 40 (BREAK) is down when keys 0 (CAPS SHIFT)
+; and 35 (SPACE) both are.  Clobbers F, B, DE.
+kc_kdn:
+    ld a,(KC_K)
+    cp 40
+    jr nz,kc_kbit
+    push hl
+    xor a
+    call kc_kbit
+    pop hl
+    or a
+    ret z
+    ld a,35
+; kc_kbit: A = a key index, HL -> 8 half-row bytes -> A = $FF when its bit is set, else 0.  Clobbers F, B, HL.
+kc_kbit:
+    cp 5
+    jr c,.bit
+    sub 5
+    inc hl
+    jr kc_kbit
+.bit:
+    ld b,a
+    ld a,(hl)
+    inc b
+.r:
+    rrca
+    djnz .r
+    sbc a,a
+    ret
 
-; KEYCAPS 2: the key index k of each cap, row by row; each row's first x and its y (0 ends).
-KC_KEYS:
-    DB 15, 16, 17, 18, 19, 24, 23, 22, 21, 20
-    DB 10, 11, 12, 13, 14, 29, 28, 27, 26, 25
-    DB 5, 6, 7, 8, 9, 34, 33, 32, 31, 30
-    DB 0, 1, 2, 3, 4, 39, 38, 37, 36, 35
+; KEYCAPS 2: the TS2068's rows (tsrun/keyboard.js's board): y, the first cap's x, the caps' height, then each cap's key index k
+; (the KEYMAP index; 40 is BREAK, CAPS SHIFT + SPACE) and width, $FF; 0 ends.  Caps are 2 pixels apart.
 KC_ROWS:
-    DB 40, 62, 46, 84, 52, 106, 40, 128, 0, 0
+    DB 54, 40, 18
+    DB 15, 36, 16, 36, 17, 36, 18, 36, 19, 36, 24, 36, 23, 36, 22, 36, 21, 36, 20, 36, $FF
+    DB 76, 49, 18
+    DB 10, 36, 11, 36, 12, 36, 13, 36, 14, 36, 29, 36, 28, 36, 27, 36, 26, 36, 25, 36, $FF
+    DB 98, 58, 18
+    DB 5, 36, 6, 36, 7, 36, 8, 36, 9, 36, 34, 36, 33, 36, 32, 36, 31, 36, 30, 70, $FF
+    DB 120, 40, 18
+    DB 0, 43, 1, 36, 2, 36, 3, 36, 4, 36, 39, 36, 38, 36, 37, 36, 36, 36, 40, 36, 0, 43, $FF
+    DB 142, 128, 14
+    DB 35, 254, $FF
+    DB 0
 KC_SLAST:   DB "Last key: "
 KC_SCODE:   DB " (code "
 ; The window and its views (KEYCAPS 1): APPLIB 3 entries.
 KC_TWIN:
     DW CL_CWindow, 32
-    DB 32
+    DB 24
     DW 448
-    DB 136, 0, KC_WINID, 8
+    DB 160, 0, KC_WINID, 8
     DW KC_STITLE
     DW CL_Check, 48
-    DB 48
+    DB 40
     DW 96
     DB 9, $19, 1, 0
     DW KC_SPLAIN
     DW CL_Check, 160
-    DB 48
+    DB 40
     DW 120
     DB 9, $11, 2, 0
     DW KC_SCAPS
     DW CL_Check, 296
-    DB 48
+    DB 40
     DW 136
     DB 9, $11, 3, 0
     DW KC_SSYM
     DW 0
     DW CL_KeyCaps, 40
-    DB 62
+    DB 54
     DW 432
-    DB 88, 0, 4, 0
+    DB 102, 0, 4, 0
     DW 0
     DW CL_Label, 48
-    DB 154
+    DB 162
     DW 400
     DB 9, 0, 5, 0
     DW KC_STAT
@@ -425,14 +467,14 @@ KC_P:       DB 0                ; the plane and the keys down the keyboard is dr
 KC_DOWN:    DS 8, 0
 KC_OLD:     DS 8, 0             ; the keys down before (kc_poll, KC_MODE 1)
 KC_MODE:    DB 0
-KC_KP:      DW 0
 KC_RP:      DW 0
 KC_X:       DW 0
 KC_Y:       DB 0
-KC_C:       DB 0
+KC_W:       DB 0                ; the cap being drawn: its width, its row's height (KC_H follows KC_W)
+KC_H:       DB 0
 KC_K:       DB 0
     ENT
 KC_IMG_LEN  EQU $ - KC_IMG
     ASSERT PROG_IMG + KC_IMG_LEN <= AL_RAM && (CL_KeyCaps >> 8) == ((CL_KeyCaps + 11) >> 8)
-    ASSERT (KC_STAT >> 8) == ((KC_STAT + 26) >> 8)
+    ASSERT (KC_STAT >> 8) == ((KC_STAT + 26) >> 8) && KC_H == KC_W + 1
 KC_END:

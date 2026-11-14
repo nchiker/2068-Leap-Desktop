@@ -39,7 +39,7 @@ const ROWS = [
   { x: 58, keys: [...'ASDFGHJKL'.split('').map((k) => [k, 36]), ['ENTER', 70]] },
   { x: 40, keys: [['CS', 43], ...'ZXCVBNM'.split('').map((k) => [k, 36]), ['SS', 36], ['BREAK', 36], ['CS', 43]] },
 ];
-const BAR = { x: 123, y: Y0 + 4 * PITCH, w: 264, h: 14 };
+const BAR = { x: 128, y: Y0 + 4 * PITCH, w: 254, h: 14 };
 const WIN = { x: 32, y: 24, w: 448, h: 160, title: { codes: codes('Key Caps') } };
 const RADIOS = [[48, 'Plain'], [160, 'Caps Shift'], [296, 'Symbol Shift']];
 const RADIO_Y = 40;
