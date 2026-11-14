@@ -3,7 +3,7 @@
 // Written from the contract only (never from src/apps/write.asm).  T-states are TSRun's (no memory contention); direct calls under mapping K with a sentinel return; interrupts ON for the
 // K_DISPATCH rows (WRITE 7: "interrupts on for dispatch rows"), off for W_DRAWVIEW and the stack rows.  Each figure is the worst of three, the text view focused, the window in front.
 //   node tests/wr-perf.mjs [--seed N]
-// W2's rows (WRITE 12.8) follow W1's: tests/wr-perf.mjs measures both; without W2 symbols the W2 rows fail with a message.
+// W2's rows (WRITE 12.8) follow W1's: tests/wr-perf.mjs measures both; without W2 symbols the W2 rows fail with a message.  W3's rows (13.6) and W4's (14.7) follow.
 // Rows: measured, bound, pass / MISSED / reported.  Exit code 1 on a missed bound.  A missed bound is reported with its numbers and nothing is changed (WRITE preamble).
 import * as W from './wr-lib.mjs';
 import * as H from './shell-lib.mjs';
@@ -355,7 +355,7 @@ if (w3ok) {
   const host = makeHost(); m.host = host;
   const BASE_W2 = 5564;                                                       // WRITE 12.11: Write's bytes after W2
   { const total = S.WR_END - S.WR_START;
-    row('Write\'s bytes in DOCK 2-3 for W3: WR_END - WR_START less W2\'s 5,564 (13.6 EST +600-800; all of Write <= 7,000)', total - BASE_W2, null, `total ${total}; the all-of-Write bound of 7,000 is ${total <= 7000 ? 'not exceeded' : 'EXCEEDED'}; files.asm (FS_END - FS_BEGIN) ${S.FS_END - S.FS_BEGIN} bytes after it`);
+    row('Write\'s bytes in DOCK 2-3 for W3: WR_END - WR_START less W2\'s 5,564 (13.6 EST +600-800; all of Write <= 7,000; the figure now includes W4, whose own row is below)', total - BASE_W2, null, `total ${total}; the all-of-Write bound of 7,000 is ${total <= 7000 ? 'not exceeded' : 'EXCEEDED'}; files.asm (FS_END - FS_BEGIN) ${S.FS_END - S.FS_BEGIN} bytes after it`);
     row('RAM image after W3: WR_IMG_LEN', S.WR_IMG_LEN, 1024, 'unchanged bound'); }
   // a document of 5,120 codes in 80 display lines: 80 paragraphs of 63 codes and the paragraph end, each line within the text width
   let codes80 = null;
@@ -423,6 +423,148 @@ if (w3ok) {
     nt(W.menuCall(env, 1, 2, { ints: true, onHalt: () => { host.answer('big.txt', new Array(6000).fill(65)); } }), 'Open too long (alert)');
     row('stack of the W3 paths (WR_MENU Open... / Save..., the dialog command, the alert), crossings included, bytes below the return', worst, 128, what);
   }
+}
+
+// ===== W4 (docs/WRITE.md 14.7, as amended by 14.9) ======================================================================================================================================================
+// Written from 14.7's bounds table only.  Direct calls as the W2 / W3 rows: K_DISPATCH of the records (interrupts on), WR_MENU under mapping A (E_MENU 2, 5 / 2, 6), the Find dialog's command (wr_dkcmd, A = WR_DK = 3,
+// K_EV = E_CMD id 1) as W3 measured Save's; the worst of three from snapshots.  The double-click is the SECOND E_DOWN, K_EV carrying the kernel's flag (data 3 bit 2), K_DISPATCH to the return (14.7).
+let w4ok = true;
+try { for (const n of ['WR_FN', 'WR_FCODES', 'WR_FFB', 'WR_LCK', 'wr_dkcmd', 'WR_DK', 'WR_MENU']) if (S[n] === undefined) throw new Error(`desk5 does not define ${n}`); }
+catch (e) { w4ok = false; missed++; console.log(`FAIL | W4 rows not measured: ${e.message}`); }
+if (w4ok) {
+  const { snapshot, restore } = await import('./review-lib.mjs');
+  const BASE_W3 = 6424;                                                       // WRITE 14.7: Write's bytes after W3
+  const total = S.WR_END - S.WR_START;
+  row('Write\'s bytes in DOCK 2-3 for W4: WR_END - WR_START less W3\'s 6,424 (14.7 EST +350-550; 14.9 item 8: 519)', total - BASE_W3, null, `report; total ${total}`);
+  row('all of Write: WR_END - WR_START (14.7: <= 7,000)', total, 7000, `${7000 - total} bytes left under 7,000`);
+  row('RAM image after W4: WR_IMG_LEN (14.7: <= 1,024)', S.WR_IMG_LEN, 1024, `the image is ${S.WR_IMG_LEN} bytes; F (WR_FN, the image\'s last byte, then WR_FCODES) and the Find Field\'s buffer are after it`);
+  row('pool bytes for W4 (14.7: 0; the kernel flag\'s +59 is 14.9 item 1-2): not measurable from the symbol file of a cartridge', 0, 0, 'noted, not measured here');
+  const dispPt = (t, px, py, held = 1) => { const r = W.dispatch(env, W.ptRec(t, px, py, held), { ints: true }); diTotal += r.di; return r; };
+  /** The second press of a double-click: K_EV = the E_DOWN with data 3 bit 2 (the kernel's flag). */
+  const dispDbl = (px, py) => { const r = W.dispatch(env, W.ptRec(E.DOWN, px, py, 1, 1), { ints: true }); diTotal += r.di; return r; };
+  const typeK = (cs) => { for (const c of cs) { const r = W.dispatch(env, W.keyRec(c), { ints: true }); diTotal += r.di; } };
+  const menu = (item) => { const r = W.menuCall(env, 2, item, { ints: true }); diTotal += r.di; if (r.badSp !== undefined) { missed++; console.log(`FAIL | WR_MENU item ${item}: SP not kept`); } return r; };
+  const dkcmd = (id) => { T.setEv(env, [E.CMD, id, 0, 0]); const r = T.runCall(env, S.wr_dkcmd, { a: m.ram[S.WR_DK] }, { map: 'A', ints: true }); diTotal += r.di; if (r.badSp !== undefined) { missed++; console.log('FAIL | the dialog command: SP not kept'); } return r; };
+  /** Find... with the text `text` (unmeasured; the model follows); an alert, if any, closed by its OK. */
+  const setF = (dd, text) => { menu(5); typeK(Array.from({ length: 30 }, () => 12)); typeK(text); dkcmd(1); const r = dd.findDialog(text); if (r.found === false) { if (m.ram[S.WR_DK] !== 2) { missed++; console.log(`FAIL | Not found did not raise the alert (WR_DK ${m.ram[S.WR_DK]})`); } dkcmd(1); } };
+  const chk4 = (d, what) => {
+    T.runCall(env, S.W_UPDATE, {}, { ints: false });          // the closed dialog's damage is repainted by the loop (parked here), as wr-lib's closeCover does
+    chkState(d, what);
+    const a = [...W.stateDiff2(env, d).sel, ...W.stateDiff4(env, d)];
+    if (a.length) { missed++; console.log(`FAIL | ${what}: W4 state differs from the model: ${a[0]}`); }
+    const g = W.liveDiff(env, d, {}); if (g !== null) { missed++; console.log(`FAIL | ${what}: the screen differs from the model: ${g}`); }
+  };
+  const pcache = {};
+  function prepared(d, key, prep) {
+    if (pcache[key]) { restore(env.m, pcache[key].snap); env.strp = T.STR0; return pcache[key].model.clone(); }
+    const dd = setup(d.clone(), key); prep(dd);
+    pcache[key] = { snap: snapshot(env.m), model: dd.clone() }; return dd.clone();
+  }
+  const pointOfCode = (d, k) => { const ln = d.lineOf(k), j = ln - d.top, x0 = WM.TEXTX + WM.tw(d.codes, d.starts[ln], k); return [x0 + (WM.adv(d.codes[k]) >> 1), WM.TVR.y + 9 * j + 4]; };
+  let worstStack = { v: 0, what: '' };
+  const noteStack = (r, what) => { if (r.stack > worstStack.v) worstStack = { v: r.stack, what }; };
+  // ---- a double-click: the second E_DOWN selecting a 10-code word in line 5 of 16 full lines
+  {
+    let d = null, k0 = -1;
+    for (let tries = 0; tries < 400 && !d; tries++) {
+      const out = []; let c;
+      for (;;) { const n = out.length && out[out.length - 1] !== 32 ? 0 : (rng.chance(0.3) ? 10 : rng.int(2, 9)); for (let i = 0; i < n; i++) out.push(rng.pick(WM.codesOf('abcdefghijklmnopqrstuvwxyz'))); if (n) out.push(32); c = new WM.Doc(out); if (c.nl >= 16) break; }
+      if (c.nl !== 16) continue;
+      const s5 = c.starts[5], e5 = s5 + c.lens[5];
+      for (let a = s5; a + 10 < e5; a++) if ((a === 0 || c.codes[a - 1] === 32) && c.codes[a + 10] === 32 && c.codes.slice(a, a + 10).every((x) => x !== 32)) { k0 = a + 4; break; }
+      if (k0 >= 0) { c.caret = 0; c.top = 0; d = c; }
+    }
+    if (!d) throw new Error('no 16-line document with a 10-code word in line 5');
+    const [px, py] = pointOfCode(d, k0), ts = [];
+    for (let i = 0; i < 3; i++) {
+      const dd = prepared(d, 'w4dbl', (d0) => { dispPt(E.DOWN, px, py); dispPt(E.UP, px, py, 0); d0.press(px, py, false); });
+      const r = dispDbl(px, py); dd.press(px, py, true); ts.push(r.t); noteStack(r, 'a double-click (K_DISPATCH)');
+      dispPt(E.UP, px, py, 0);
+      if (i === 2) { chk4(dd, 'a double-click'); if (dd.S !== 10) { missed++; console.log(`FAIL | the double-click selected ${dd.S} codes, want the 10-code word`); } }
+    }
+    row('a double-click: the second E_DOWN (K_EV with the kernel\'s flag), K_DISPATCH to the return, selecting a 10-code word in line 5 of 16 full lines (14.7)', Math.max(...ts), 58_000, `worst of ${ts.join(', ')}; ${d.L} codes, ${d.nl} lines`);
+  }
+  // ---- Find again finding the next match in the same line
+  {
+    const base = WM.codesOf('the quick brown fox jumps over the lazy dog ');
+    const text = []; while (text.length < 1400) text.push(...base);
+    const d = new WM.Doc(text); d.caret = 0; d.top = 0;
+    const F = WM.codesOf('the'), ts = []; let info = '';
+    for (let i = 0; i < 3; i++) {
+      const dd = prepared(d, 'w4again', (d0) => {
+        setF(d0, F);
+        for (let g = 0; g < 60; g++) {                                         // Find again until the selection is in line 5..10 and the next match is in the same line
+          const ln = d0.caretLine(), nx = d0.clone(); const r = nx.search(F);
+          if (ln >= 5 && ln <= 10 && r.found && nx.caretLine() === ln && nx.anchor > d0.anchor) break;
+          menu(6); d0.menuItem(6);
+        }
+      });
+      const was = dd.caretLine(), r = menu(6); dd.menuItem(6); ts.push(r.t); noteStack(r, 'Find again');
+      if (dd.caretLine() !== was) { missed++; console.log(`FAIL | Find again left line ${was} for ${dd.caretLine()}: not the next match in the same line`); }
+      info = `selection [${dd.anchor}, ${dd.caret}) in line ${dd.caretLine()}`;
+      if (i === 2) chk4(dd, 'Find again');
+    }
+    row('Find again finding the next match in the same line: WR_MENU E_MENU 2, 6 to its return (14.7)', Math.max(...ts), 117_000, `worst of ${ts.join(', ')}; F "the"; ${info}; ${d.L} codes`);
+  }
+  // ---- the two searches in a 5,120-code text: nothing found (then the alert), and F at the end; the caret at 0
+  {
+    const lets = WM.codesOf('abcdefghijklmnoprstuvwxyz'), words5 = []; const vocab5 = ['the', 'over', 'there', 'were', 'even', 'seen', 'rest', 'next', 'help', 'end'];
+    let text = null;
+    for (let tries = 0; tries < 50 && !text; tries++) {
+      const out = [];
+      while (out.length < 5120) { const r = rng.next(); if (r < 0.02) out.push(13); else { const w = WM.codesOf(rng.pick(vocab5)); out.push(...w, 32); } }
+      const c = new WM.Doc(out.slice(0, 5120)); if (c.nl <= 1024 && c.nl >= 80) text = out.slice(0, 5120);
+    }
+    void lets; void words5;
+    const prep5 = (F, plantAtEnd) => (dd) => {
+      // the document is typed already (setup); F is set on it from the caret at 0 by the dialog (found: the caret moves; not found: the alert), then the caret back to 0 with the view at the top
+      setF(dd, F);
+      W.emulateBar(env, 0); W.sendRec(env, o.tv, [E.SCROLL, 0, 2, 0], { ints: false }); dd.scrollTo(0);
+      dispPt(E.DOWN, 27, 31); dd.press(27, 31, false); dispPt(E.UP, 27, 31, 0);
+    };
+    // F = 5 codes whose first code is common ("e" is in most of the words) and that is nowhere in the text
+    const Fnone = WM.codesOf('eqzxk');
+    const d1 = new WM.Doc(text); d1.caret = 0; d1.top = 0;
+    if (d1.findPos(Fnone) >= 0) throw new Error('F is in the text');
+    let ts = [];
+    for (let i = 0; i < 3; i++) {
+      const dd = prepared(d1, 'w4none', prep5(Fnone));
+      if (dd.caret !== 0 || dd.L !== 5120) throw new Error(`set-up: caret ${dd.caret}, length ${dd.L}`);
+      const r = menu(6); const s = dd.search(dd.find); ts.push(r.t); noteStack(r, 'Find again, not found');
+      if (s.found || m.ram[S.WR_DK] !== 2) { missed++; console.log(`FAIL | the search for an absent F: found ${s.found}, WR_DK ${m.ram[S.WR_DK]} (want 2: the alert)`); }
+    }
+    // the alert alone: the same call on a 3-code text (F is longer than the text: no start is tried), so that the scan's own cost is the difference
+    const dA = new WM.Doc(WM.codesOf('abc'), 0), tsA = [];
+    for (let i = 0; i < 3; i++) {
+      const da = prepared(dA, 'w4alert', (d0) => { setF(d0, Fnone); });
+      const r = menu(6); da.search(da.find); tsA.push(r.t); noteStack(r, 'Find again, F longer than the text (the alert alone)');
+      if (m.ram[S.WR_DK] !== 2) { missed++; console.log(`FAIL | the alert did not open (WR_DK ${m.ram[S.WR_DK]})`); }
+    }
+    row('a search that finds nothing in 5,120 codes (F = "eqzxk", 5 codes whose first code is common), WR_MENU E_MENU 2, 6 from the caret at 0 to the return, the alert included (14.7)', Math.max(...ts), null, `report (EST 0.3-0.5 M, then the alert); worst of ${ts.join(', ')}; ${d1.L} codes, ${d1.nl} lines; the alert alone (the same call with F longer than a 3-code text) ${Math.max(...tsA).toLocaleString('en')} T, so the scan is about ${(Math.max(...ts) - Math.max(...tsA)).toLocaleString('en')} T`);
+    // F at the end: the last 5 codes of the text are unique
+    const Fend = WM.codesOf('zzqqx'), text2 = text.slice(0, 5115).concat(Fend);
+    const d2 = new WM.Doc(text2); d2.caret = 0; d2.top = 0;
+    ts = [];
+    for (let i = 0; i < 3; i++) {
+      // F is set while the text has no match before the end: the dialog's own search finds it at the end; the caret is then taken back to 0 with the view at the top, so the measured Find again starts at 0 and finds it at L - 5
+      const dd = prepared(d2, 'w4end', prep5(Fend));
+      if (dd.caret !== 0 || dd.L !== 5120) throw new Error(`set-up (end): caret ${dd.caret}, length ${dd.L}`);
+      const r = menu(6); const s = dd.search(dd.find); ts.push(r.t); noteStack(r, 'Find again, F at the end');
+      if (!s.found || s.pos !== 5115) { missed++; console.log(`FAIL | the model finds F at ${s.pos}, want 5115`); }
+      if (i === 2) chk4(dd, 'F at the end of 5,120 codes');
+    }
+    row('a search that finds F at the end of a 5,120-code text, the caret at 0, WR_MENU E_MENU 2, 6 to the return, the match drawn (14.7)', Math.max(...ts), null, `report; worst of ${ts.join(', ')}; the match at 5,115`);
+  }
+  // ---- the dialog's own paths (Find... opening, the dialog command), for the stack
+  {
+    const dd = setup(new WM.Doc(WM.codesOf('the quick brown fox jumps over the lazy dog'), 0));
+    const r1 = menu(5); noteStack(r1, 'WR_MENU Find...');
+    typeK(WM.codesOf('lazy')); const r2 = dkcmd(1); noteStack(r2, 'the Find dialog\'s command'); dd.findDialog(WM.codesOf('lazy'));
+    const r3 = menu(5); noteStack(r3, 'WR_MENU Find... (F in the Field)'); const r4 = dkcmd(2); noteStack(r4, 'the Find dialog\'s command (Cancel)');
+    row('Find...: WR_MENU E_MENU 2, 5 to its return (the dialog opened)', r1.t, null, `report; the Find command with a match ${r2.t.toLocaleString('en')} T`);
+    chk4(dd, 'Find...');
+  }
+  row('stack of the W4 paths (a flagged E_DOWN, WR_MENU Find... / Find again, the dialog command, the alert), crossings included, bytes below the return (14.7: <= 128)', worstStack.v, 128, worstStack.what);
 }
 
 row('DI executed over every stepped call above', diTotal, 0, 'a DI is seen when interrupts are on and IFF1 drops during a step');
