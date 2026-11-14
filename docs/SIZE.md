@@ -49,3 +49,17 @@ might use is deleted. Shared code goes to the kernel pool, the DOCK 6 graphics l
 
 - **Zero-filled variables out of the programs' images:** about 368 bytes of DOCK 2-3, which has more than 4 KB free.
 - **Sharing `check_event` with `button_event`:** about 30 bytes, but it renumbers flags that `tk-t1` checks.
+
+## 6. `List` is a build switch (2026-11-14; owner: "yes, make List a build switch")
+
+- **What:** `src/kernel/tk2.asm` assembles `tk_div` and the whole `List` code (`ls_geom` .. `TK_SETITEMS`) only when `TK_LIST` is defined; the
+  class generator has a `guard NAME` line (in `tk-classes.txt`: `guard TK_LIST` under `class List`), which wraps the descriptor in
+  `IFDEF`. The `List_*` offsets stay. `Field` and the clip / dim helpers it shares are always built.
+- **Targets:** `desk5` is built **without** `List`; `desk5l` (`tools/build.mjs`) is `desk5` with `-DTK_LIST=1`, byte-identical to the old `desk5`.
+  A program that wants a `List` builds its cartridge with the switch.
+- **Freed in `desk5`:** chunks 0-1 `TK2_END` `$3F36` to `$3CA4` (658 bytes) and the 18-byte descriptor in chunk 5 (`K_PROGS` `$BF32` to `$BF20`):
+  **676 bytes of pool.**
+- **Tests:** `tk-t2`, `tk-t3` and `tk-perf` boot `desk5l` (`bootParked({ cart: 'desk5l' })`, `loadDesk5('desk5l')`); every other suite uses `desk5`.
+  `Field` on `desk5` itself is exercised by Notepad's dialogs (`wr-w3`, `al-a1`). The runner's preflight needs `build/desk5l.dck`.
+- **Result:** all 20 suites pass; every log is identical to the previous run except `shell-perf`'s size rows (growth 1,716 to 1,698 and
+  addresses; the `DI` sweep of the shell's code counts 230 instructions, not 229, because pool addresses inside it moved; still 0 `DI`).

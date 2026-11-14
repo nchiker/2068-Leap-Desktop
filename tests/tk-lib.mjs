@@ -27,7 +27,7 @@ export const TK_NEEDED = ['CL_Check', 'CL_VScroll', 'CL_Group', 'CL_Window', 'CL
 
 // T2 / T3: item arrays, their strings and Field buffers live in $5800-$5BFF (free RAM under K; reset by buildTree)
 export const BUF0 = 0x5800, BUF_END = 0x5C00;
-export const NEEDED2 = ['CL_List', 'CL_Field', 'List_items', 'List_count', 'List_sel', 'List_top', 'List_bar', 'Field_buf', 'Field_cap', 'Field_caret', 'Field_first', 'TK_SETITEMS', 'TK_SETTEXT', 'TK2_CODE', 'TK2_END'];
+export const NEEDED2 = ['CL_List', 'CL_Field', 'List_items', 'List_count', 'List_sel', 'List_top', 'List_bar', 'Field_buf', 'Field_cap', 'Field_caret', 'Field_first', 'TK_SETITEMS', 'TK_SETTEXT', 'TK2_CODE', 'TK2_END'];   // List is in desk5l (desk5 built with TK_LIST; docs/SIZE.md 6)
 /** Throw "desk5 does not define: ..." when a symbol is missing. */
 export function needSyms(env, names) {
   const missing = names.filter((n) => env.S[n] === undefined);

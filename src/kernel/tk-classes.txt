@@ -21,6 +21,7 @@ class CWindow : Window          # 21 bytes (docs/SHELL.md 10.1): a Window with a
   method Event cw_event
 
 class List : View               # 23 bytes (TOOLKIT 10.3); flags bit 3 disabled look, bit 4 cell lines
+  guard TK_LIST                 # assembled only with TK_LIST (docs/SIZE.md 6): no desk5 program uses it
   field items 2
   field count 1
   field sel   1

@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_SUITES = ['al-a1', 'kc-k1', 'calc-c1', 'shell-s1', 'tk-t1', 'tk-t2', 'tk-t3', 'wr-w1', 'wr-w2', 'wr-w3', 'wr-w4', 'wr-demo',
   'fs-f1', 'kern-dclick', 'web-smoke', 'calc-perf', 'shell-perf', 'tk-perf', 'wr-perf', 'boot-snapshot'];
-const PREFLIGHT = ['build/desk5.dck', 'build/desk5/out.sym', 'build/desk5/mem.bin', 'build/kern4.dck', 'build/hello.dck'];
+const PREFLIGHT = ['build/desk5.dck', 'build/desk5/out.sym', 'build/desk5/mem.bin', 'build/desk5l.dck', 'build/desk5l/out.sym', 'build/kern4.dck', 'build/hello.dck'];
 const TIMES_FILE = join(ROOT, 'tests', '.suite-times.json');
 const LIMIT_S = 1200;
 

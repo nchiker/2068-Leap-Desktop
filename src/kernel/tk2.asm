@@ -99,6 +99,7 @@ tk_dim:
     inc c
     jr .l
 
+    IFDEF TK_LIST               ; List and what only it uses (docs/SIZE.md 6): not in desk5 unless built with TK_LIST
 ; tk_div: A / B -> C = the quotient, A = the remainder (B > 0).
 tk_div:
     ld c,-1
@@ -493,6 +494,8 @@ TK_SETITEMS:
     call ls_geom
     call ls_bar
     jp W_DRAWVIEW
+
+    ENDIF                       ; TK_LIST
 
 ; ===========================================================================================================================
 ; Field (10.4).

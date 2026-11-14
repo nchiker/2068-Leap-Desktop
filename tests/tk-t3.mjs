@@ -65,7 +65,7 @@ function applyField(env, node, f, mark) {
   T.poke8(env, a + S.View_flags, f.flags); T.setRect(env, a, f.x, f.y, f.w, f.h);
 }
 function singleFieldEnv() {
-  const env = T.bootParked({ rng }); envs.push(env);
+  const env = T.bootParked({ rng, cart: 'desk5l' }); envs.push(env);
   T.needSyms(env, T.NEEDED2);
   const node = { kind: 'Field', id: 154, x: 30, y: 30, w: 100, h: 12, flags: 1, buf: T.codesOf('Leap'), cap: 40, caret: 4, first: 0 };
   const tree = new M2.TkTree2(WIN0, [node]);
@@ -156,7 +156,7 @@ function doSetText(env, tree, sec, ctx, f, codes, strMark) {
 }
 
 if (ONLY.includes(3)) {
-  const env = T.bootParked({ rng }); envs.push(env);
+  const env = T.bootParked({ rng, cart: 'desk5l' }); envs.push(env);
   T.needSyms(env, T.NEEDED2);
   const { m, S } = env;
   const sec = new Sec('3 Field editing: codes, DELETE, LEFT, RIGHT, ENTER, clicks, a full buffer, TK_SETTEXT, focus keys through K_DISPATCH; text, caret, first, W_DRAWVIEWs, E_CMD posts and the screen after each step');
@@ -223,7 +223,7 @@ if (ONLY.includes(3)) {
 // ===========================================================================================================================
 // 4. TK_SETTEXT directly: strings shorter and longer than cap, empty, exactly cap; copied, cut, caret at the end, first adjusted, drawn; IX kept
 if (ONLY.includes(4)) {
-  const env = T.bootParked({ rng }); envs.push(env);
+  const env = T.bootParked({ rng, cart: 'desk5l' }); envs.push(env);
   T.needSyms(env, T.NEEDED2);
   const { m, S } = env;
   const sec = new Sec('4 TK_SETTEXT: L = min(length, cap), the first L codes copied, caret = L, first = 0 then adjusted, drawn (W_DRAWVIEW once); IX / IY / the alternate set kept');
@@ -251,7 +251,7 @@ if (ONLY.includes(4)) {
 // ===========================================================================================================================
 // 5. Direct M_EVENT sends (T_SEND, DE -> a record that is not K_EV)
 if (ONLY.includes(5)) {
-  const env = T.bootParked({ rng }); envs.push(env);
+  const env = T.bootParked({ rng, cart: 'desk5l' }); envs.push(env);
   T.needSyms(env, T.NEEDED2);
   const { m, S } = env;
   const sec = new Sec('5 Field M_EVENT direct: consumed (carry) for every key 0..255 (32-126, DELETE, LEFT, RIGHT, ENTER only) and each pointer event, E_CMD posts, E_MOVE only with the capture; state and screen against the model');
@@ -291,7 +291,7 @@ if (ONLY.includes(5)) {
 // ===========================================================================================================================
 // 6. Hand-worked cases on the machine (numbers worked on paper from 10.4, asserted as literals): the three-step "first adjusted" rule, click-to-caret, the full buffer, the caret pixels
 if (ONLY.includes(6)) {
-  const env = T.bootParked({ rng }); envs.push(env);
+  const env = T.bootParked({ rng, cart: 'desk5l' }); envs.push(env);
   T.needSyms(env, T.NEEDED2);
   const { m, S } = env;
   const sec = new Sec('6 Field hand-worked cases: first adjusted (ten 0s in a 60-wide Field), click-to-caret at the pixel, a full buffer draws nothing, the caret column');

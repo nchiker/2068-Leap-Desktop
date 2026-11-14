@@ -36,13 +36,13 @@ export const NEEDED = ['K_PROG', 'K_LAUNCH', 'K_QUIT', 'K_PROGS', 'S_WIN', 'S_ST
   'Button_text', 'Window_title', 'K_FAR', 'K_FAR_END', 'GFX6_CODE', 'GFX6_CODE_END', 'K_ROOT', 'K_FOCUS', 'PT_X', 'PT_Y', 'W_DRAWVIEW', 'K_MSET', 'K_BTN'];
 
 /** The prebuilt cartridge: { dck, S, mem } (mem = the assembled 64 K image build/desk5/mem.bin). */
-export function loadDesk5() {
-  const dir = join(ROOT, 'build', 'desk5');
-  if (!existsSync(join(dir, 'out.sym')) || !existsSync(join(ROOT, 'build', 'desk5.dck'))) throw new Error('build/desk5/out.sym or build/desk5.dck is missing');
+export function loadDesk5(cart = 'desk5') {   // cart 'desk5l': desk5 built with TK_LIST (the List class; docs/SIZE.md 6), for tk-t2 and tk-perf
+  const dir = join(ROOT, 'build', cart);
+  if (!existsSync(join(dir, 'out.sym')) || !existsSync(join(ROOT, 'build', `${cart}.dck`))) throw new Error(`build/${cart}/out.sym or build/${cart}.dck is missing`);
   const S = parseSym(readFileSync(join(dir, 'out.sym'), 'utf8'));
   const missing = NEEDED.filter((n) => S[n] === undefined);
   if (missing.length) throw new Error(`desk5 does not define: ${missing.join(', ')}`);
-  return { dck: readFileSync(join(ROOT, 'build', 'desk5.dck')), S, mem: new Uint8Array(readFileSync(join(dir, 'mem.bin'))) };
+  return { dck: readFileSync(join(ROOT, 'build', `${cart}.dck`)), S, mem: new Uint8Array(readFileSync(join(dir, 'mem.bin'))) };
 }
 
 /** Calculator's variables: from C_WIN to the end of the image (everything before it is class, thunk, strings, menu table: constant). */
@@ -59,7 +59,7 @@ export const varRegion = (S) => [S.C_WIN, S.C_IMG_ADDR + S.C_IMG_LEN - 1];
  * env.frame() runs one normal frame with the V_FRAMES check; env.frames_(n) runs n.
  */
 export function bootDesk5(opts = {}) {
-  const load = loadDesk5(), S = load.S;
+  const load = loadDesk5(opts.cart), S = load.S;
   const m = boot(load.dck, { video: opts.video ?? process.env.TS_VIDEO === "1" });   // TESTSPEED S1: drawing off unless a test reads m.pixels (TS_VIDEO=1 turns it back on)
   m.mouse.attached = true; m.mouse.x = 0; m.mouse.y = 0; m.mouse.buttons = 0xFF;
   const w = opts.watch === false ? { n: 0, kinds: {}, first: [], summary: () => 'watch off', on: false } : makeWatch(m, S);

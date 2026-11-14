@@ -51,6 +51,11 @@ export function parseClasses(files) {
           own: new Set(), line: ln, file,
         };
         classes.push(cur); byName.set(name, cur); mine.classes.push(cur);
+      } else if (w[0] === 'guard') {
+        // guard NAME: the class's descriptor is assembled only when NAME is defined (an optional class; its EQUs stay)
+        if (!cur) err(ln, 'guard before any class');
+        if (w.length !== 2 || !IDENT.test(w[1])) err(ln, `malformed guard line: "${text}"`);
+        cur.guard = w[1];
       } else if (w[0] === 'field') {
         if (!cur) err(ln, 'field before any class');
         if (w.length !== 3 || !IDENT.test(w[1]) || !/^\d+$/.test(w[2])) err(ln, `malformed field line: "${text}"`);
@@ -91,14 +96,16 @@ function incText(f) {
   for (const c of f.classes) {
     const n = c.methods.length;
     out.push('',
-      `; class ${c.name}${c.parent ? ' : ' + c.parent : ''}`,
+      `; class ${c.name}${c.parent ? ' : ' + c.parent : ''}${c.guard ? '   (only when ' + c.guard + ' is defined)' : ''}`,
+      ...(c.guard ? [`    IFDEF ${c.guard}`] : []),
       `    IF ((($ + 6) & $FF) + 2 * ${n}) > 256    ; the method table must not cross a page`,
       `    ALIGN 256, 0`,
       `    ENDIF`,
       `    DW ${c.parent ? 'CL_' + c.parent : '0'}`,
       `    DB ${c.id}, ${n}, ${c.size}, ${c.pool}`,
       `CL_${c.name}:`,
-      `    DW ${c.methods.map(m => m.label).join(', ')}`);
+      `    DW ${c.methods.map(m => m.label).join(', ')}`,
+      ...(c.guard ? ['    ENDIF'] : []));
   }
   out.push('');
   for (const m of f.messages) out.push(`M_${m.name} EQU ${m.n}`);
@@ -122,7 +129,7 @@ export function genClasses(files, outDir) {
   const json = {
     messages,
     classes: classes.map(c => ({
-      name: c.name, id: c.id, parent: c.parent, size: c.size, pool: c.pool, fields: c.fields,
+      name: c.name, id: c.id, parent: c.parent, size: c.size, pool: c.pool, fields: c.fields, ...(c.guard ? { guard: c.guard } : {}),
       methods: c.methods.map(m => ({ n: m.n, name: m.name, label: m.label })),
     })),
   };

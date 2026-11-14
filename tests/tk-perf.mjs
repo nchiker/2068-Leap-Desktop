@@ -26,7 +26,7 @@ const row = (name, measured, bound, note = '') => {
 const g0 = new M.Gfx6Model();
 const WIN = { x: 16, y: 8, w: 480, h: 184, slot: 0, title: T.codesOf('Perf') };
 
-const env = T.bootParked({ rng });
+const env = T.bootParked({ rng, cart: 'desk5l' });   // desk5 built with TK_LIST: the List rows need the class (docs/SIZE.md 6)
 const { m, S } = env;
 const rb = (a) => m.bus.read(a);
 const rw = (a) => rb(a) | (rb(a + 1) << 8);
