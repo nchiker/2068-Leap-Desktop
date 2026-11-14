@@ -245,13 +245,16 @@ section 8. Step 5's pool growth stands at about 3,186 of 3,400 (214 left).
   - the arrow at 4 places.
 - No `desk5` program has a window narrow enough to cut its title, so cut titles are tested on kernel windows opened on `desk5`.
 
-**The test page** (owner, 2026-11-14) scales the screen to a whole multiple of 640 x 480 (`web/main.js` `fitScreen`). At a
-fractional size the 25% grey showed moire stripes; the owner saw this in the browser.
+**The test page** fits the screen to the window again, at any size (TSRun's own fit).
+- A whole-number scaling was tried (2026-11-14). It removed the moire stripes that the 25% grey shows at a fractional size,
+  but at the owner's window it gave only 640 x 480.
+- The owner had it reverted, since the picture was too small to see easily: the stripes are an artefact of the browser's
+  scaling, not of the cartridge.
 
 **Cross-emulator (2026-11-14; Haiku ran them, and the main model checked the logs):**
 - ZEsarUX 13.0: `zesarux-desk5.py`, **131 of 131** rows. Every screen equals TSRun's new-look screen byte for byte, through the
   shell, Calculator, Controls, Notepad and the W2 / W3 sessions.
 - Fuse 1.9.1: `fuse-desk5.sh`, **6 of 6**. The settled boot screen equals TSRun's.
 
-**Still to do:** the owner's try.
+**Owner (2026-11-14):** tried in the browser and accepted ("physical test passed"). **Slice L1 is done.**
 
