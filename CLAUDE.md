@@ -113,7 +113,8 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
     dialog, then a browser download; Open = the browser's file picker. Later a TS-Pico driver (ports `$0E` / `$0F`,
     `tpi:chopen` / `chrd` / `chwr` / `chclose`; `~/Projects/TS-Pico-Study`) answers the same calls. This replaces "tape
     services before W3". Contract `docs/FILES.md` (owner approved, 2026-11-12).
-  - **Order (owner, 2026-11-12; amended 2026-11-14):** W3 (Open / Save), then double-click and Find in Write, then the app
+  - **Order (owner, 2026-11-12; amended 2026-11-14):** W3 (Open / Save), then double-click and Find in Write, then the test-speed slice (`docs/TESTSPEED.md`, owner approved
+    2026-11-14, Arcade's TSRun speed-ups; the owner approved taking its silent-AY change into our TSRun copy), then the app
     library (`docs/APPLIB.md`: Notepad's dialogs and title shared from DOCK 2-3, Notepad moved onto it unchanged), then
     Paint in mode 6 (mono, MacPaint-style; colour waits for the mode 2 graphics). Fonts and styles in Write: not planned.
 - **W3 is done (2026-11-13):** the bridge, `web/fshost.js`, the page, `src/apps/files.asm`, Write's Open and Save
