@@ -9,7 +9,7 @@
 //     --nlook N     random window operations in group 3a (default 150)
 //     --ntrack N    random close-box tracking scripts in group 3b (default 300)
 //     --ndialog N   About dialog openings in group 4 (default 24)
-//     --only LIST   groups: 1 launcher, 2 shell, 3 CWindow, 4 About, 5 SS+Q in the shell, 6 memory watch / V_FRAMES (default all)
+//     --only LIST   groups: 1 launcher, 2 shell, 3 CWindow, 4 About, 5 SS+Q with the About dialog up, 6 memory watch / V_FRAMES, 7 SHELL 12 (close, Show Desktop) (default all)
 // Exit code 1 on any failure.
 import { checks } from './lib.mjs';
 import * as H from './shell-lib.mjs';
@@ -21,7 +21,7 @@ const { L, SM, hex, rd16 } = H;
 const { argv, argNum } = L;
 const SEED = argNum('--seed', 1);
 const NLAUNCH = argNum('--nlaunch', 120), NCYCLES = argNum('--ncycles', 50), NSHELL = argNum('--nshell', 200), NLOOK = argNum('--nlook', 150), NTRACK = argNum('--ntrack', 300), NDIALOG = argNum('--ndialog', 24);
-const ONLY = argv.includes('--only') ? String(argv[argv.indexOf('--only') + 1]).split(',').map(Number) : [1, 2, 3, 4, 5, 6];
+const ONLY = argv.includes('--only') ? String(argv[argv.indexOf('--only') + 1]).split(',').map(Number) : [1, 2, 3, 4, 5, 6, 7];
 const VERBOSE = argv.includes('--verbose');
 const rng = L.makeRng(SEED);
 const C = checks('shell-s1');
@@ -197,8 +197,8 @@ function shellGroup() {
   // ---- the look (10.4), against the gfx6-model rendering
   {
     const sec = new Sec('2a the shell\'s look against shell-model\'s rendering of SHELL 10.4: the window, the icon bitmaps (icons.txt), the names centred, the selected name inverted');
-    const views = H.treeOf(env), win = views.find((v) => v.cls === S.CL_Window);
-    sec.ok(!!win && [win.x, win.y, win.w, win.h].join() === '32,24,320,80' && H.readStrText(m, rd16(m, win.a + S.Window_title)) === 'Leap Desktop', () => `the window ${win && [win.x, win.y, win.w, win.h]}, title "${win && H.readStrText(m, rd16(m, win.a + S.Window_title))}"`);
+    const views = H.treeOf(env), win = views.find((v) => v.cls === S.CL_CWindow);
+    sec.ok(!!win && win.id === 255 && [win.x, win.y, win.w, win.h].join() === '32,24,320,80' && H.readStrText(m, rd16(m, win.a + S.Window_title)) === 'Leap Desktop', () => `the window ${win && [win.x, win.y, win.w, win.h]}, title "${win && H.readStrText(m, rd16(m, win.a + S.Window_title))}"`);
     const ics = views.filter((v) => v.cls === S.CL_Icon);
     sec.ok(ics.length === 4 && ics[0].x === 48 && ics[0].y === 40 && ics[1].x === 112 && ics[1].y === 40 && ics[2].x === 176 && ics[2].y === 40 && ics[3].x === 240 && ics[3].y === 40 && ics.every((v) => v.w === 64 && v.h === 26 && (v.flags & 1) === 1), () => `icons ${JSON.stringify(ics.map((v) => [v.x, v.y, v.w, v.h, v.flags]))}, want (48, 40), (112, 40), (176, 40) (WRITE 11.2) and (240, 40) (PAINT 10), 64 x 26 (SHELL 10.5), focusable`);
     sec.ok(ics.length === 4 && m.ram[ics[0].a + S.Icon_prog] === 1 && m.ram[ics[1].a + S.Icon_prog] === 2 && m.ram[ics[2].a + S.Icon_prog] === 3 && m.ram[ics[3].a + S.Icon_prog] === 4, () => `Icon prog fields ${ics.map((v) => m.ram[v.a + S.Icon_prog])}, want 1, 2, 3 and 4 (SHELL 10.4: prog 1 byte)`);
@@ -218,17 +218,19 @@ function shellGroup() {
       const d = H.shellDiff(env);
       sec.ok(d === null, () => `TAB to icon ${k}: the whole screen against SHELL 10.4 / 10.5's rendering: ${d}`);
     }
-    // the window has no close box: its title bar is the plain Window's (10.4: "a plain Window (the shell is not closed)")
+    // the window is a CWindow (SHELL 12): the close box (x + 8, y + 1, 15, 7) is drawn while it is in front: its pixels are the model's and not all paper
     const g = SM.renderShell({ sel: icons.indexOf(rd16(m, S.K_FOCUS)) });
     const sh = H.readDisp(m), want = SM.toDisp(g), bx = SM.boxRect(32, 24, 320);
     let boxDiff = 0; for (let y = bx.y; y < bx.y + bx.h; y++) for (let x = bx.x; x < bx.x + bx.w; x++) { const bit = (a, X, Y) => (a[Y * 64 + (X >> 3)] >> (7 - (X & 7))) & 1; if (bit(sh, x, y) !== bit(want, x, y)) boxDiff++; }
-    sec.ok(boxDiff === 0, () => `${boxDiff} pixels differ in the place where a close box would be: the shell's window has none`);
+    sec.ok(boxDiff === 0, () => `${boxDiff} pixels differ in the close box's place (SHELL 12: the window is a CWindow)`);
+    { const bit = (X, Y) => (sh[Y * 64 + (X >> 3)] >> (7 - (X & 7))) & 1; let ink = 0; for (let y = bx.y; y < bx.y + bx.h; y++) for (let x = bx.x; x < bx.x + bx.w; x++) ink += bit(x, y);
+      sec.ok(ink > 0 && SM.boxRect(32, 24, 320).x === 40, () => `the close box area (${bx.x}, ${bx.y}, ${bx.w}, ${bx.h}) has ${ink} ink pixels, want some (a frame)`); }
     sec.end('window, 4 icons (bitmaps from icons.txt, names, selection) in 10 screens');
   }
   // ---- LOOK 7: the open "Leap" menu under the bar's line (LOOK 3.1) and the Mac arrow (LOOK 3.6), against look-model
   {
     const sec = new Sec('2e the open "Leap" menu (LOOK 3.1): the title box XORed in rows 0-6 only (the bar\'s line stays), the drop-down with no top line of its own, its sides from row 8, the shadow 2 columns right and 1 row under, the highlight on the item under the pointer; the whole screen against look-model; released away from the items the shell comes back unchanged (save-under)');
-    const LM = LMOD, lay = layoutOf([SM.LEAP_MENU]), en = [[true, true, true, true, true, true]];
+    const LM = LMOD, lay = layoutOf([SM.LEAP_MENU]), en = [[true, true, true, true, true, true, true]];
     const mask = () => L.pointerMask(m, S);
     const screenWith = (h) => { const icons2 = H.iconAddrs(env), g = SM.renderShell({ sel: icons2.indexOf(rd16(m, S.K_FOCUS)) }); LM.openLook(g, [SM.LEAP_MENU], lay, en, 0, h); return g; };
     L.moveTo(env, 500, 180); env.frames_(4);
@@ -250,7 +252,7 @@ function shellGroup() {
       sec.ok(side === sideT, () => `the drop-down's sides from row 8: ${side} of ${sideT} visible pixels ink`);
       const [sh, shT] = tally([...col(dr.x + dr.w, 10, 8 + dr.h), ...col(dr.x + dr.w + 1, 10, 8 + dr.h), ...row(dr.x + 2, dr.x + dr.w + 2, 8 + dr.h)]);
       sec.ok(sh === shT, () => `the shadow (2 columns right, 1 row under): ${sh} of ${shT} visible pixels ink`); }
-    for (const k of [0, 2, 3, 4, 5]) {
+    for (const k of [0, 2, 3, 4, 5, 6]) {
       L.moveTo(env, 30, 9 + 10 * k + 5); env.frames_(3);
       const d = H.diffDisp(H.readDisp(m), SM.toDisp(screenWith(k)), mask()); sec.ok(d === null, () => `the menu open, item ${k} highlighted: ${d}`);
     }
@@ -264,7 +266,7 @@ function shellGroup() {
       const d = H.diffDisp(H.readDisp(m), SM.toDisp(g));
       sec.ok(d === null, () => `the pointer at (${px}, ${py}) over ${what}: the whole screen with the Mac arrow drawn there: ${d}`);
     }
-    sec.end('open menu (plain and 5 highlights), the bar line / title box / sides / shadow statements, the close, the Mac arrow at 4 places');
+    sec.end('open menu (plain and 6 highlights), the bar line / title box / sides / shadow statements, the close, the Mac arrow at 4 places');
   }
   // ---- clicks, double clicks, TAB, arrows, ENTER against ShellSim, random
   {
@@ -880,34 +882,163 @@ function aboutGroup() {
 }
 
 // ===========================================================================================================================
-// 5. SYMBOL SHIFT + Q in the shell does nothing
+// 5. SYMBOL SHIFT + Q with the About dialog up does nothing (SHELL 12: with no dialog it closes the shell's window: group 7)
 function ssqGroup() {
-  const sec = new Sec('5 SYMBOL SHIFT + Q (CLOSE, 17) in the shell does nothing: its window is a plain Window (SHELL 10.4); K_PROG, the windows, the focus, the posted queue and the screen stay; also with the About dialog up');
+  const sec = new Sec('5 SYMBOL SHIFT + Q (CLOSE, 17) with the About dialog up does nothing: the front window is a Dialog, not a CWindow, so the key is dropped (and the shell\'s window under it is not closed); K_PROG, the windows, the focus, the posted queue and the screen stay');
   const env = mkShell(), { m, S } = env;
   const icons = H.iconAddrs(env);
-  const base0 = H.captureState(env);
   let n = 0;
-  for (let i = 0; i < 12 && sec.nf < 8; i++) {
-    if (i === 3) { L.typeCode(env, 14); env.frames_(3); }
-    if (i === 6) { H.leapMenu(env, 1); env.frames_(4); }
-    if (i === 9) { L.typeCode(env, 27); env.frames_(4); L.typeCode(env, 14); env.frames_(3); }
+  for (let i = 0; i < 6 && sec.nf < 8; i++) {
+    if (i === 3) { L.typeCode(env, 14); env.frames_(3); }                    // another icon focused when the dialog opens
+    H.leapMenu(env, 1); env.frames_(4);
+    sec.ok(L.openWindows(m, S).length === 2 && rd16(m, S.W_MODAL) !== 0, () => `SS+Q #${i}: the dialog did not open`);
     const before = H.captureState(env, 2);
     L.typeCode(env, 17, 3, 3); n++;
     L.typeCode(env, 17, 40, 6);                       // held through the key's repeat
     env.frames_(4);
     const after = H.captureState(env, 2);
-    const diffs = H.compareStates(env, before, after, `SS+Q #${i}`, i >= 6 && i < 7);
+    const diffs = H.compareStates(env, before, after, `SS+Q #${i}`, true);
     sec.ok(diffs.length === 0, () => dig(diffs));
-    sec.ok(m.ram[S.K_PROG] === 0, () => `SS+Q #${i}: K_PROG ${m.ram[S.K_PROG]}`);
+    sec.ok(m.ram[S.K_PROG] === 0 && L.openWindows(m, S).length === 2 && m.ram[S.S_OPEN] === 1, () => `SS+Q #${i}: K_PROG ${m.ram[S.K_PROG]}, windows ${L.openWindows(m, S).length}, S_OPEN ${m.ram[S.S_OPEN]}`);
     const d = H.shellDiff(env); sec.ok(d === null, () => `SS+Q #${i}: screen ${d}`);
-    sec.ok(icons.includes(rd16(m, S.K_FOCUS)) || rd16(m, S.K_FOCUS) === H.okButton(env), () => `SS+Q #${i}: K_FOCUS ${hex(rd16(m, S.K_FOCUS))}`);
-    if (i === 6) { L.typeCode(env, 27); env.frames_(4); }
+    sec.ok(rd16(m, S.K_FOCUS) === H.okButton(env), () => `SS+Q #${i}: K_FOCUS ${hex(rd16(m, S.K_FOCUS))}, the OK button is ${hex(H.okButton(env))}`);
+    L.typeCode(env, 27); env.frames_(4);
+    sec.ok(L.openWindows(m, S).length === 1 && icons.includes(rd16(m, S.K_FOCUS)), () => `SS+Q #${i}: after ESC: windows ${L.openWindows(m, S).length}, K_FOCUS ${hex(rd16(m, S.K_FOCUS))}`);
   }
   // the shell still works: a double click opens Calculator, and it comes back fresh
   const ok = L.launchByDoubleClick(env, 1); sec.ok(ok, 'the shell still launches after SS+Q presses'); env.frames_(4);
   if (ok) { sec.ok(L.quitBySSQ(env), 'SS+Q quits Calculator (a CWindow program)'); env.frames_(4); }
-  void base0;
   sec.end(`${n} presses (plus repeats)`);
+}
+
+// ===========================================================================================================================
+// 7. SHELL 12: the shell's window closes; Leap > Show Desktop
+function shell12Group() {
+  const sec = new Sec('7 SHELL 12: the shell\'s window (a CWindow, id 255) closes by its close box and by SS+Q (the desk and the bar stay, K_FOCUS 0, the window object kept, S_OPEN 0); SS+Q and other keys with no window do nothing; the Leap menu opens with it closed (open dropdown, 7 items) and About works; a program launched from the menu returns to an OPEN shell; Show Desktop reopens it as at start, or with it open changes nothing; the modal rule');
+  const env = mkShell(), { m, S } = env;
+  const icons = H.iconAddrs(env), sim = new SM.ShellSim();
+  const base0 = H.captureState(env);                                                // the shell as at start
+  const bx = L.closeBoxOf(32, 24, 320), bxc = [bx.x + (bx.w >> 1), bx.y + (bx.h >> 1)];
+  const trail = [];
+  const note = (t) => { trail.push(t); if (trail.length > 6) trail.shift(); };
+  const LM = LMOD, lay = layoutOf([SM.LEAP_MENU]), en = [[true, true, true, true, true, true, true]];
+  // the machine against the model (ShellSim): K_PROG, the windows, K_FOCUS, K_CAPTURE, W_MODAL, the posted queue, S_OPEN, the window object, the screen
+  const verify = (what) => {
+    env.frames_(2);
+    const ws = L.openWindows(m, S), open = sim.open, ctx = `[${trail.join('; ')}]`;
+    sec.ok(m.ram[S.K_PROG] === 0, () => `${what}: K_PROG ${m.ram[S.K_PROG]} ${ctx}`);
+    sec.ok(ws.length === (open ? 1 : 0) && (!open || (ws[0].title === 'Leap Desktop' && ws[0].cls === S.CL_CWindow && ws[0].id === 255 && [ws[0].x, ws[0].y, ws[0].w, ws[0].h].join() === '32,24,320,80')),
+      () => `${what}: windows ${JSON.stringify(ws.map((w) => [hex(w.cls), w.title, w.id, w.x, w.y, w.w, w.h]))}, want ${open ? 'the shell CWindow (32, 24, 320, 80) id 255' : 'none'} ${ctx}`);
+    const want = open ? icons[sim.focus] : 0, got = rd16(m, S.K_FOCUS);
+    sec.ok(got === want, () => `${what}: K_FOCUS ${hex(got)}, the model has ${open ? 'icon ' + sim.focus + ' ' + hex(want) : '0 (no window)'} ${ctx}`);
+    sec.ok(rd16(m, S.K_CAPTURE) === 0 && rd16(m, S.W_MODAL) === 0 && H.postedQ(env).length === 0, () => `${what}: K_CAPTURE ${hex(rd16(m, S.K_CAPTURE))}, W_MODAL ${hex(rd16(m, S.W_MODAL))}, posted ${JSON.stringify(H.postedQ(env))} ${ctx}`);
+    sec.ok(m.ram[S.S_OPEN] === (open ? 1 : 0), () => `${what}: S_OPEN ${m.ram[S.S_OPEN]}, want ${open ? 1 : 0} ${ctx}`);
+    const wo = rd16(m, S.S_WIN);
+    sec.ok(wo !== 0 && rd16(m, wo) === S.CL_CWindow, () => `${what}: S_WIN ${hex(wo)} is not the kept CWindow object ${ctx}`);
+    const d = H.shellDiff(env); sec.ok(d === null, () => `${what}: screen ${d} ${ctx}`);
+  };
+  const closeBox = () => { L.click(env, bxc[0], bxc[1], 3, 6); env.frames_(4); sim.boxClose(); note('close box'); };
+  const closeSSQ = (hold = 3) => { L.typeCode(env, 17, hold, 3); env.frames_(4); sim.key(17); note('SS+Q'); };
+  const menuItem = (k) => { H.leapMenu(env, k); env.frames_(4); note(`Leap item ${k}`); };
+  // `slack`: the About dialog's first opening after an arena reset takes its blocks (0x50 bytes) and keeps them for the next openings (it does not shrink the top: a kernel / applib fact, not SHELL 12's);
+  // a comparison made after an About tolerates that growth in the app arena's top (and no other difference); after a program's quit (K_ARESET) and in the cycles the top is exact (slack 0).
+  const cmp = (base, what, slack = 0, modal = false) => {
+    const cur = H.captureState(env), d = H.compareStates(env, base, cur, what, modal).filter((t) => !(slack && t.includes('app arena top')));
+    sec.ok(d.length === 0, () => dig(d));
+    sec.ok(cur.top >= base.top && cur.top <= base.top + slack, () => `${what}: app arena top ${hex(cur.top)}, the baseline ${hex(base.top)} (slack ${slack})`);
+  };
+  const tab = (n) => { for (let i = 0; i < n; i++) { L.typeCode(env, 14); sim.key(14); env.frames_(3); } };
+  // ---- 1. close by the close box, with the focus on another icon first
+  verify('start');
+  tab(2); verify('TAB x2');
+  { // the box pressed: its look while the button is down (LOOK 3.3), then released inside: the window closes
+    L.moveTo(env, bxc[0], bxc[1]); env.frames_(2); m.mouse.buttons = L.MOUSE_LEFT; env.frames_(4);
+    const g = SM.renderShell({ sel: icons.indexOf(rd16(m, S.K_FOCUS)) }); LMOD.closeBoxLook(g, 32, 24, true);
+    const d = H.diffDisp(H.readDisp(m), SM.toDisp(g), L.pointerMask(m, S)); sec.ok(d === null, () => `the close box held down: the pressed look: ${d}`);
+    m.mouse.buttons = L.MOUSE_UP; env.frames_(6); sim.boxClose(); note('close box (pressed look seen)'); }
+  verify('closed by the close box');
+  const closed1 = H.captureState(env);
+  sec.ok(closed1.wins.length === 0 && closed1.focus === 0 && closed1.sp !== undefined, () => `closed: windows ${closed1.wins.length}, K_FOCUS ${hex(closed1.focus)}, the loop seen ${closed1.sp !== undefined}`);
+  // ---- 2. SS+Q and other input with no window: nothing
+  for (const hold of [3, 3, 40]) { closeSSQ(hold); verify(`SS+Q with no window (hold ${hold})`); cmp(closed1, `SS+Q with no window (hold ${hold})`); }
+  for (const code of [14, 15, 10, 11, 8, 9, 13, 27, 3, 32]) { L.typeCode(env, code); env.frames_(3); note(`key ${code}`); }
+  verify('other keys with no window'); cmp(closed1, 'other keys with no window');
+  { const [cx, cy] = L.iconCentre(1); L.click(env, cx, cy, 3, 4); L.click(env, cx, cy, 3, 4); L.click(env, 300, 150, 3, 4); L.click(env, bxc[0], bxc[1], 3, 4); env.frames_(25); note('clicks where the window was'); }
+  verify('clicks on the bare desk where the window was'); cmp(closed1, 'clicks on the bare desk');
+  // ---- 3. the Leap menu with the window closed: the open dropdown (7 items) and its highlights
+  {
+    const mask = () => L.pointerMask(m, S);
+    const screenWith = (h) => { const g = SM.renderShell({ sel: -1, open: false }); LM.openLook(g, [SM.LEAP_MENU], lay, en, 0, h); return g; };
+    L.moveTo(env, 500, 180); env.frames_(3);
+    L.moveTo(env, 20, 4); m.mouse.buttons = L.MOUSE_LEFT; env.frames_(4);
+    { const d = H.diffDisp(H.readDisp(m), SM.toDisp(screenWith(-1)), mask()); sec.ok(d === null, () => `the menu open over the empty desk, no highlight: ${d}`); }
+    for (const k of [0, 2, 3, 4, 5, 6]) { L.moveTo(env, 30, 9 + 10 * k + 5); env.frames_(3); const d = H.diffDisp(H.readDisp(m), SM.toDisp(screenWith(k)), mask()); sec.ok(d === null, () => `the menu open over the empty desk, item ${k} highlighted: ${d}`); }
+    L.moveTo(env, 400, 150); env.frames_(3); m.mouse.buttons = L.MOUSE_UP; env.frames_(8); note('menu opened and closed with no window');
+    verify('the menu released away from the items'); cmp(closed1, 'the menu released away from the items');
+  }
+  // ---- 4. About with no window: the alert shows (modal) and closes
+  for (const how of ['esc', 'ok', 'enter', 'break']) {
+    menuItem(1);
+    const ws = L.openWindows(m, S), dlg = ws.find((w) => w.cls === S.CL_Dialog);
+    sec.ok(ws.length === 1 && !!dlg && [dlg.x, dlg.y, dlg.w, dlg.h].join() === '128,64,256,64' && rd16(m, S.W_MODAL) === dlg.a, () => `About with no window (${how}): windows ${JSON.stringify(ws.map((w) => [hex(w.cls), w.title]))}, W_MODAL ${hex(rd16(m, S.W_MODAL))}`);
+    { const d = H.shellDiff(env); sec.ok(d === null, () => `About over the empty desk: ${d}`); }
+    // modal: SS+Q, the Leap menu (Show Desktop) and a click where the shell's window was change nothing
+    L.typeCode(env, 17, 3, 3); H.leapMenu(env, 7); L.click(env, bxc[0], bxc[1], 3, 4); env.frames_(4);
+    sec.ok(L.openWindows(m, S).length === 1 && rd16(m, S.W_MODAL) === dlg.a && m.ram[S.S_OPEN] === 0, () => `About with no window (${how}): under the modal dialog SS+Q, Show Desktop and a click did something: windows ${L.openWindows(m, S).length}, S_OPEN ${m.ram[S.S_OPEN]}`);
+    { const d = H.shellDiff(env); sec.ok(d === null, () => `About over the empty desk after the modal-rule presses: ${d}`); }
+    if (how === 'ok') L.click(env, 336, 108, 3, 6); else L.typeCode(env, how === 'esc' ? 27 : how === 'enter' ? 13 : 3);
+    env.frames_(6); note(`About closed by ${how}`);
+    verify(`About closed by ${how}, no window`); cmp(closed1, `About closed by ${how}, no window`, 0x50);
+  }
+  // ---- 5. Show Desktop with the window closed: the shell exactly as at start
+  menuItem(7); sim.show(); verify('Show Desktop, window closed');
+  cmp(base0, 'Show Desktop with the window closed: the shell as at start', 0x50);
+  // ---- 6. Show Desktop with it open: raised, nothing else changes (the focus stays)
+  tab(1); verify('TAB'); { const before = H.captureState(env); menuItem(7); sim.show(); verify('Show Desktop, window open'); cmp(before, 'Show Desktop with the window open: nothing changes'); }
+  // ---- 7. close by SS+Q; the same state as by the box (the focus was on another icon)
+  closeSSQ(); verify('closed by SS+Q'); cmp(closed1, 'closed by SS+Q, the closed state as by the box', 0x50);
+  // ---- 8. a program launched from the Leap menu with the window closed: it starts, and quits back to an OPEN shell, as at start
+  for (const p of [1, 2, 3, 4]) {
+    menuItem(p + 2);
+    const n = L.waitProgram(env, p, 120);
+    sec.ok(n >= 0, () => `program ${p} from the Leap menu with the shell's window closed: it did not come up (K_PROG ${m.ram[S.K_PROG]}, windows ${JSON.stringify(L.openWindows(m, S).map((w) => w.title))})`);
+    if (n < 0) { break; }
+    env.frames_(p === 2 ? 36 : 12);
+    if (p !== 4) { const d = H.programDiff(env, p, [], '0'); sec.ok(d === null, () => `program ${p} from the closed shell: its screen: ${d}`); }
+    const q = p % 2 ? L.quitByCloseBox(env, p) : L.quitBySSQ(env);
+    sec.ok(q, () => `program ${p}: the shell did not come back (open) after ${p % 2 ? 'the close box' : 'SS+Q'}`);
+    if (!q) break;
+    env.frames_(12); sim.reset(); note(`program ${p} launched with no window and quit`);
+    verify(`back from program ${p}`); cmp(base0, `back from program ${p} (launched with the shell's window closed): the shell open as at start`);
+    closeBox(); verify(`closed again after program ${p}`);
+  }
+  // ---- 9. cycles: close by box / SS+Q, Show Desktop; the arena does not grow, the state is the start's
+  for (let i = 0; i < 8 && sec.nf < 8; i++) {
+    if (i % 2) closeSSQ(); else closeBox();
+    verify(`cycle ${i}: closed`);
+    menuItem(7); sim.show(); verify(`cycle ${i}: shown`); cmp(base0, `cycle ${i}: Show Desktop`);
+  }
+  // ---- 10. the modal rule: the close box of the shell's window (now inactive, under the About dialog) does nothing; nor does a press on its title bar (no raise, no drag)
+  {
+    menuItem(1);
+    const dlg = L.openWindows(m, S).find((w) => w.cls === S.CL_Dialog);
+    sec.ok(!!dlg && L.openWindows(m, S).length === 2, 'About over the open shell window');
+    const before = H.captureState(env, 2);
+    L.click(env, bxc[0], bxc[1], 3, 4); env.frames_(4);
+    L.click(env, 200, 28, 3, 4); env.frames_(4);
+    L.moveTo(env, 200, 28); m.mouse.buttons = L.MOUSE_LEFT; env.frames_(3); L.moveTo(env, 260, 60); env.frames_(3); m.mouse.buttons = L.MOUSE_UP; env.frames_(6);   // a drag attempt on the title bar
+    note('modal: box, title click and drag');
+    sec.ok(L.openWindows(m, S).length === 2 && m.ram[S.S_OPEN] === 1 && rd16(m, S.W_MODAL) === (dlg && dlg.a), () => `the close box under the modal dialog: windows ${L.openWindows(m, S).length}, S_OPEN ${m.ram[S.S_OPEN]}`);
+    const diffs = H.compareStates(env, before, H.captureState(env, 2), 'modal rule: box, title, drag', true); sec.ok(diffs.length === 0, () => dig(diffs));
+    const d = H.shellDiff(env); sec.ok(d === null, () => `after the presses under the modal dialog: ${d}`);
+    L.typeCode(env, 27); env.frames_(6); note('About closed');
+    verify('About closed after the modal-rule presses');
+    // the window is front and active again: its close box works
+    closeBox(); verify('closed by the box after the dialog'); menuItem(7); sim.show(); verify('shown again'); cmp(base0, 'shown again after the dialog', 0x50);
+  }
+  // ---- 11. a double click launches from the reopened window and the shell comes back (open, fresh)
+  { const ok = L.launchByDoubleClick(env, 2); sec.ok(ok, 'double click on an icon of the reopened window'); if (ok) { env.frames_(30); sec.ok(L.quitByCloseBox(env, 2), 'and the shell comes back'); env.frames_(12); sim.reset(); verify('after launching from the reopened window'); cmp(base0, 'after launching from the reopened window'); } }
+  sec.end(`${trail.length ? 'the shell closed by the box and by SS+Q, ' : ''}Show Desktop closed / open, About and the Leap menu with no window, 4 programs launched with the window closed, 8 cycles, the modal rule`);
 }
 
 // ===========================================================================================================================
@@ -926,8 +1057,8 @@ function watchGroup() {
 }
 
 // ===========================================================================================================================
-const groups = { 1: () => { launcherGroup(); cyclesGroup(); }, 2: shellGroup, 3: cwindowGroup, 4: aboutGroup, 5: ssqGroup, 6: watchGroup };
-for (const g of [1, 2, 3, 4, 5, 6]) {
+const groups = { 1: () => { launcherGroup(); cyclesGroup(); }, 2: shellGroup, 3: cwindowGroup, 4: aboutGroup, 5: ssqGroup, 6: watchGroup, 7: shell12Group };
+for (const g of [1, 2, 3, 4, 5, 7, 6]) {
   if (!ONLY.includes(g)) continue;
   try { groups[g](); } catch (e) { C.check(`group ${g} ran to the end`, false, `${e.message.split('\n')[0]}${VERBOSE ? '\n' + e.stack : ''}`); }
 }

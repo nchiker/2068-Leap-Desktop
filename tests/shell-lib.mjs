@@ -96,8 +96,9 @@ const withPointer = (env, extra = []) => L.pointerMask(env.m, env.S, extra);
 /** The shell's screen against shell-model's rendering (SHELL 10.4 / 10.5).  sel / dialog are read from the machine's K_FOCUS and window list (selected = focused).  Always strict. */
 export function shellDiff(env, extra = []) {
   const { m, S } = env, icons = iconAddrs(env), foc = rd16(m, S.K_FOCUS), ws = L.openWindows(m, S);
-  const dialog = ws.length >= 2 ? { okFocused: foc !== 0 && foc === okButton(env) } : null;
-  const g = SM.renderShell({ sel: icons.indexOf(foc), dialog });
+  const open = ws.some((w) => w.title === 'Leap Desktop');                       // SHELL 12: the shell's window may be closed
+  const dialog = ws.some((w) => w.cls === S.CL_Dialog) ? { okFocused: foc !== 0 && foc === okButton(env) } : null;
+  const g = SM.renderShell({ sel: icons.indexOf(foc), dialog, open });
   return diffDisp(readDisp(m), SM.toDisp(g), withPointer(env, extra));
 }
 /** Calculator's screen (calc-lib's rendering of CALCULATOR 4 + the close box) for the display `dstr`. */
@@ -119,7 +120,7 @@ export function programDiff(env, p = env.m.ram[env.S.K_PROG], extra = [], dstr =
 // Drivers
 /** A single click on the icon of program p: the pointer there, press `hold` frames, release, wait `rel` frames. */
 export const clickIcon = (env, p, hold = 3, rel = 6) => { const [x, y] = L.iconCentre(p); return L.click(env, x, y, hold, rel); };
-/** The "Leap" menu by the pointer (WINDOWS 18.4): press on the title, move to item `item` (1-based, the separator counts: items 1 About, 2 separator, 3 Calculator, 4 Key Caps, 5 Notepad, 6 Paint), release. */
+/** The "Leap" menu by the pointer (WINDOWS 18.4): press on the title, move to item `item` (1-based, the separator counts: items 1 About, 2 separator, 3 Calculator, 4 Key Caps, 5 Notepad, 6 Paint, 7 Show Desktop), release. */
 export function leapMenu(env, item) {
   const { m } = env;
   L.moveTo(env, 20, 4); m.mouse.buttons = L.MOUSE_LEFT; env.frames_(3);

@@ -124,7 +124,7 @@ export function openWindows(m, S) {
   return out;
 }
 /** Where each program's first window is, after its launch (SHELL 4, 5, 10.4; CALCULATOR 4). */
-export const PROG_WIN = { 0: { x: 32, y: 24, w: 320, h: 80, title: 'Leap Desktop', plain: true }, 1: { x: 160, y: 24, w: 176, h: 144, title: 'Calculator' },
+export const PROG_WIN = { 0: { x: 32, y: 24, w: 320, h: 80, title: 'Leap Desktop' /* SHELL 12: a CWindow */ }, 1: { x: 160, y: 24, w: 176, h: 144, title: 'Calculator' },
   2: { x: 32, y: 24, w: 448, h: 160, title: 'Key Caps' },   // KEYCAPS 7
   3: { x: 16, y: 16, w: 480, h: 168, title: 'Notepad: Untitled' },    // WRITE 11.3
   4: { x: 48, y: 16, w: 416, h: 176, title: 'Paint: Untitled' } };    // PAINT 15: Paint's CWindow

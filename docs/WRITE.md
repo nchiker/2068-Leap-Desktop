@@ -1009,3 +1009,10 @@ The owner: "reset to the new figures". Each bound is the W4 build's figure, roun
 - **F found at the end of 5,120 codes:** 1,999,182 T (report).
 - **Stack:** 86 bytes (bound 128).
 
+
+## 15. The window-drag fix and the bounds (2026-11-15; owner: "i accept your suggestions")
+
+Notepad follows its window when it is dragged (`wr_org`: the text view's origin at a full draw and at focus; the caret's place is recomputed with `wr_nc` at a full draw; `docs/PAINT.md` and `CLAUDE.md`
+have the rule: programs draw from their views' `View_x` / `View_y`). The cost is small and **the owner accepted it, resetting six `wr-perf` bounds to the new measured figures**: drag over the view 367,632 T
+(was 367,000), DELETE of 3 lines 851,631 (851,200), Cut 1,102,021 (1,101,500), Paste 1,827,077 (1,825,700), Select all 1,476,115 (1,473,900), `W_DRAWVIEW` all selected 1,180,961 (1,179,400): +0.04 to +0.15 %.
+Notepad is 106 bytes larger (6,580 of 7,000). The test is `tests/wr-drag.mjs` (relocation invariance at the nine cell positions, 8 groups).

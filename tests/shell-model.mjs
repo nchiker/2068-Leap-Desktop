@@ -20,7 +20,8 @@
 //      earlier, within 8 across and 4 down, and not itself a double-click.  The shell opens an icon on a flagged E_DOWN when the icon is S_LAST (the icon of its last press).  The harness
 //      reads the flag from the ring record, and tests/kern-dclick.mjs judges the flag; the gap is measured in frames of the real ISR with m.mouse (20 opens, 21 does not).
 //  R3. E_DOWNs elsewhere (the window, the desk) are not seen by an icon: S_LAST is not touched; the kernel's flag still counts them as presses (a press elsewhere between the two breaks the double).
-//  R4. The shell's window is a plain Window: no close box, and SYMBOL SHIFT + Q (CLOSE) is not consumed there (10.1 TK_DISPATCH: "otherwise not consumed, so it is dropped").
+//  R4. (SHELL 12, replaces "a plain Window") The shell's window is a CWindow, id 255: the close box (only while it is the front window), and its close box or SYMBOL SHIFT + Q (CLOSE) closes it:
+//      the desk and the bar remain (renderShell({ open: false })); the Leap menu has a 7th item "Show Desktop" (opens it again, or raises it).
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,7 +62,7 @@ export const SHELL_WIN = { x: 32, y: 24, w: 320, h: 80, title: 'Leap Desktop' };
 // WRITE 11.2: a third icon "Write" at (176, 40) (its bitmap is `icon WRITE` in icons.txt) and the menu item "Notepad" (id 5) after "Key Caps"
 export const ICONS = [{ name: 'Calculator', art: 'CALC', prog: 1, x: 48, y: 40, w: 64, h: 26 }, { name: 'Key Caps', art: 'KEYS', prog: 2, x: 112, y: 40, w: 64, h: 26 },
   { name: 'Notepad', art: 'WRITE', prog: 3, x: 176, y: 40, w: 64, h: 26 }, { name: 'Paint', art: 'PAINT', prog: 4, x: 240, y: 40, w: 64, h: 26 }];
-export const LEAP_MENU = menuSpec(1, 'Leap', [[1, 0, 'About Leap Desktop...'], [2, 2, ''], [3, 0, 'Calculator'], [4, 0, 'Key Caps'], [5, 0, 'Notepad'], [6, 0, 'Paint']]);
+export const LEAP_MENU = menuSpec(1, 'Leap', [[1, 0, 'About Leap Desktop...'], [2, 2, ''], [3, 0, 'Calculator'], [4, 0, 'Key Caps'], [5, 0, 'Notepad'], [6, 0, 'Paint'], [7, 0, 'Show Desktop']]);
 export const ABOUT = { dialog: { x: 128, y: 64, w: 256, h: 64 }, label: { x: 144, y: 76, w: 224, h: 18, text: 'Leap Desktop, step 5' }, ok: { x: 304, y: 100, w: 64, h: 16, text: 'OK' } };
 export const DBL_FRAMES = 20;
 
@@ -75,9 +76,10 @@ export function iconLook(g, ic, selected) {
   g.setOp(OP_SET); g.textp(tx, ic.y + 17, cs);
   if (selected) { g.setOp(OP_XOR); g.fill(tx - 2, ic.y + 17, tw + 4, 9); }
 }
-/** The shell's window (a plain Window: no close box) and its icons; `sel` = the selected icon's index or -1. */
+/** The shell's window (a CWindow, SHELL 12: the close box while it is the front window) and its icons; `sel` = the selected icon's index or -1. */
 export function shellLook(g, sel, active = true) {
   windowLook(g, { x: SHELL_WIN.x, y: SHELL_WIN.y, w: SHELL_WIN.w, h: SHELL_WIN.h, title: { codes: codesOf(SHELL_WIN.title) } }, active);
+  if (active) macCloseBox(g, SHELL_WIN.x, SHELL_WIN.y, false);
   ICONS.forEach((ic, i) => iconLook(g, ic, i === sel));
 }
 /** The About dialog in front (10.4): Dialog look, a Label, the OK Button (default: flags $11); `okFocused` = K_FOCUS is the button. */
@@ -88,14 +90,14 @@ export function aboutLook(g, okFocused, okFlags = 0x11) {
   buttonLook(g, { x: b.x, y: b.y, w: b.w, h: b.h, flags: okFlags, text: { codes: codesOf(b.text) } }, okFocused);
 }
 /**
- * The whole screen in the shell: desk, the bar with "Leap", the shell window (active unless the dialog is up), the icons; `sel` the selected icon or -1; `dialog` = null, or
- * { okFocused } for the About dialog in front.
+ * The whole screen in the shell: desk, the bar with "Leap", the shell window (active unless the dialog is up, with its close box then), the icons; `sel` the selected icon or -1; `dialog` = null, or
+ * { okFocused } for the About dialog in front; `open` false: the shell's window is closed (SHELL 12), the desk and the bar only (a dialog may still be in front).
  */
-export function renderShell({ sel = 0, dialog = null } = {}) {
+export function renderShell({ sel = 0, dialog = null, open = true } = {}) {
   const g = new Gfx6Model();
   deskLook(g);
   drawBar(g, [LEAP_MENU], layoutOf([LEAP_MENU]));
-  shellLook(g, sel, !dialog);
+  if (open) shellLook(g, sel, !dialog);
   if (dialog) aboutLook(g, !!dialog.okFocused);
   return g;
 }
@@ -128,7 +130,7 @@ export function paintWindows(wins, { pressed = false, bar = true } = {}) {
 // The shell's logic (SHELL 4, 10.4)
 export class ShellSim {
   constructor() { this.reset(); }
-  reset() { this.focus = 0; this.last = null; this.opened = 0; }            // focus = the icon index (the first icon is focused at the start: the window's activation, WINDOWS 14)
+  reset() { this.focus = 0; this.last = null; this.opened = 0; this.open = true; }   // SHELL 12: the window is open; closed, no icon is focused (focus -1)            // focus = the icon index (the first icon is focused at the start: the window's activation, WINDOWS 14)
   /**
    * E_DOWN on icon i with the kernel's double-click flag `flag` (data 3 bit 2, WRITE 14.9 items 1-2): focus and selection move to it.  The icon opens when the flag is set and the icon is S_LAST,
    * the icon of the shell's last press; otherwise the icon is remembered (S_LAST = i).  Returns the program or 0.
@@ -141,8 +143,14 @@ export class ShellSim {
   }
   /** A press that no icon sees (the window's blank part, the desk): S_LAST is not touched (R3). */
   blank() {}
-  /** A key code reaching the shell's loop: ENTER on the focused icon opens it; the kernel's defaults move the focus.  Returns the program or 0. */
+  /** The close box released in the box (SHELL 12): the window closes (the window object is kept), K_FOCUS is cleared, S_LAST is kept. */
+  boxClose() { if (this.open) { this.open = false; this.focus = -1; } }
+  /** Leap > Show Desktop (item 7): closed, the window opens again with the focus as at start (the first icon); open, it is raised: nothing changes. */
+  show() { if (!this.open) { this.open = true; this.focus = 0; } }
+  /** A key code reaching the shell's loop: ENTER on the focused icon opens it; the kernel's defaults move the focus; CLOSE (17) closes the window (SHELL 12); with no window every key is dropped.  Returns the program or 0. */
   key(code) {
+    if (!this.open) return 0;
+    if (code === KEY.CLOSE) { this.boxClose(); return 0; }
     if (code === KEY.ENTER) { this.opened = ICONS[this.focus].prog; return this.opened; }
     if ([KEY.TAB, KEY.DOWN, KEY.RIGHT].includes(code)) this.focus = (this.focus + 1) % ICONS.length;
     else if ([KEY.BACKTAB, KEY.UP, KEY.LEFT].includes(code)) this.focus = (this.focus + ICONS.length - 1) % ICONS.length;
@@ -168,6 +176,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url) && process.argv.includes(
     const u = new ShellSim(); u.down(0, false); u.down(1, false); eq('A, B, A (flagged): the last press was on B: the third does not open', u.down(0, true), 0);
     const w = new ShellSim(); w.down(1, false); eq('a flagged press on another icon: no open, S_LAST moves', [w.down(0, true), w.last.icon, w.down(0, true)], [0, 0, 1]); }
   { const s = new ShellSim(); s.key(KEY.TAB); eq('TAB', s.focus, 1); s.key(KEY.UP); eq('UP', s.focus, 0); s.key(KEY.RIGHT); eq('RIGHT', s.focus, 1); eq('ENTER on the second icon', s.key(KEY.ENTER), 2); }
+  { const s = new ShellSim(); s.key(KEY.TAB); s.key(KEY.CLOSE); eq('SS+Q closes the window', [s.open, s.focus], [false, -1]); eq('keys with no window are dropped', [s.key(KEY.ENTER), s.key(KEY.TAB), s.focus], [0, 0, -1]);
+    s.show(); eq('Show Desktop reopens it with the first icon focused', [s.open, s.focus], [true, 0]); s.key(KEY.TAB); s.show(); eq('Show Desktop with it open changes nothing', [s.open, s.focus], [true, 1]);
+    const t = new ShellSim(); t.boxClose(); eq('the close box closes it', t.open, false); }
+  { const g = renderShell({ open: false }), h = new Gfx6Model(); deskLook(h); drawBar(h, [LEAP_MENU], layoutOf([LEAP_MENU])); let d = 0; for (let y = 0; y < 192; y++) for (let x = 0; x < 512; x++) d += g.get(x, y) !== h.get(x, y); eq('a closed shell is the desk and the bar', d, 0); }
   // CWindow: the box is in the front window only
   { const g = paintWindows([{ kind: 'CWindow', x: 16, y: 24, w: 96, h: 64, title: 'A' }, { kind: 'Window', x: 64, y: 48, w: 96, h: 64, title: 'B' }]);
     const h = paintWindows([{ kind: 'Window', x: 64, y: 48, w: 96, h: 64, title: 'B' }, { kind: 'CWindow', x: 16, y: 24, w: 96, h: 64, title: 'A' }]);
