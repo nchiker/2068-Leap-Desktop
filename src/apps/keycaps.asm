@@ -210,6 +210,17 @@ kc_draw:
     ld a,(KC_MODE)
     or a
     jr nz,.nclr
+    ld l,(ix+View_x)                ; a full draw takes the keyboard's origin: the window may have been dragged by whole cells (the caps are laid out for x 40, y 54)
+    ld h,(ix+View_x+1)
+    ld de,-40
+    add hl,de
+    ld (KC_DX),hl
+    ld a,(ix+View_y)
+    sub 54
+    ld (KC_DY),a
+    or l
+    or h
+    ld (KC_MV),a                    ; non-zero when it is not where it opened (the redraw of one cap keeps these)
     KFAR w_clear                ; the view's rectangle to paper
 .nclr:
     ld hl,KC_ROWS
@@ -222,6 +233,20 @@ kc_draw:
     ld e,(hl)
     ld d,0
     ld (KC_X),de
+    ld a,(KC_MV)
+    or a
+    jr z,.r0
+    ld a,(KC_DY)                    ; moved: the row's y and first x offset
+    ld b,a
+    ld a,(KC_Y)
+    add a,b
+    ld (KC_Y),a
+    push hl
+    ld hl,(KC_DX)
+    add hl,de
+    ld (KC_X),hl
+    pop hl
+.r0:
     inc hl
     ld a,(hl)
     ld (KC_H),a
@@ -512,6 +537,9 @@ KC_Y:       DB 0
 KC_W:       DB 0                ; the cap being drawn: its width, its row's height (KC_H follows KC_W)
 KC_H:       DB 0
 KC_K:       DB 0
+KC_DX:      DW 0                ; the keyboard's offset from its first position (x, y)
+KC_DY:      DB 0
+KC_MV:      DB 0
     ENT
 KC_IMG_LEN  EQU $ - KC_IMG
     ASSERT PROG_IMG + KC_IMG_LEN <= AL_RAM && (CL_KeyCaps >> 8) == ((CL_KeyCaps + 11) >> 8)

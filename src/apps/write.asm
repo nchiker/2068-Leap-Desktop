@@ -50,6 +50,10 @@ WR_START:
     pop hl
     call AL_VIEW
     ld (WR_TV),de
+    push ix                     ; the text view's origin (a dragged window moves it)
+    ld ix,(WR_TV)
+    call wr_org
+    pop ix
     call AL_VIEW
     ld (WR_BAR),de
     ld ix,(WR_BAR)
@@ -1341,7 +1345,7 @@ wr_edraw:
     ld b,l                      ; codes before p
     pop hl
     call wr_tw
-    ld hl,TV_TX
+    ld hl,(WR_VT)
     add hl,de
     ld (WR_MX),hl
     ld a,WM_FROM
@@ -1540,7 +1544,8 @@ wr_ncf:
     add a,a
     add a,a
     add a,b
-    add a,TV_Y
+    ld hl,WR_VY
+    add a,(hl)
     ld (WR_NCY),a
     ld hl,(WR_GS)
     ld de,(WR_CLS)
@@ -1549,9 +1554,11 @@ wr_ncf:
     ld b,l
     ex de,hl
     call wr_tw
-    ld hl,TV_X + 2
+    ld hl,(WR_VX)
+    inc hl
+    inc hl
     add hl,de
-    ld de,TV_CMAX
+    ld de,(WR_CMAX)
     call wr_min
     ld (WR_NCX),hl
     ret
@@ -2052,9 +2059,11 @@ wr_selx:
     ret c                       ; a' >= b'
     ld hl,(WR_RA)               ; x0 = min(26 + tw(s, a'), 471)
     call .tw
-    ld hl,TV_X + 2
+    ld hl,(WR_VX)
+    inc hl
+    inc hl
     add hl,de
-    ld de,TV_CMAX
+    ld de,(WR_CMAX)
     call wr_min
     push hl
     ld hl,(WR_RB)               ; x1: 472 when b' is the line's end and another line follows
@@ -2067,14 +2076,14 @@ wr_selx:
     ld de,(WR_NL)
     or a
     sbc hl,de
-    ld de,TV_X + TV_W
+    ld de,(WR_XEND)
     jr c,.x1
 .x:
     ld hl,(WR_RB)               ; else min(27 + tw(s, b'), 472)
     call .tw
-    ld hl,TV_TX
+    ld hl,(WR_VT)
     add hl,de
-    ld de,TV_X + TV_W
+    ld de,(WR_XEND)
     call wr_min
     ex de,hl
 .x1:
@@ -2332,6 +2341,7 @@ tv_draw:
     ld a,(WR_MODE)
     or a
     jr nz,.part
+    call wr_org                 ; a full draw: the view is the real one (a part draw narrows it: its origin is not read then)
     ld a,1
     KFAR G_SETOP
     call wr_gav
@@ -2381,7 +2391,7 @@ tv_draw:
     dec hl
     ld (GA),hl
     ex de,hl
-    ld hl,TV_X + TV_W
+    ld hl,(WR_XEND)
     or a
     sbc hl,de
     ld (GA+4),hl
@@ -2438,11 +2448,48 @@ wr_cga:
     ld l,9
     ld (GA+6),hl
     ret
+
+; wr_org: IX = the text view: its origin (the window may have been dragged by whole cells): WR_VX / WR_VY the view's x, y; WR_VT the text's x (VX + 3) and WR_NVT its
+; negative; WR_CMAX the caret's largest x (VX + 447); WR_XEND = VX + TV_W; WR_VYE = VY + TV_H.  Keeps every register.
+wr_org:
+    push af
+    push hl
+    push de
+    ld l,(ix+View_x)
+    ld h,(ix+View_x+1)
+    ld (WR_VX),hl
+    ld de,TV_CMAX - TV_X
+    add hl,de
+    ld (WR_CMAX),hl
+    ld hl,(WR_VX)
+    ld de,TV_W
+    add hl,de
+    ld (WR_XEND),hl
+    ld hl,(WR_VX)
+    ld de,3
+    add hl,de
+    ld (WR_VT),hl
+    ex de,hl
+    ld hl,0
+    or a
+    sbc hl,de
+    ld (WR_NVT),hl
+    ld a,(ix+View_y)
+    ld (WR_VY),a
+    add a,TV_H
+    ld (WR_VYE),a
+    pop de
+    pop hl
+    pop af
+    ret
+
 ; wr_gav: GA = the text view's rectangle.
 wr_gav:
-    ld hl,TV_X
+    ld hl,(WR_VX)
     ld (GA),hl
-    ld hl,TV_Y
+    ld a,(WR_VY)
+    ld l,a
+    ld h,0
     ld (GA+2),hl
     ld hl,TV_W
     ld (GA+4),hl
@@ -2456,7 +2503,8 @@ wr_jy:
     add a,a
     add a,a
     add a,l
-    add a,TV_Y
+    ld hl,WR_VY
+    add a,(hl)
     ld l,a
     ld h,0
     ret
@@ -2479,7 +2527,7 @@ wr_lns:
     jr z,.t
     ld a,1
     KFAR G_SETOP
-    ld hl,TV_X
+    ld hl,(WR_VX)
     ld (GA),hl
     ld hl,TV_W
     ld (GA+4),hl
@@ -2533,7 +2581,7 @@ wr_tline:
     ld (GA+2),hl
     ld a,l
     ld (WR_RY),a
-    ld hl,TV_TX
+    ld hl,(WR_VT)
     ld (GA),hl
     xor a
     KFAR G_SETOP
@@ -2665,19 +2713,22 @@ wr_scroll:
 .d1:
     ld d,a
 .rows:                          ; rows E..D-1, within the view's rows
+    ld hl,WR_VY
     ld a,e
-    cp TV_Y
+    cp (hl)
     jr nc,.y0
-    ld a,TV_Y
+    ld a,(hl)
 .y0:
-    sub TV_Y
+    sub (hl)
     ld e,a                      ; from the view's top
     ld a,d
-    cp TV_Y + TV_H
+    ld hl,WR_VYE
+    cp (hl)
     jr c,.y1
-    ld a,TV_Y + TV_H
+    ld a,(hl)
 .y1:
-    sub TV_Y
+    ld hl,WR_VY
+    sub (hl)
     ret c
     ret z
     dec a                       ; the last row
@@ -2713,6 +2764,7 @@ wr_min:
 ; ---------------------------------------------------------------------------------------------------------------------------
 ; tv_event: M_EVENT (11.5).  The type and data are read through DE.
 tv_event:
+    call wr_org
     xor a
     ld (WR_DRAWN),a
     ex de,hl
@@ -2922,11 +2974,12 @@ tv_event:
     and 1
     ld d,a
     ld e,c                      ; DE = px
-    ld hl,-TV_TX
+    ld hl,(WR_NVT)
     add hl,de
     push hl                     ; r = px - 27
     ld a,b
-    sub TV_Y
+    ld hl,WR_VY
+    sub (hl)
     jr nc,.dy
     xor a
 .dy:
@@ -3351,6 +3404,7 @@ tv_focus:
 tv_blur:
     xor a
 tv_fb:
+    call wr_org
     call wr_ncf
     ld a,WM_CARET
     ld (WR_MODE),a
@@ -3473,7 +3527,8 @@ wr_dv:
     ld (ix+View_y),a
     ld (ix+View_h),b
     KFAR W_DRAWVIEW
-    ld (ix+View_y),TV_Y
+    ld a,(WR_VY)
+    ld (ix+View_y),a
     ld (ix+View_h),TV_H
     ret
 .whole:
@@ -3629,7 +3684,15 @@ WR_NAME     EQU WR_TITLE + 40           ; the document's name: a length byte and
 WR_FBUF     EQU WR_NAME + 31            ; the Save dialog's Field
 WR_PNAME    EQU WR_FBUF + 31            ; the picked name (FS_PICK)
 WR_FFB      EQU WR_PNAME + 32           ; the Find dialog's Field (14.4)
-    ASSERT WR_FFB + 31 <= AL_RAM && WR_FN + 1 == WR_FCODES
+WR_VX       EQU WR_FFB + 31             ; the text view's origin and what follows from it (wr_org)
+WR_VY       EQU WR_VX + 2
+WR_VYE      EQU WR_VY + 1
+WR_VT       EQU WR_VYE + 1
+WR_NVT      EQU WR_VT + 2
+WR_CMAX     EQU WR_NVT + 2
+WR_XEND     EQU WR_CMAX + 2
+WR_VEND     EQU WR_XEND + 2
+    ASSERT WR_VEND <= AL_RAM && WR_FN + 1 == WR_FCODES
     ASSERT WR_IMG_LEN <= 1024 && (CL_TextView >> 8) == ((CL_TextView + 11) >> 8)
     ASSERT WR_OCX + 3 == WR_OCV && WR_NCX + 3 == WR_NCV
 WR_END:

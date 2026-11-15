@@ -52,8 +52,8 @@ function mkKC(opts = {}) {
   L.moveTo(env, 500, 185); env.frames_(4);
   env.sim = new K.KCSim(env.keymap);
   env.stack = KL.watchStack(m);
-  // the RAM image (KEYCAPS: $C000 .. AL_RAM): written only in Key Caps' variables (KC_STAT .. KC_K) and in AL_RAM (the library's)
-  env.img = { n: 0, first: [], armed: true, lo: S.KC_STAT, hi: S.KC_K + 1 };
+  // the RAM image (KEYCAPS: $C000 .. AL_RAM): written only in Key Caps' variables (KC_STAT .. KC_MV) and in AL_RAM (the library's)
+  env.img = { n: 0, first: [], armed: true, lo: S.KC_STAT, hi: S.KC_MV + 1 };
   const w0 = m.bus.write;
   m.bus.write = function (addr, v) {
     const a = addr & 0xFFFF;
@@ -486,7 +486,7 @@ function g8() {
   row('Key Caps\' bytes (KC_END - KC_START)', bytes, 1225, `KC_START ${hex(S.KC_START)}, KC_END ${hex(S.KC_END)}; Controls took 1,225`);
   row('Key Caps\' RAM image (KC_IMG_LEN)', S.KC_IMG_LEN, null, `${hex(S.PROG_IMG)}-${hex(S.PROG_IMG + S.KC_IMG_LEN - 1)}`);
   row('image end (PROG_IMG + KC_IMG_LEN) against AL_RAM', S.PROG_IMG + S.KC_IMG_LEN, S.AL_RAM, `AL_RAM ${hex(S.AL_RAM)}`);
-  row('the last variable (KC_K + 1) against AL_RAM', S.KC_K + 1, S.AL_RAM);
+  row('the last variable (KC_MV + 1) against AL_RAM', S.KC_MV + 1, S.AL_RAM);
   // the keyboard's M_DRAW with two caps pressed: W_DRAWVIEW of the view, direct, interrupts off, mapping K (the call crosses to DOCK 2-3 through KFAR as the kernel's draw does)
   env.frames_(6);
   const st = KL.readKC(env), kb = st.v.kb.a;
