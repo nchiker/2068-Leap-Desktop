@@ -230,7 +230,7 @@ function shellGroup() {
   // ---- LOOK 7: the open "Leap" menu under the bar's line (LOOK 3.1) and the Mac arrow (LOOK 3.6), against look-model
   {
     const sec = new Sec('2e the open "Leap" menu (LOOK 3.1): the title box XORed in rows 0-6 only (the bar\'s line stays), the drop-down with no top line of its own, its sides from row 8, the shadow 2 columns right and 1 row under, the highlight on the item under the pointer; the whole screen against look-model; released away from the items the shell comes back unchanged (save-under)');
-    const LM = LMOD, lay = layoutOf([SM.LEAP_MENU]), en = [[true, true, true, true, true, true, true]];
+    const LM = LMOD, lay = layoutOf([SM.LEAP_MENU]), en = [[true, true, true, true, true, true, true, true]];
     const mask = () => L.pointerMask(m, S);
     const screenWith = (h) => { const icons2 = H.iconAddrs(env), g = SM.renderShell({ sel: icons2.indexOf(rd16(m, S.K_FOCUS)) }); LM.openLook(g, [SM.LEAP_MENU], lay, en, 0, h); return g; };
     L.moveTo(env, 500, 180); env.frames_(4);
@@ -252,7 +252,7 @@ function shellGroup() {
       sec.ok(side === sideT, () => `the drop-down's sides from row 8: ${side} of ${sideT} visible pixels ink`);
       const [sh, shT] = tally([...col(dr.x + dr.w, 10, 8 + dr.h), ...col(dr.x + dr.w + 1, 10, 8 + dr.h), ...row(dr.x + 2, dr.x + dr.w + 2, 8 + dr.h)]);
       sec.ok(sh === shT, () => `the shadow (2 columns right, 1 row under): ${sh} of ${shT} visible pixels ink`); }
-    for (const k of [0, 2, 3, 4, 5, 6]) {
+    for (const k of [0, 2, 3, 4, 5, 6, 7]) {
       L.moveTo(env, 30, 9 + 10 * k + 5); env.frames_(3);
       const d = H.diffDisp(H.readDisp(m), SM.toDisp(screenWith(k)), mask()); sec.ok(d === null, () => `the menu open, item ${k} highlighted: ${d}`);
     }
@@ -921,7 +921,7 @@ function shell12Group() {
   const bx = L.closeBoxOf(32, 24, 320), bxc = [bx.x + (bx.w >> 1), bx.y + (bx.h >> 1)];
   const trail = [];
   const note = (t) => { trail.push(t); if (trail.length > 6) trail.shift(); };
-  const LM = LMOD, lay = layoutOf([SM.LEAP_MENU]), en = [[true, true, true, true, true, true, true]];
+  const LM = LMOD, lay = layoutOf([SM.LEAP_MENU]), en = [[true, true, true, true, true, true, true, true]];
   // the machine against the model (ShellSim): K_PROG, the windows, K_FOCUS, K_CAPTURE, W_MODAL, the posted queue, S_OPEN, the window object, the screen
   const verify = (what) => {
     env.frames_(2);
@@ -965,14 +965,14 @@ function shell12Group() {
   verify('other keys with no window'); cmp(closed1, 'other keys with no window');
   { const [cx, cy] = L.iconCentre(1); L.click(env, cx, cy, 3, 4); L.click(env, cx, cy, 3, 4); L.click(env, 300, 150, 3, 4); L.click(env, bxc[0], bxc[1], 3, 4); env.frames_(25); note('clicks where the window was'); }
   verify('clicks on the bare desk where the window was'); cmp(closed1, 'clicks on the bare desk');
-  // ---- 3. the Leap menu with the window closed: the open dropdown (7 items) and its highlights
+  // ---- 3. the Leap menu with the window closed: the open dropdown (8 items) and its highlights
   {
     const mask = () => L.pointerMask(m, S);
     const screenWith = (h) => { const g = SM.renderShell({ sel: -1, open: false }); LM.openLook(g, [SM.LEAP_MENU], lay, en, 0, h); return g; };
     L.moveTo(env, 500, 180); env.frames_(3);
     L.moveTo(env, 20, 4); m.mouse.buttons = L.MOUSE_LEFT; env.frames_(4);
     { const d = H.diffDisp(H.readDisp(m), SM.toDisp(screenWith(-1)), mask()); sec.ok(d === null, () => `the menu open over the empty desk, no highlight: ${d}`); }
-    for (const k of [0, 2, 3, 4, 5, 6]) { L.moveTo(env, 30, 9 + 10 * k + 5); env.frames_(3); const d = H.diffDisp(H.readDisp(m), SM.toDisp(screenWith(k)), mask()); sec.ok(d === null, () => `the menu open over the empty desk, item ${k} highlighted: ${d}`); }
+    for (const k of [0, 2, 3, 4, 5, 6, 7]) { L.moveTo(env, 30, 9 + 10 * k + 5); env.frames_(3); const d = H.diffDisp(H.readDisp(m), SM.toDisp(screenWith(k)), mask()); sec.ok(d === null, () => `the menu open over the empty desk, item ${k} highlighted: ${d}`); }
     L.moveTo(env, 400, 150); env.frames_(3); m.mouse.buttons = L.MOUSE_UP; env.frames_(8); note('menu opened and closed with no window');
     verify('the menu released away from the items'); cmp(closed1, 'the menu released away from the items');
   }

@@ -44,3 +44,12 @@ A model of the AY writes (register, value, frame) for each event; `tests/snd-s1.
 **The Leap menu** has an 8th item (id 8, 9 characters at `S_SNDTXT` in the shell's image): "Sound Off" while sound is on, "Sound On " while off; choosing it calls `K_SNDSET` with the opposite and rewrites the text.
 **Observed (TSRun, 2026-11-15):** About from the Leap menu: frame 156 the select row (r7 62, r0 90, r1 0, r8 8) then at once the alert (r0 125 ...), frame 162 the alert's second tone (r0 165), frame 168 r8 = 0; ENTER on the alert's OK: r0 60 at the press, r8 = 0 two frames later; the toggle: the select sound then r8 = 0; with sound off nothing is written.
 **Pool bytes:** 175 in `sound.asm` plus the hooks (`b_click` +5, menu +5, the ISR +3). **Other targets** (`hello`, `probe23`, `gfx6t`, `spike6`, `kern3`, `kern3demo`, `kern4`, `kern4demo`, `bank5`) are byte-identical (the hooks are under `IFDEF SOUND`).
+
+## 7. Test results and bounds missed (2026-11-15; for the owner's decision)
+`tests/snd-s1.mjs` (13 groups; AY write log, interrupt injection at every instruction boundary of `K_BEEP` / `K_SNDSET`, 1,618 runs; planted-bug checks) passes 12 of 13. The test found one real fault, **fixed**: a Button pressed **by the mouse** made no sound (`b_click` is reached only by keys); `button_event`'s `.down` now plays id 1 (`IFDEF SOUND`; other targets byte-identical). **Missed bounds, left as written until the owner resets them to the measured figures:**
+- `K_BEEP` 652 T (bound 400); 108 T with sound off, 983 T through `KFAR` from A. Stack 14 bytes (bound 32), no DI, registers kept.
+- The tick: idle 28 T, counting down 50 T (both pass); the tick that ends a sound 148 T (bound 120); the tick that starts the next row of a chain 608 T (bound 400, `K_BEEP`'s).
+- `calc-perf`: "desk5 pool bytes beyond kern4's kernel" 273 (bound 264; was 258): the boot code, `K_CODE` and `K1_CODE` are +5 each, from the hooks.
+- `kc-k1`: Key Caps' key-down redraw ends 61,052 T after the interrupt (bound 61,000; was 60,962): the sound tick runs in the ISR.
+- Reported: free pool bytes 5,655 (was 5,835).
+Read: SOUND 2's idle row holds only in the sense that the data port is never written while idle (the select port is written twice a frame, by `K_POLL` and the ISR's restore). The ZEsarUX runner has no AY register read, so it has no sound rows.

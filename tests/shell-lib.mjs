@@ -120,7 +120,7 @@ export function programDiff(env, p = env.m.ram[env.S.K_PROG], extra = [], dstr =
 // Drivers
 /** A single click on the icon of program p: the pointer there, press `hold` frames, release, wait `rel` frames. */
 export const clickIcon = (env, p, hold = 3, rel = 6) => { const [x, y] = L.iconCentre(p); return L.click(env, x, y, hold, rel); };
-/** The "Leap" menu by the pointer (WINDOWS 18.4): press on the title, move to item `item` (1-based, the separator counts: items 1 About, 2 separator, 3 Calculator, 4 Key Caps, 5 Notepad, 6 Paint, 7 Show Desktop), release. */
+/** The "Leap" menu by the pointer (WINDOWS 18.4): press on the title, move to item `item` (1-based, the separator counts: items 1 About, 2 separator, 3 Calculator, 4 Key Caps, 5 Notepad, 6 Paint, 7 Show Desktop, 8 Sound Off / Sound On), release. */
 export function leapMenu(env, item) {
   const { m } = env;
   L.moveTo(env, 20, 4); m.mouse.buttons = L.MOUSE_LEFT; env.frames_(3);

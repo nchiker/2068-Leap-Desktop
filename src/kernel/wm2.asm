@@ -183,6 +183,10 @@ button_event:
     ld (ix+View_flags),a
     jr .draw
 .down:
+    IFDEF SOUND
+    ld a,1                      ; the click, by mouse (docs/SOUND.md)
+    call K_BEEP
+    ENDIF
     set BTN_PRESSED,(ix+View_flags)
 .draw:
     call W_DRAWVIEW

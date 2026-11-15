@@ -61,6 +61,7 @@ export const varRegion = (S) => [S.C_WIN, S.C_IMG_ADDR + S.C_IMG_LEN - 1];
 export function bootDesk5(opts = {}) {
   const load = loadDesk5(opts.cart), S = load.S;
   const m = boot(load.dck, { video: opts.video ?? process.env.TS_VIDEO === "1" });   // TESTSPEED S1: drawing off unless a test reads m.pixels (TS_VIDEO=1 turns it back on)
+  if (opts.setup) opts.setup(m);                       // a hook run on the fresh machine, before it runs a frame (tests/snd-s1.mjs wraps the AY ports here)
   m.mouse.attached = true; m.mouse.x = 0; m.mouse.y = 0; m.mouse.buttons = 0xFF;
   const w = opts.watch === false ? { n: 0, kinds: {}, first: [], summary: () => 'watch off', on: false } : makeWatch(m, S);
   const vf = { checked: 0, bad: 0, first: '', started: false };

@@ -29,9 +29,10 @@ H.needSyms(S, H.SHELL_NEEDED);
 
 // ---- bytes (SHELL 7) ---------------------------------------------------------------------------------------------------------------------------
 {
-  const code = S.K_PROGS - S.K_LAUNCH;                                  // K_LAUNCH, K_QUIT; K_PROGS is the cartridge's table that follows
+  const kEnd = S.K_BEEP !== undefined ? S.K_BEEP : S.K_PROGS;             // sound.asm (docs/SOUND.md 6) is assembled between the launcher and K_PROGS: the launcher ends where it starts (K_BEEP)
+  const code = kEnd - S.K_LAUNCH;                                       // K_LAUNCH, K_QUIT; K_PROGS is the cartridge's table that follows
   const nprog = 5, table = 2 * nprog;                                   // a word per program: the shell, Calculator, Key Caps, Notepad, Paint
-  row('the launcher\'s bytes in the pool (K_PROGS - K_LAUNCH: K_LAUNCH and K_QUIT; EST 90)', code, 150, `K_LAUNCH ${hex(S.K_LAUNCH)}, K_QUIT ${hex(S.K_QUIT)}, K_PROGS ${hex(S.K_PROGS)}; with the ${nprog}-word program table ${code + table}`);
+  row('the launcher\'s bytes in the pool (K_PROGS - K_LAUNCH, or K_BEEP - K_LAUNCH when sound.asm sits between: K_LAUNCH and K_QUIT; EST 90)', code, 150, `K_LAUNCH ${hex(S.K_LAUNCH)}, K_QUIT ${hex(S.K_QUIT)}, end ${hex(kEnd)}, K_PROGS ${hex(S.K_PROGS)}; with the ${nprog}-word program table ${code + table}`);
   // SIZE 2: the pool's FREE bytes (the always-mapped chunks), read from the build, replace step 5's growth bound (BANKING 6.1: 3,400). The reserve is for step 6.
   const c01 = 0x4000 - S.TK2_END;                                       // chunks 0-1: from TK2_END to $4000
   let t = S.K_CODE; while (t > 0x8000 && load.mem[t - 1] === 0) t--;
@@ -73,8 +74,8 @@ H.needSyms(S, H.SHELL_NEEDED);
     return 1;
   };
   const sweep = (lo, hi) => { let n = 0, ops = 0; const at = []; for (let a = lo; a < hi; a += len(a)) { ops++; if (rb(a) === 0xF3) { n++; at.push(hex(a)); } } return { n, ops, at }; };
-  const a = sweep(S.K_LAUNCH, S.K_PROGS), b = sweep(S.S_START, S.S_IMG);
-  row('DI opcodes in the launcher (K_LAUNCH..K_PROGS, linear sweep at instruction starts)', a.n, 0, `${a.ops} instructions swept${a.n ? '; DI at ' + a.at.join(', ') : ''}`);
+  const a = sweep(S.K_LAUNCH, S.K_BEEP !== undefined ? S.K_BEEP : S.K_PROGS), b = sweep(S.S_START, S.S_IMG);
+  row('DI opcodes in the launcher (K_LAUNCH..K_PROGS, or ..K_BEEP when sound.asm follows it; linear sweep at instruction starts)', a.n, 0, `${a.ops} instructions swept${a.n ? '; DI at ' + a.at.join(', ') : ''}`);
   row('DI opcodes in the shell\'s code (S_START..S_IMG, linear sweep; the image is data)', b.n, 0, `${b.ops} instructions swept${b.n ? '; DI at ' + b.at.join(', ') : ''}`);
 }
 

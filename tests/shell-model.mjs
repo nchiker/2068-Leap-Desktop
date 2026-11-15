@@ -21,7 +21,7 @@
 //      reads the flag from the ring record, and tests/kern-dclick.mjs judges the flag; the gap is measured in frames of the real ISR with m.mouse (20 opens, 21 does not).
 //  R3. E_DOWNs elsewhere (the window, the desk) are not seen by an icon: S_LAST is not touched; the kernel's flag still counts them as presses (a press elsewhere between the two breaks the double).
 //  R4. (SHELL 12, replaces "a plain Window") The shell's window is a CWindow, id 255: the close box (only while it is the front window), and its close box or SYMBOL SHIFT + Q (CLOSE) closes it:
-//      the desk and the bar remain (renderShell({ open: false })); the Leap menu has a 7th item "Show Desktop" (opens it again, or raises it).
+//      the desk and the bar remain (renderShell({ open: false })); the Leap menu has a 7th item "Show Desktop" (opens it again, or raises it) and an 8th "Sound Off" / "Sound On " (docs/SOUND.md 5).
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -62,7 +62,9 @@ export const SHELL_WIN = { x: 32, y: 24, w: 320, h: 80, title: 'Leap Desktop' };
 // WRITE 11.2: a third icon "Write" at (176, 40) (its bitmap is `icon WRITE` in icons.txt) and the menu item "Notepad" (id 5) after "Key Caps"
 export const ICONS = [{ name: 'Calculator', art: 'CALC', prog: 1, x: 48, y: 40, w: 64, h: 26 }, { name: 'Key Caps', art: 'KEYS', prog: 2, x: 112, y: 40, w: 64, h: 26 },
   { name: 'Notepad', art: 'WRITE', prog: 3, x: 176, y: 40, w: 64, h: 26 }, { name: 'Paint', art: 'PAINT', prog: 4, x: 240, y: 40, w: 64, h: 26 }];
-export const LEAP_MENU = menuSpec(1, 'Leap', [[1, 0, 'About Leap Desktop...'], [2, 2, ''], [3, 0, 'Calculator'], [4, 0, 'Key Caps'], [5, 0, 'Notepad'], [6, 0, 'Paint'], [7, 0, 'Show Desktop']]);
+// docs/SOUND.md 5: an 8th item (id 8) shows the action: "Sound Off" while sound is on (the start), "Sound On " (9 characters, a trailing space) while it is off.
+export const leapMenu = (soundOn = true) => menuSpec(1, 'Leap', [[1, 0, 'About Leap Desktop...'], [2, 2, ''], [3, 0, 'Calculator'], [4, 0, 'Key Caps'], [5, 0, 'Notepad'], [6, 0, 'Paint'], [7, 0, 'Show Desktop'], [8, 0, soundOn ? 'Sound Off' : 'Sound On ']]);
+export const LEAP_MENU = leapMenu(true);
 export const ABOUT = { dialog: { x: 128, y: 64, w: 256, h: 64 }, label: { x: 144, y: 76, w: 224, h: 18, text: 'Leap Desktop, step 5' }, ok: { x: 304, y: 100, w: 64, h: 16, text: 'OK' } };
 export const DBL_FRAMES = 20;
 
