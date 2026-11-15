@@ -58,10 +58,11 @@ Window id 255 (`PT_WINID`): the close box and SS+Q post `E_CMD` 255; the program
 
 - **The picture is 320 x 144 pixels** (question 1): 40 byte columns, 144 rows, 5,760 bytes. A mode 6 screen is 12,288 bytes and the arena
   7,168, so the canvas is a part of the screen, and there is no full-screen undo (FEASIBILITY 3).
-- **The copy** `PT_PIC` is held in the arena in `G_SAVERECT`'s layout for the rectangle (128, 32, 320, 144): the header `(16, 40, 32, 144)`,
-  then the **file-1 part** (20 bytes a row, 144 rows, at +4) and the **file-2 part** (20 bytes a row, at +4 + 2,880). Byte column c = 16 + k
-  (k = 0..39) of row r is at `PT_PIC + 4 + (k AND 1) x 2,880 + 20 r + (k >> 1)`. Bit 1 is ink (SET = ink in mode 6).
-  Because the header is real, `G_RESTRECT` could put the whole copy on an empty screen (used at Open, section 9).
+- **The copy** `PN_PIC` is held in the arena in `G_SAVERECT`'s layout for the picture's rectangle (OX, OY, 320, 144), where (OX, OY) is the canvas view's (x + 2, y + 2) (128, 32 in the window's
+  first position; the window can be dragged by whole cells, so OX stays a multiple of 16): the header `(OX >> 3, 40, OY, 144)` (what `G_SAVERECT` wrote last), then the **part 1** (20 bytes a row,
+  144 rows, at +4) holding the **odd** byte columns of the picture and the **part 2** (at +4 + 2,880) holding the **even** ones (`G_SAVERECT`'s order for an even first column: the odd
+  columns, which live in the second display file, come first). Byte column k (0-39) of the picture's row r is at `PN_PIC + 4 + (k AND 1 ? 0 : 2,880) + 20 r + (k >> 1)`. Bit 1 is ink.
+  The header is not used by Paint; only the two parts are.
 - **The display is the working surface.** A tool draws on the display with gfx6 (shielded, clipped to the picture rectangle); the copy is
   brought up to date when the stroke or shape ends (section 5). While a stroke is in progress the copy is the picture's state before it.
 - **The copy is needed only for three things:** redrawing an exposed canvas, Undo, and the file.
@@ -177,7 +178,7 @@ the app library's (`AL_NAMEDLG`, default extension ".pbm"). `Clear` fills the pi
 - **Open:** `FS_PICK`, `FS_OPEN` (binary, read), the file's length must be 5,771 and its first 11 bytes exactly `P4`, a newline, `320 144`, a newline (anything else, a comment or other white space included:
   the alert "Not a 320 x 144 PBM picture."); read the rows into the copy (the inverse of Save: 40 bytes a row split into the two parts); then restore
   the whole picture to the screen by banded restore. A PBM with comments (`#` lines) is refused in P1 (the alert).
-- **The title and the name** follow Notepad (`AL_TITLE`, `AL_EXTNAME`). A picture never saved has no name.
+- **The title and the name** follow Notepad (`AL_TITLE`, `AL_EXTNAME`). A picture never saved is named "Untitled", which the Save dialog's Field shows as Notepad's does (type over it).
 
 ## 10. The shell and the cartridge (the edits that register Paint)
 
@@ -302,7 +303,8 @@ Paint is program 4; the shell is 320 wide with four icons; its "Leap" menu has t
 
 **The window (as built).** `CWindow` (48, 16, 416, 176), id 255, title "Paint: name" (AL_TITLE); children in this order: the tool box `Palette` (55, 28, 66, 82) id 1, the `Canvas`
 (126, 30, 324, 148) id 4, the status `Label` (127, 180, 324, 9) id 5. (The pattern and brush palettes of section 2 arrive in P2.) The menus: File (New, Open..., Save..., separator, Quit),
-Edit (Undo, disabled at the start; Clear). The picture is at (128, 32), 320 x 144.
+Edit (Undo, disabled at the start; Clear). The picture is at (OX, OY) = the canvas view's (x + 2, y + 2) = (128, 32) while the window is where it opens; **the window may be dragged** (by whole cells) and everything
+Paint draws, clips and reads follows the canvas view (`pn_org`, run at the start of the Canvas' `M_DRAW` and `M_EVENT`).
 
 **The tool box.** Cell t (0-9, row-major, 2 columns) has its interior at (56 + 32 (t AND 1), 29 + 16 (t >> 1)), 32 x 16; the icon (`TICON_<name>`, 16 x 16, opaque) is drawn at the interior's x + 8, y;
 then the frame (x - 1, y - 1, 33, 17) in SET; the chosen tool's interior (x, y, 31, 15) is inverted (XOR). A press on a cell chooses that tool and the status line shows its name
