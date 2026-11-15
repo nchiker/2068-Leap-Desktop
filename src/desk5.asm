@@ -201,6 +201,7 @@ G6_START:
     INCLUDE "gfx6/rrect.asm"    ; G_RRECT: the rounded rectangle and the oval (docs/PAINT.md 7, 18)
     INCLUDE "gfx6/flood.asm"    ; G_FLOOD: the bucket (docs/PAINT.md 21)
     INCLUDE "gfx6/icon.asm"     ; G_ICON: the opaque bitmap copy (docs/ICON.md)
+    INCLUDE "gfx6/lift.asm"     ; G_LIFT: the screen to a bitmap, the marquee's lift (docs/PAINT.md 22.1)
     INCLUDE "icons.inc"         ; the shell's icons (G_ICON's rows, 64 bytes each)
     INCLUDE "ticons.inc"        ; Paint's tool icons (G_ICON's rows, 64 bytes each)
 G6_END:

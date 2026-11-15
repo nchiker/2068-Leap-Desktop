@@ -80,6 +80,8 @@ pn_loop:
     jr z,.menu
     cp E_CMD
     jr z,.cmd
+    cp E_KEY
+    call z,pn_key                   ; DELETE and ESC act on a selection (PAINT 22)
     KFAR TK_DISPATCH
     jr pn_loop
 .menu:
@@ -119,6 +121,7 @@ pn_loop:
 
 ; pn_menu: E_MENU (K_EV+1 the menu, K_EV+2 the item): File 1 (New 1, Open 2, Save 3, Quit 4), Edit 2 (Undo 1, Clear 2), Options 3 (Filled shapes 1, Hollow shapes 2).
 pn_menu:
+    call pn_seldrop                 ; a selection is dropped by every command (PAINT 22)
     ld hl,(K_EV+1)                  ; L = the menu, H = the item
     ld a,l
     dec a
@@ -398,6 +401,13 @@ pn_tevent:
     pop ix
     jr .cons
 .new:
+    push af
+    push hl
+    push ix
+    call pn_seldrop                 ; the marquee's selection goes with the tool
+    pop ix
+    pop hl
+    pop af
     ld (hl),a
     KFAR W_DRAWVIEW                 ; the box again (IX is still the view)
     push ix
@@ -862,6 +872,8 @@ pn_cdraw:
     ld a,144
 .y1:
     ld (PN_RE),a
+    call pn_bands
+    jp pn_selshow                   ; the selection's outline again, inside what the bands restored (PAINT 22)
 ; pn_bands: the picture rows PN_R .. PN_RE (columns PN_K0, PN_NC; PN_H, PN_ADJ, PN_O set) restored from the copy by bands.  Clobbers AF, BC, DE, HL.
 pn_bands:
 .band:
@@ -982,6 +994,8 @@ pn_cevent:
     xor a
     ld (PN_DRAW),a
     ld a,(PN_TOOL)
+    or a
+    jp z,pn_mqup                    ; the marquee (it commits by itself)
     cp 6
     call nc,pn_shapedone
     call pn_commit
@@ -1018,19 +1032,12 @@ pn_cevent:
     jr c,.no
     cp 144
     jr nc,.no
-    ld a,(PN_TOOL)                  ; every tool but the marquee and the bucket draws
-    or a
-    jr z,.nyet
+    ld a,(PN_TOOL)                  ; every tool but the bucket draws (the marquee's press is its own: PAINT 22)
     cp 5
     jr z,.bkt
-    cp 10
-    jr c,.go
-.nyet:
-    ld hl,PN_MNYET                  ; the other tools are not built yet
-    push ix
-    call pn_msg
-    pop ix
-    jr .no
+    or a
+    call z,pn_mdown
+    jr .go
 .bkt:                           ; the bucket: a click fills, no stroke (the press is not taken)
     call pn_bucket
     jp .no
@@ -1064,9 +1071,12 @@ pn_cevent:
     ld (PN_BR1),a
     ld (PN_BON),a
     ld a,(PN_TOOL)
+    or a
+    jr z,.anc
     cp 6
     jr c,.fs
-    ld hl,(PN_NX)                   ; a shape: the press is its anchor, nothing is drawn yet
+.anc:
+    ld hl,(PN_NX)                   ; a shape (or the marquee): the press is its anchor, nothing is drawn yet
     ld (PN_AX),hl
     ld a,(PN_NY)
     ld (PN_AY),a
@@ -1127,6 +1137,15 @@ pn_xorband:
     ld a,(PN_TOOL)
     cp 6
     jr z,.l
+    or a
+    jr nz,.r
+    ld a,(PN_MD)
+    cp 2
+    jr nz,.r
+    call pn_movega                  ; the marquee moving: the selection's box displaced
+    KFAR G_FRAME
+    ret
+.r:
     call pn_rectga
     KFAR G_FRAME
     ret
@@ -1483,6 +1502,8 @@ pn_seg:
     ld a,(PN_TOOL)
     cp 6
     jp nc,pn_bandstep
+    or a
+    jp z,pn_bandstep
     call pn_shield
     ld a,(PN_TOOL)
     cp 4
@@ -1786,6 +1807,465 @@ pn_grow:
     ret c
     ld (hl),a
     ret
+
+; ---------------------------------------------------------------------------------------------------------------------------
+; The marquee (PAINT 22): tool 0.  A drag selects a box (an XOR band; snapped to byte columns, rows exact; at most 2,048 bytes); a drag that starts inside the selection moves it (its pixels
+; are lifted into cold RAM $7800 by G_LIFT and drawn by G_ICON at the destination, 8-pixel steps across; CAPS SHIFT held at the release copies).  The selection is an XOR outline that is
+; in neither the picture nor its copy; it is erased before anything draws and drawn again by the canvas' M_DRAW after an exposure.  The box is PN_SC, PN_SN (byte columns), PN_SY, PN_SH (rows).
+
+; pn_selga: GA = the selection's rectangle in screen coordinates, GA+8 = the lift buffer.  Clobbers AF, DE, HL.
+pn_selga:
+    ld a,(PN_SC)
+    ld l,a
+    ld h,0
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    ld de,(PN_OX)
+    add hl,de
+    ld (GA),hl
+    ld a,(PN_SY)
+    ld hl,PN_OY
+    add a,(hl)
+    ld l,a
+    ld h,0
+    ld (GA+2),hl
+    ld a,(PN_SN)
+    ld l,a
+    ld h,0
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    ld (GA+4),hl
+    ld a,(PN_SH)
+    ld l,a
+    ld h,0
+    ld (GA+6),hl
+    ld hl,$7800
+    ld (GA+8),hl
+    ret
+
+; pn_selxor: the selection's outline drawn / erased (XOR; the pointer shielded).  pn_seldrop: the outline erased and the selection dropped, if there is one.  Clobber AF, BC, DE, HL.
+pn_seldrop:
+    ld a,(PN_SELON)
+    or a
+    ret z
+    xor a
+    ld (PN_SELON),a
+pn_selxor:
+    call pn_shield
+    call pn_selframe
+    jp pn_unshield
+pn_selframe:
+    ld a,2
+    ld (GOP),a
+    call pn_selga
+    KFAR G_FRAME
+    ret
+
+; pn_selshow (the canvas' M_DRAW, after the bands): the outline drawn again inside the rectangle the bands restored (columns PN_K0 .. + PN_NC, rows PN_R .. PN_RE of the picture), so
+; no pixel of it is toggled that the restore did not clear.  The clip is kept.  Clobbers AF, BC, DE, HL.
+pn_selshow:
+    ld a,(PN_SELON)
+    or a
+    ret z
+    ld hl,(GCX0)
+    push hl
+    ld hl,(GCX1)
+    push hl
+    ld hl,(GCY0)
+    push hl
+    ld hl,(GCY1)
+    push hl
+    ld a,(PN_K0)
+    ld l,a
+    ld h,0
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    ld de,(PN_OX)
+    add hl,de
+    ld (GCX0),hl
+    ld a,(PN_NC)
+    ld e,a
+    ld d,0
+    ex de,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,de
+    ld (GCX1),hl
+    ld a,(PN_OY)
+    ld hl,PN_R
+    add a,(hl)
+    ld l,a
+    ld h,0
+    ld (GCY0),hl
+    ld a,(PN_OY)
+    ld hl,PN_RE
+    add a,(hl)
+    ld l,a
+    ld h,0
+    ld (GCY1),hl
+    call pn_selframe
+    pop hl
+    ld (GCY1),hl
+    pop hl
+    ld (GCY0),hl
+    pop hl
+    ld (GCX1),hl
+    pop hl
+    ld (GCX0),hl
+    ret
+
+; pn_mdown: the marquee's press (the pointer is inside the picture): inside the selection the move starts (the outline erased, the box lifted, PN_MD 2), else the selection is dropped and a
+; new one begins (PN_MD 1).  Clobbers AF, BC, DE, HL.
+pn_mdown:
+    ld a,(PN_SELON)
+    or a
+    jr z,.new
+    ld hl,(PN_NX)
+    call pn_colof
+    ld hl,PN_SC
+    sub (hl)
+    jr c,.out
+    ld hl,PN_SN
+    cp (hl)
+    jr nc,.out
+    ld a,(PN_NY)
+    call pn_rowof
+    ld hl,PN_SY
+    sub (hl)
+    jr c,.out
+    ld hl,PN_SH
+    cp (hl)
+    jr c,.in
+.out:
+    push ix
+    call pn_seldrop
+    pop ix
+.new:
+    ld a,1
+    ld (PN_MD),a
+    ret
+.in:
+    ld a,2
+    ld (PN_MD),a
+    push ix
+    call pn_shield
+    call pn_selframe                ; the outline erased: the lift takes the picture's pixels only
+    call pn_selga
+    KFAR G_LIFT
+    call pn_unshield
+    pop ix
+    ret
+
+; pn_colof: HL = a screen x -> A = its byte column in the picture, 0 .. 39.  pn_rowof: A = a screen y -> A = its picture row, 0 .. 143.  Clobber F, DE, HL.
+pn_colof:
+    ld de,(PN_OX)
+    or a
+    sbc hl,de
+    jr nc,.p
+    ld hl,0
+.p:
+    srl h
+    rr l
+    srl h
+    rr l
+    srl h
+    rr l
+    ld a,l
+    cp 40
+    ret c
+    ld a,39
+    ret
+pn_rowof:
+    ld hl,PN_OY
+    sub (hl)
+    jr nc,.p
+    xor a
+.p:
+    cp 144
+    ret c
+    ld a,143
+    ret
+
+; pn_movega: the selection's box moved by the band's offset ((LX - AX) in byte columns, LY - AY in rows), kept inside the picture: PN_DC, PN_DR = its byte column and row, GA = its rectangle in
+; screen coordinates (GA+4, GA+6 the selection's size).  Clobbers AF, BC, DE, HL.
+pn_movega:
+    call pn_selga
+    ld hl,(PN_LX)
+    ld de,(PN_AX)
+    or a
+    sbc hl,de
+    sra h
+    rr l
+    sra h
+    rr l
+    sra h
+    rr l
+    ld a,(PN_SC)
+    ld e,a
+    ld d,0
+    add hl,de
+    ld a,(PN_SN)
+    cpl
+    add a,41                        ; 40 - columns
+    call pn_clamp
+    ld (PN_DC),a
+    ld l,a
+    ld h,0
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    ld de,(PN_OX)
+    add hl,de
+    ld (GA),hl
+    ld a,(PN_LY)
+    ld hl,PN_AY
+    sub (hl)
+    ld l,a
+    sbc a,a
+    ld h,a
+    ld a,(PN_SY)
+    ld e,a
+    ld d,0
+    add hl,de
+    ld a,(PN_SH)
+    cpl
+    add a,145                       ; 144 - rows
+    call pn_clamp
+    ld (PN_DR),a
+    ld hl,PN_OY
+    add a,(hl)
+    ld l,a
+    ld h,0
+    ld (GA+2),hl
+    ret
+
+; pn_clamp: HL = a signed number, A = the highest allowed -> A = the number between 0 and it.  Clobbers C, HL.
+pn_clamp:
+    ld c,a
+    bit 7,h
+    jr nz,.z
+    ld a,h
+    or a
+    jr nz,.m
+    ld a,l
+    cp c
+    ret c
+.m:
+    ld a,c
+    ret
+.z:
+    xor a
+    ret
+
+; pn_mqup: the marquee's release (PN_DRAW already cleared): the band erased; a drag that selected makes the selection; a move drops the box at the destination.  Carry set.
+pn_mqup:
+    call pn_shield
+    ld a,(PN_BON)
+    or a
+    call nz,pn_xorband
+    xor a
+    ld (PN_BON),a
+    ld hl,(PN_NX)                   ; the pointer is the band's last point
+    ld (PN_LX),hl
+    ld a,(PN_NY)
+    ld (PN_LY),a
+    ld a,(PN_MD)
+    cp 2
+    jp z,pn_mqmove
+    ld hl,(PN_AX)                   ; selecting: nothing for a click
+    ld de,(PN_NX)
+    or a
+    sbc hl,de
+    jr nz,.drag
+    ld a,(PN_AY)
+    ld hl,PN_NY
+    cp (hl)
+    jp z,pn_mqend
+.drag:
+    ld hl,(PN_AX)
+    call pn_colof
+    ld b,a
+    ld hl,(PN_NX)
+    call pn_colof
+    ld c,a
+    call pn_order                   ; B = the lower, C = the higher
+    ld a,b
+    ld (PN_SC),a
+    ld a,c
+    sub b
+    inc a
+    ld (PN_SN),a
+    ld a,(PN_AY)
+    call pn_rowof
+    ld b,a
+    ld a,(PN_NY)
+    call pn_rowof
+    ld c,a
+    call pn_order
+    ld a,b
+    ld (PN_SY),a
+    ld a,c
+    sub b
+    inc a
+    ld (PN_SH),a
+    ld a,(PN_SN)                    ; columns x rows <= 2,048?
+    ld e,a
+    ld d,0
+    ld hl,0
+    ld a,(PN_SH)
+    ld b,a
+.m:
+    add hl,de
+    djnz .m
+    ld de,PN_UNDO_MAX + 1
+    or a
+    sbc hl,de
+    jr c,.fits
+    ld hl,PN_MSEL
+    push ix
+    call pn_msg
+    pop ix
+    jr pn_mqend
+.fits:
+    ld a,(PN_MSG)                   ; a message gives way to the tool's name
+    or a
+    call nz,pn_status
+    ld a,1
+    ld (PN_SELON),a
+    call pn_selframe
+pn_mqend:
+    call pn_unshield
+    scf
+    ret
+
+; pn_order: B, C -> B = the lower, C = the higher.
+pn_order:
+    ld a,c
+    cp b
+    ret nc
+    ld c,b
+    ld b,a
+    ret
+
+; pn_mqmove: the release of a move: the box dropped at the destination (inside the picture), the source erased unless CAPS SHIFT is held; the undo box the union; the selection the destination.
+pn_mqmove:
+    call pn_movega
+    ld a,(PN_DC)
+    ld hl,PN_SC
+    cp (hl)
+    jr nz,.moved
+    ld a,(PN_DR)
+    ld hl,PN_SY
+    cp (hl)
+    jr nz,.moved
+    call pn_selframe                ; the outline back, nothing changed
+    jr pn_mqend
+.moved:
+    ld a,$FF                        ; the undo box: empty
+    ld (PN_BC0),a
+    ld (PN_BR0),a
+    xor a
+    ld (PN_BC1),a
+    ld (PN_BR1),a
+    ld a,(K_MODS)
+    and 1                           ; CAPS SHIFT: copy
+    jr nz,.copy
+    ld a,1
+    ld (GOP),a
+    call pn_selga
+    KFAR G_FILL                     ; the source to paper
+    call pn_ubox                    ; B .. C its byte columns, D .. E its rows
+    call pn_unite
+.copy:
+    call pn_movega
+    KFAR G_ICON                     ; the box at the destination (replace)
+    ld a,(PN_DC)
+    ld (PN_SC),a
+    ld a,(PN_DR)
+    ld (PN_SY),a
+    call pn_ubox
+    call pn_unite
+    call pn_unshield
+    call pn_commit
+    call pn_selxor
+    scf
+    ret
+
+; pn_ubox: the selection's byte columns B .. C and rows D .. E.  Clobbers AF.
+pn_ubox:
+    ld a,(PN_SC)
+    ld b,a
+    ld a,(PN_SN)
+    add a,b
+    dec a
+    ld c,a
+    ld a,(PN_SY)
+    ld d,a
+    ld a,(PN_SH)
+    add a,d
+    dec a
+    ld e,a
+    ret
+
+; pn_unite: the undo box (PN_BC0 .. PN_BC1, PN_BR0 .. PN_BR1) takes the byte columns B .. C and the rows D .. E.  Clobbers AF, HL.
+pn_unite:
+    ld hl,PN_BC0
+    ld a,b
+    cp (hl)
+    jr nc,.a
+    ld (hl),a
+.a:
+    inc hl
+    ld a,c
+    cp (hl)
+    jr c,.b
+    ld (hl),a
+.b:
+    inc hl
+    ld a,d
+    cp (hl)
+    jr nc,.c
+    ld (hl),a
+.c:
+    inc hl
+    ld a,e
+    cp (hl)
+    ret c
+    ld (hl),a
+    ret
+
+; pn_key: E_KEY while a selection exists: DELETE clears the box to paper (a change: committed), ESC drops the selection.  Other keys go on to the toolkit.  Clobbers AF, BC, DE, HL.
+pn_key:
+    ld a,(PN_SELON)
+    or a
+    ret z
+    ld a,(K_EV+1)
+    cp KC_ESC
+    jr z,pn_seldrop
+    cp KC_DELETE
+    ret nz
+    call pn_shield
+    call pn_selframe                ; the outline erased
+    ld a,1
+    ld (GOP),a
+    call pn_selga
+    KFAR G_FILL
+    call pn_ubox
+    ld a,b
+    ld (PN_BC0),a
+    ld a,c
+    ld (PN_BC1),a
+    ld a,d
+    ld (PN_BR0),a
+    ld a,e
+    ld (PN_BR1),a
+    call pn_unshield
+    call pn_commit
+    jp pn_selxor
 
 ; pn_commit (PAINT 5), at the release: the stroke's box widened to byte pairs; when it fits the undo area (PN_UNDO_MAX bytes) the box's
 ; rows are saved from the copy (which still holds the state before the stroke) to cold RAM and Undo is enabled, else Undo is disabled and
@@ -2269,7 +2749,7 @@ PN_TNAMES:                          ; the tools' names, in the order of the tool
     DB 9, "Rectangle"
     DB 17, "Rounded rectangle"
     DB 4, "Oval"
-PN_MNYET:   DB 13, "Not built yet"
+PN_MSEL:    DB 17, "Selection too big"
 PN_MBIG:    DB 15, "Too big to undo"
 PN_MFILL:   DB 16, "Fill too complex"
 PN_STAT:    DB 6, "Pencil"
@@ -2366,7 +2846,15 @@ PN_AY       EQU PN_AX + 2
 PN_BON      EQU PN_AY + 1
 PN_FILL     EQU PN_BON + 1
 PN_SPR      EQU PN_FILL + 1         ; 1 when this frame has had a spray burst
-PN_VARS_END EQU PN_SPR + 1
+PN_SELON    EQU PN_SPR + 1          ; the marquee (PAINT 22): 1 when there is a selection, its box (byte columns and rows of the picture), 1 selecting / 2 moving
+PN_SC       EQU PN_SELON + 1
+PN_SN       EQU PN_SC + 1
+PN_SY       EQU PN_SN + 1
+PN_SH       EQU PN_SY + 1
+PN_MD       EQU PN_SH + 1
+PN_DC       EQU PN_MD + 1           ; a move's destination: byte column and row
+PN_DR       EQU PN_DC + 1
+PN_VARS_END EQU PN_DR + 1
 PN_VARS_LEN EQU PN_VARS_END - PN_VARS
     ASSERT PN_VARS_END <= AL_RAM && PN_IMG_LEN <= 1024
     ASSERT (CL_Canvas >> 8) == ((CL_Canvas + 11) >> 8) && (CL_Palette >> 8) == ((CL_Palette + 11) >> 8)
