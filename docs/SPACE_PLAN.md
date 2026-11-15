@@ -34,3 +34,7 @@ Each starts with its contract (the notes in this folder), the owner's approval, 
 1. **Programs in the pool.** Approved? (Recommended: yes; it is the only place with room, and it makes the game faster.) The alternative is to free DOCK 2-3 first by retrofitting the four programs, which is about 420 bytes: not enough for the Files program.
 2. **The marquee and FatBits** wait (or are dropped) while these three are built. Agreed?
 3. **Pool reserve:** the 1,000-byte reserve for step 6 stays. Agreed?
+
+## 5. Owner's decisions (2026-11-15)
+The owner chose **sound and the puzzle now** ("how about if we just do ..."). So the first K-resident program is the puzzle (pool, about 1,300 bytes) and sound takes about 250 pool bytes; the file manager's pool cost (about 2,800) is **not** taken yet, so about 3,200 of the 4,800 usable pool bytes stay free for it or for the marquee and FatBits.
+The owner also remarked that **the Calculator seems large** (2,382 bytes, the biggest program after Notepad and Paint): a read-only size review was asked for (below, when it reports).

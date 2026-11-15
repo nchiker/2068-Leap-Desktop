@@ -25,3 +25,7 @@ A model of the board and the moves (legal moves, runs, the solved test, the shuf
 1. **Numbers or a picture?** (Recommended: numbers first. A later option is to load a `.pbm` from Paint and slide its 4 x 4 pieces: 80 x 36 pixels each, a nice link between the programs, after the file manager.)
 2. **Slide a whole run on one click?** (Recommended: yes, as the real puzzle does.)
 3. **A best-moves record?** (Recommended: no, nothing is saved yet.)
+
+## 5. Owner's decisions (2026-11-15)
+- **Numbered tiles first; a picture mode (slide a Paint `.pbm`) later**, after the file manager (it needs a way to pick a picture). Moves of a run on one click as recommended; no record.
+- **Program 5 is a K-resident program** (`docs/SPACE_PLAN.md`), built after sound. The file manager (`docs/FILEMGR.md`) is **deferred** (the owner asked to "just do" sound and the puzzle); the marquee and FatBits stay waiting.

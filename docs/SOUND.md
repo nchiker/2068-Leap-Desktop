@@ -27,3 +27,9 @@ A model of the AY writes (register, value, frame) for each event; `tests/snd-s1.
 1. **Which events sound?** (Recommended: the five above; no sound per key press or per mouse move.)
 2. **Default on?** (Recommended: yes, with the Leap menu toggle; the browser page may be muted by the browser until the first click.)
 3. **Volume:** a quiet level (AY volume 8 of 15). Agreed?
+
+## 5. Owner's decisions (2026-11-15: "how about if we just do - Sound: ...")
+- **The events:** a button press (a `Button` activated), a menu choice, an alert (an alert or ask dialog opening), an error, the puzzle's win. **On by default**, with a **"Sound Off" item in the Leap menu** (the one item, its text "Sound Off" while sound is on and "Sound On " while it is off: the menu's record is in RAM, so the program rewrites the 9 characters). Volume quiet (AY 8 of 15).
+- **Reading "error" (the builder's choice, to be amended if the owner wants more):** the alert sound plays on every `AL_ALERT` / `AL_ASK`, which already covers the file errors of Notepad and Paint (they are alerts); the separate **error sound** is Paint's refusal messages ("Too big to undo", "Fill too complex", "Not built yet"), played by `pn_msg`.
+- **The sounds chain** (a row has a next-sound id, 0 = none): so the two-tone alert and the rising win are rows, not code. A row is 5 bytes: period word, volume, frames, next.
+- **Where it lives:** pool, `src/kernel/sound.asm`, behind a `SOUND` build switch (`desk5` defines it); `K_BEEP` is callable by `call` under K and by `KFAR` from A. Writes to the AY set `K_AYREG` **before** each `OUT` (the shadow rule), and the mixer value is `$3E` (tone A only; bits 6 and 7 stay 0: the joystick port is an input).
