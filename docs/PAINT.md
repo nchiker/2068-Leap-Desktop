@@ -331,3 +331,10 @@ release commits. Drawing is clipped to the picture (128, 32, 320, 144) and the p
   "Not a 320 x 144 PBM picture."; a read failure shows "Cannot read the file."; on success the copy is replaced, the picture redrawn, `PN_DIRTY` = 0, Undo disabled, the title "Paint: name".
 
 **Sizes (P1, 2026-11-14):** Paint's code and image 2,753 bytes (`PN_END - PN_START`), its image 377, its variables 201; `K_BOX` in the pool (`calc-perf`'s row 258 of 264); the cartridge 57 KB (chunk 6 holds the library, the shell's and the tool icons).
+
+**Status messages (as built):** "Not built yet" (a press in the picture with a tool that is not built) and "Too big to undo" replace the tool's name in the status line; the name returns at the next
+choice of a tool or the next stroke whose box fits the undo area (`PN_MSG`).
+**Measured (TSRun, 2026-11-14, `tests/pt-p1.mjs` group 9):** the pencil step 18,596 T from the frame ISR to the HALT (bound 58,000), `pn_seg` 11,327; the commit 115,653 (4 x 9 box), 168,035 (32 x 64), 144,123 (too big)
+(bound 260,000); **Undo of a 2,016-byte box 263,667 T (bound 150,000: MISSED by 113,667)**; **a fully exposed canvas 582,978 T (bound 330,000: MISSED by 252,978; the kernel's cell repaint also redraws the
+tool box and the label, about 100-170 k of it)**; Save 947,157 T and Open 1,054,422 T (EST 400 k / 450 k); the question closing over the canvas 337,015; stack at most 86 bytes; 0 frames lost; Paint's
+variables end at `$C246`, 378 bytes below `AL_RAM`. Awaiting the owner's decision on the two missed bounds (section 16 of the report to the owner: accept the measured figures, or speed up).

@@ -163,6 +163,8 @@ pn_do:
 ; pn_status: the status line = the chosen tool's name (PN_TNAMES), redrawn.  pn_say: HL -> a length-prefixed message (<= 25 codes).
 ; Clobbers AF, BC, DE, HL, IX.
 pn_status:
+    xor a
+    ld (PN_MSG),a                   ; the tool's name is shown again
     ld hl,PN_TNAMES
     ld a,(PN_TOOL)
     ld b,a
@@ -177,6 +179,10 @@ pn_status:
     add hl,de
     dec b
     jr .f
+; pn_msg: pn_say, remembered as a message (pn_status shows the tool's name again).
+pn_msg:
+    ld a,1
+    ld (PN_MSG),a
 pn_say:
     ld a,(hl)
     inc a
@@ -623,7 +629,7 @@ pn_cevent:
     jr z,.go
     ld hl,PN_MNYET                  ; the other tools are not built yet
     push ix
-    call pn_say
+    call pn_msg
     pop ix
     jr .no
 .go:
@@ -997,11 +1003,14 @@ pn_commit:
     jr z,.fits
     ld hl,PN_MBIG
     push ix
-    call pn_say
+    call pn_msg
     pop ix
     call pn_nound
     jr .save
 .fits:
+    ld a,(PN_MSG)                   ; a message is shown: the tool's name again
+    or a
+    call nz,pn_status
     xor a                           ; the box from the copy to $5800
     call pn_box
     ld a,1
@@ -1493,7 +1502,8 @@ PN_PNAME    EQU PN_FBUF + 31        ; the picked name (FS_PICK)
 PN_OX       EQU PN_PNAME + 32       ; the picture's origin (screen x, y) and its byte column
 PN_OY       EQU PN_OX + 2
 PN_OXC      EQU PN_OY + 1
-PN_VARS_END EQU PN_OXC + 1
+PN_MSG      EQU PN_OXC + 1          ; 1 when the status line shows a message, not the tool's name
+PN_VARS_END EQU PN_MSG + 1
 PN_VARS_LEN EQU PN_VARS_END - PN_VARS
     ASSERT PN_VARS_END <= AL_RAM && PN_IMG_LEN <= 1024
     ASSERT (CL_Canvas >> 8) == ((CL_Canvas + 11) >> 8) && (CL_Palette >> 8) == ((CL_Palette + 11) >> 8)

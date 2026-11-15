@@ -1,0 +1,850 @@
+"use strict";
+// pt-p1.mjs -- Paint slice P1 (program 4, docs/PAINT.md 2-9 and the "As built" section 15) on the prebuilt `desk5` cartridge (build/desk5.dck, build/desk5/out.sym; never rebuilt here).
+// Written from the contract; src/apps/paint.asm was used only to find symbol names.  The reference is tests/pt-model.mjs (the window, the tool box, the pencil's G_LINE segments, the eraser's stamps, the commit,
+// the undo box, Clear / New, the PBM bytes), the harness tests/pt-lib.mjs (on tests/shell-lib.mjs and tests/calc-lib.mjs).
+//   node tests/pt-p1.mjs [--seed N] [--nrand N] [--only LIST] [--verbose]
+//     --nrand N    random strokes in groups 3 and 4 (default 12 each)
+//     --only LIST  groups: 1 launch, 2 tool box, 3 pencil, 4 eraser, 5 undo (and Clear), 6 files (Save, Open, the discard question, New), 7 quit, 8 exposure (dialogs over the canvas, a dragged window), 9 bounds and report rows
+// Exit code 1 on any failure.  The last lines are "pt-p1: N passed, M failed" and "pt-p1: N of M groups pass".
+// Where the machine disagrees with the contract the test says so and fails: the model is not changed to match the machine.
+// PAINT 3 (corrected 2026-11-14): the copy's part 1 holds the ODD byte columns; its header is (OX >> 3, 40, OY, 144) of the last whole-picture save; the picture origin follows the Canvas view (x + 2, y + 2).
+import * as Q from './pt-lib.mjs';
+import * as T from './tk-lib.mjs';
+
+const { L, P, H, WM, W3, hex, rd16 } = Q;
+const { argv, argNum } = L;
+const SEED = argNum('--seed', 1), NRAND = argNum('--nrand', 12);
+const ONLY = argv.includes('--only') ? String(argv[argv.indexOf('--only') + 1]).split(',').map(Number) : [1, 2, 3, 4, 5, 6, 7, 8, 9];
+const VERBOSE = argv.includes('--verbose');
+const rng = L.makeRng(SEED);
+const { C, Sec, finish } = Q.makeGroups('pt-p1', VERBOSE);
+console.log(`seed ${SEED} (rerun with --seed ${SEED}); ${NRAND} random strokes a group`);
+try { Q.needPaint(L.loadDesk5().S); } catch (e) { console.log(`FAIL: ${e.message}`); process.exit(1); }
+const has = (g) => ONLY.includes(g);
+const codes = WM.codesOf;
+const FRAME_T = 58688;
+const rows = [];
+const row = (name, measured, bound, note = '', contract = null) => {
+  if (contract !== null) note += `${note ? '; ' : ''}PAINT 12 bound <= ${contract.toLocaleString('en')}: ${measured <= contract ? 'met' : 'MISSED by ' + (measured - contract).toLocaleString('en')}`;
+  const status = bound === null ? 'reported' : measured <= bound ? 'pass' : 'MISSED';
+  rows.push({ name, measured, bound, status });
+  const f = (n) => (typeof n === 'number' ? n.toLocaleString('en') : String(n));
+  C.check(`${name}: measured ${f(measured)}, bound ${bound === null ? 'report' : '<= ' + f(bound)}${note ? ' (' + note + ')' : ''}`, status !== 'MISSED');
+};
+const envs = [];
+const newEnv = (o = {}) => { const e = Q.bootPaint(o); envs.push(e); return e; };
+
+// After an action: the pointer parked, the model checked (screen, state, copy), then the copy against the display's picture read from the machine.
+function settleCheck(env, sec, ctx, o = {}) {
+  Q.park(env, 3);
+  const ok = Q.check(env, sec, ctx, o);
+  if (!o.noCopy && !o.copyOf && !o.dialog) Q.copyIsDisplay(env, sec, ctx);
+  return ok;
+}
+const noise = (seed, density = 0.5) => { const r = L.makeRng(seed); const t = new Uint8Array(320 * 144); for (let i = 0; i < t.length; i++) t[i] = r.next() < density ? 1 : 0; return (x, y) => t[y * 320 + x]; };
+const eq = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+const rndWalk = (n, x0, y0, step, lo = [60, 8], hi = [500, 188]) => {
+  const pts = [[x0, y0]];
+  for (let i = 1; i < n; i++) { const [x, y] = pts[i - 1]; pts.push([Math.max(lo[0], Math.min(hi[0], x + rng.int(-step, step))), Math.max(lo[1], Math.min(hi[1], y + rng.int(-step, step)))]); }
+  return pts;
+};
+/** A stroke checked after its release: the model (via Q.stroke), the display, the copy. */
+function doStroke(env, sec, ctx, pts, o = {}) {
+  const r = Q.stroke(env, pts, o);
+  settleCheck(env, sec, ctx, o.check || {});
+  return r;
+}
+/** Does the machine's undo area ($5800) hold what the model's stored box says? */
+function undoAreaOk(env, sec, ctx) {
+  const st = env.st, want = st.undoBytes(Q.SWAP);
+  if (!want) return true;
+  const got = Array.from(env.m.ram.subarray(Q.UNDO_AREA, Q.UNDO_AREA + want.length));
+  const i = want.findIndex((v, k) => got[k] !== v);
+  return sec.ok(i < 0, () => `${ctx}: the undo area at $5800 differs from the model's saved box at byte ${i} of ${want.length} (machine ${got[i]}, model ${want[i]}); box ${JSON.stringify({ ...st.undoBox, px: undefined })}`);
+}
+/** File > ... by the pointer (menu index, item index). */
+const fileMenu = (env, ii, o) => Q.menuPick(env, 0, ii, o);
+const editMenu = (env, ii, o) => Q.menuPick(env, 1, ii, o);
+const waitDialog = (env, kind, max = 60) => Q.until(env, () => { const d = Q.dialogKind(env); return !!d && d.kind === kind; }, max);
+
+// ===========================================================================================================================================
+// 1. Launch
+function g1() {
+  for (const how of ['menu', 'icon']) {
+    const env = newEnv({ how }), { m, S } = env;
+    const sec = new Sec(`1 launch (${how === 'menu' ? "the shell's Leap menu, item 6" : 'a double click on the fourth icon'}): the CWindow (48, 16, 416, 176) id 255 "Paint: Untitled", the tool box, the canvas, the status "Pencil" (PAINT 2, 15)`);
+    const w = Q.paintWin(env);
+    sec.ok(!!w, 'the Paint window is open');
+    if (w) {
+      sec.ok([w.x, w.y, w.w, w.h, w.id, w.flags].join() === '48,16,416,176,255,0' && w.cls === S.CL_CWindow, () => `window ${[w.x, w.y, w.w, w.h, w.id, w.flags]} class ${hex(w.cls)}`);
+      sec.ok(w.title === 'Paint: Untitled', () => `title "${w.title}"`);
+      sec.ok(L.openWindows(m, S).length === 1, () => `${L.openWindows(m, S).length} windows`);
+      const k = Q.paintKids(env);
+      sec.ok(k.length === 3, () => `${k.length} children, want 3 (tool box, canvas, status)`);
+      if (k.length === 3) {
+        const want = [[55, 28, 66, 82, 1], [126, 30, 324, 148, 4], [127, 180, 324, 9, 5]];
+        k.forEach((v, i) => sec.ok([v.x, v.y, v.w, v.h, v.id].join() === want[i].join(), () => `child ${i}: ${[v.x, v.y, v.w, v.h, v.id]}, want ${want[i]}`));
+        sec.ok(k[2].cls === S.CL_Label && Q.strAt(m, rd16(m, k[2].a + S.Label_text)) === 'Pencil', () => `status view class ${hex(k[2].cls)} text "${Q.strAt(m, rd16(m, k[2].a + S.Label_text))}"`);
+        sec.ok(k[0].cls !== k[1].cls && k[0].cls !== S.CL_Label && k[1].cls !== S.CL_Label && k[0].cls !== S.CL_CWindow && k[1].cls !== S.CL_CWindow, () => `the Palette (${hex(k[0].cls)}) and the Canvas (${hex(k[1].cls)}) are two classes of their own`);
+        sec.ok(rd16(m, S.PN_LBL) === k[2].a, () => `PN_LBL ${hex(rd16(m, S.PN_LBL))}, the label view is ${hex(k[2].a)}`);
+      }
+      sec.ok(rd16(m, S.PN_WIN) === w.a, () => `PN_WIN ${hex(rd16(m, S.PN_WIN))}, the window is ${hex(w.a)}`);
+    }
+    const pa = Q.picAddr(env), cp = Q.copyOf(env);
+    sec.ok(pa >= 0xC400 && pa + 5764 <= 0xE000, () => `PN_PIC ${hex(pa)}: the copy (5,764 bytes) is not in the app arena $C400-$DFFF`);
+    sec.ok(eq(Array.from(cp.subarray(0, 4)), [16, 40, 32, 144]), () => `the copy's header ${Array.from(cp.subarray(0, 4))}, want (c0, nc, y0, nr) = 16, 40, 32, 144`);
+    sec.ok(cp.subarray(4).every((v) => v === 0), 'the picture starts white (every byte of the copy is 0)');
+    Q.check(env, sec, 'as launched', {});
+    Q.copyIsDisplay(env, sec, 'as launched');
+    sec.ok(m.ram[S.PN_UNDO] === 0 && menuWordEdit(env) === 0b01, () => `Undo disabled: PN_UNDO ${m.ram[S.PN_UNDO]}, the Edit menu's word ${menuWordEdit(env).toString(2)} (Undo bit 1 clear, Clear bit 0 set)`);
+    const wd = watchDisplay(m); env.frames_(10); const wr = wd.stop();
+    sec.ok(wr.size === 0, () => `10 idle frames wrote ${wr.size} display bytes`);
+    sec.end(`stack so far ${env.stack.depth()} bytes`);
+  }
+}
+const menuWordEdit = (env) => Q.menuWord(env, 1) & 3;
+/** Display bytes written (as a Set of y * 64 + byte column) while armed. */
+function watchDisplay(m) {
+  const set = new Set(), w0 = m.bus.write;
+  m.bus.write = function (addr, v) {
+    const a = addr & 0xFFFF;
+    if (a >= 0x4000 && a < 0x8000) { const file = (a >> 13) & 1, off = a & 0x1FFF; if (off < 0x1800) { const y = ((off >> 8) & 7) | (((off >> 5) & 7) << 3) | (((off >> 11) & 3) << 6); set.add(y * 64 + (off & 31) * 2 + file); } }
+    w0(addr, v);
+  };
+  return { set, stop() { m.bus.write = w0; return set; } };
+}
+
+// ===========================================================================================================================================
+// 2. The tool box
+function g2() {
+  const env = newEnv(), { m, S } = env, st = env.st;
+  const sec = new Sec('2 tool box: each of the 10 cells (corners and middle) chooses its tool (PN_TOOL, the inverted cell, the status name); clicks off the cells change nothing (PAINT 15)');
+  for (let t = 0; t < 10; t++) {
+    const c = P.cellOf(t);
+    const [px, py] = [[c.x + 16, c.y + 8], [c.x, c.y], [c.x + 31, c.y + 15], [c.x + 3, c.y + 12]][t % 4];
+    L.click(env, px, py, 3, 6);
+    st.chooseTool(t);
+    settleCheck(env, sec, `tool ${t} (${P.TOOLNAMES[t]}) clicked at (${px}, ${py})`);
+  }
+  for (const t of [3, 1, 9, 0, 5, 5, 2, 8, 6, 7, 4, 1]) { Q.chooseTool(env, t); st.chooseTool(t); settleCheck(env, sec, `tool ${t} again`); }
+  // clicks that must change nothing: the frame lines of the box, the gap between the box and the canvas, empty window content, the window's right part
+  const offs = [[55, 60], [70, 28], [122, 60], [60, 125], [90, 170], [123, 100], [300, 186]];
+  Q.chooseTool(env, 4); st.chooseTool(4);
+  for (const [x, y] of offs) { L.click(env, x, y, 3, 6); settleCheck(env, sec, `a click at (${x}, ${y}) (off the cells; tool 4 stays)`); }
+  Q.chooseTool(env, 1); st.chooseTool(1);
+  settleCheck(env, sec, 'Pencil again');
+  sec.ok(m.ram[S.PN_DIRTY] === 0 && m.ram[S.PN_UNDO] === 0, () => `PN_DIRTY ${m.ram[S.PN_DIRTY]}, PN_UNDO ${m.ram[S.PN_UNDO]} after tool choices`);
+  sec.end(`stack so far ${env.stack.depth()} bytes`);
+}
+
+// ===========================================================================================================================================
+// 3. The pencil
+function g3() {
+  const env = newEnv(), { m, S } = env, st = env.st;
+  const sec = new Sec('3 pencil: G_LINE segments between successive pointer positions; a single click is one pixel; the copy is the state before the stroke until the release; clipping; presses off the picture; other tools say "Not built yet" (PAINT 15)');
+  // a single click
+  doStroke(env, sec, 'a single click at (200, 80)', [[200, 80]]);
+  sec.ok(st.px(72, 48) === 1 && st.pic.count() === 1, () => `the model's single click: pixel ${st.px(72, 48)}, count ${st.pic.count()}`);
+  // lines of every direction, one pointer position a frame
+  const lines = [
+    ['horizontal, 1 pixel a frame', Array.from({ length: 25 }, (_, i) => [150 + i, 60])],
+    ['vertical, 1 pixel a frame', Array.from({ length: 25 }, (_, i) => [180, 100 + i])],
+    ['diagonal down-right', Array.from({ length: 20 }, (_, i) => [200 + 2 * i, 90 + 2 * i])],
+    ['diagonal up-left (reverse)', Array.from({ length: 20 }, (_, i) => [260 - 2 * i, 140 - i])],
+    ['shallow slope 3:1', Array.from({ length: 12 }, (_, i) => [300 + 3 * i, 50 + i])],
+    ['steep slope 1:3', Array.from({ length: 12 }, (_, i) => [350 + i, 50 + 3 * i])],
+    ['a fast stroke (30, 50, 80 pixels a frame)', [[140, 40], [170, 40], [220, 90], [300, 150], [380, 70], [440, 70]]],
+    ['a zig-zag with right angles', [[200, 120], [240, 120], [240, 100], [280, 100], [280, 160], [200, 160]]],
+  ];
+  for (const [name, pts] of lines) doStroke(env, sec, name, pts);
+  for (let i = 0; i < NRAND; i++) doStroke(env, sec, `random walk ${i + 1}`, rndWalk(rng.int(4, 18), rng.int(130, 440), rng.int(40, 170), rng.int(1, 40), [129, 33], [446, 174]));
+  // mid-stroke: the copy holds the state before the stroke, the display the new pixels; nothing committed yet
+  {
+    const before = st.clone();
+    let k = 0;
+    Q.stroke(env, [[220, 70], [226, 74], [236, 74], [236, 90], [250, 96], [262, 96]], {
+      noRelease: true,
+      mid: (i) => { k++; Q.check(env, sec, `mid-stroke after point ${i}`, { copyOf: before, extra: [] }); },
+    });
+    sec.ok(m.ram[S.PN_DIRTY] === (before.dirty ? 1 : 0), () => `mid-stroke PN_DIRTY ${m.ram[S.PN_DIRTY]}, the committed state ${before.dirty ? 1 : 0} (the commit is at the release)`);
+    m.mouse.buttons = L.MOUSE_UP; env.frame(); st.release(); env.frames_(14);
+    settleCheck(env, sec, 'the mid-stroke test stroke, released');
+    sec.ok(k === 6, 'mid checks ran');
+  }
+  // clipping: strokes that leave the picture (the capture continues until the release; G_LINE is clipped to the picture)
+  doStroke(env, sec, 'leaves right across the border to the desk and comes back', [[430, 100], [446, 104], [452, 108], [480, 112], [470, 126], [440, 130]]);
+  doStroke(env, sec, 'leaves at the top (the canvas frame, the title bar, the menu bar)', [[300, 40], [300, 30], [300, 20], [300, 4], [340, 4], [340, 60]]);
+  doStroke(env, sec, 'leaves at the left (the tool box, the desk) and at the bottom (the status line)', [[140, 100], [128, 100], [100, 110], [60, 120], [60, 175], [140, 185], [150, 150]]);
+  doStroke(env, sec, 'runs along the picture\'s edge', [[128, 33], [447, 33], [447, 175], [128, 175], [128, 33]]);
+  // presses that draw nothing
+  const nodraw = [['the canvas border (126, 100)', [126, 100]], ['the canvas inner frame (127, 100)', [127, 100]], ['the canvas border below (300, 177)', [300, 177]], ['the tool box (80, 60)', [80, 60]], ['the desk (490, 100)', [490, 100]],
+    ['empty window content (80, 150)', [80, 150]], ['the status line (200, 184)', [200, 184]]];
+  for (const [what, [x, y]] of nodraw) {
+    const was = st.clone();
+    const r = Q.stroke(env, [[x, y], [200, 100], [250, 120], [300, 100]], { settle: 12 });
+    sec.ok(!r.began, `${what}: the model says no stroke`);
+    if (what.startsWith('the tool box')) { Q.chooseTool(env, 1); st.chooseTool(1); }
+    settleCheck(env, sec, `a press on ${what}, dragged across the picture, draws nothing`);
+    sec.ok(eq(Array.from(st.copyBytes()), Array.from(was.copyBytes())), `${what}: the model's picture is unchanged`);
+  }
+  // another tool: "Not built yet", nothing drawn, nothing committed
+  for (const t of [0, 2, 4, 5, 6, 7, 8, 9]) {
+    Q.chooseTool(env, t); st.chooseTool(t);
+    const dirty0 = st.dirty;
+    Q.stroke(env, [[300, 100], [320, 110], [340, 100]], { settle: 12 });
+    sec.ok(st.status === 'Not built yet', 'model: status after a press with another tool');
+    settleCheck(env, sec, `tool ${t} (${P.TOOLNAMES[t]}): a press in the picture says "Not built yet" and draws nothing`);
+    sec.ok(st.dirty === dirty0, 'dirty unchanged');
+    Q.chooseTool(env, 1); st.chooseTool(1);
+    settleCheck(env, sec, `Pencil chosen again: the status is "Pencil"`);
+  }
+  // the one strict check of PAINT 3's layout (the machine's order differs: report the exact mismatch)
+  {
+    const cp = Q.copyOf(env), w = st.copyBytes(true), i = Q.firstDiffBytes(cp, w);
+    sec.ok(i < 0, () => `PAINT 3 (corrected): part 1 holds the ODD byte columns, part 2 the EVEN ones, header (OX >> 3, 40, OY, 144): first difference at ${Q.describeIdx(i)} (machine ${cp[i]}, contract ${w[i]})`);
+  }
+  sec.end(`stack so far ${env.stack.depth()} bytes; image writes ${env.img.n}`);
+}
+
+// ===========================================================================================================================================
+// 4. The eraser
+function g4() {
+  const env = newEnv(), { m, S } = env, st = env.st;
+  const sec = new Sec('4 eraser: 16 x 8 CLR stamps at (x - 8, y - 4) along the Bresenham walk of PAINT 15 (every 4th step and the end; one stamp for a single click) on a noisy picture');
+  Q.install(env, noise(7, 0.5));
+  Q.chooseTool(env, 3); st.chooseTool(3);
+  settleCheck(env, sec, 'a noisy picture installed, the Eraser chosen');
+  doStroke(env, sec, 'a single click at (200, 80)', [[200, 80]]);
+  const strokes = [
+    ['horizontal, 1 pixel a frame (20 moves)', Array.from({ length: 20 }, (_, i) => [140 + i, 60])],
+    ['horizontal, 3 pixels a frame', Array.from({ length: 20 }, (_, i) => [140 + 3 * i, 100])],
+    ['horizontal, 4 pixels a frame (every step a stamp)', Array.from({ length: 12 }, (_, i) => [140 + 4 * i, 120])],
+    ['horizontal fast, 40 pixels a frame', [[140, 140], [180, 140], [220, 140], [260, 140], [300, 140]]],
+    ['horizontal right to left', Array.from({ length: 16 }, (_, i) => [440 - 5 * i, 150])],
+    ['vertical, 1 pixel a frame', Array.from({ length: 20 }, (_, i) => [330, 40 + i])],
+    ['vertical fast, 30 pixels a frame (down then up)', [[360, 40], [360, 70], [360, 100], [360, 130], [360, 100]]],
+    ['diagonal 45 degrees, 2 pixels a frame', Array.from({ length: 20 }, (_, i) => [380 + 2 * i, 40 + 2 * i])],
+    ['diagonal up-left', Array.from({ length: 12 }, (_, i) => [440 - 3 * i, 170 - 3 * i])],
+    ['x major, slope 1:3', Array.from({ length: 12 }, (_, i) => [140 + 9 * i, 45 + 3 * i])],
+    ['y major, slope 1:3 (steep)', Array.from({ length: 12 }, (_, i) => [160 + 3 * i, 50 + 9 * i])],
+    ['one long segment, 75 x 33', [[200, 40], [275, 73]]],
+    ['a very short segment of 1 and 2 pixels', [[250, 100], [251, 100], [251, 102], [252, 102]]],
+    ['stamps clipped at the picture\'s edge', [[130, 40], [135, 36], [128, 34], [135, 34], [445, 174], [440, 170]]],
+    ['leaves the picture and returns', [[430, 100], [446, 104], [470, 112], [480, 130], [440, 130]]],
+  ];
+  for (const [name, pts] of strokes) doStroke(env, sec, name, pts);
+  for (let i = 0; i < NRAND; i++) doStroke(env, sec, `random walk ${i + 1}`, rndWalk(rng.int(3, 14), rng.int(135, 440), rng.int(40, 170), rng.int(1, 45), [129, 33], [446, 174]));
+  // stamps hold only paper: every pixel the eraser touched is CLR'd; the pencil does not do it
+  Q.chooseTool(env, 1); st.chooseTool(1);
+  doStroke(env, sec, 'the pencil after the eraser', [[300, 60], [340, 90]]);
+  sec.end(`stack so far ${env.stack.depth()} bytes; image writes ${env.img.n}`);
+}
+
+// ===========================================================================================================================================
+// 5. Undo (and Clear)
+function g5() {
+  const env = newEnv(), { m, S } = env, st = env.st;
+  const sec = new Sec('5 undo: the box variables (PN_UB0 / UBN / UR0 / URN), the saved box at $5800, Undo restores exactly (display and copy), a second Undo redoes, a too-big box disables Undo ("Too big to undo"), Clear disables Undo (PAINT 6, 15)');
+  const after = (ctx, o = {}) => { settleCheck(env, sec, ctx, o); if (st.undoOn) undoAreaOk(env, sec, ctx); };
+  Q.install(env, noise(11, 0.4));
+  settleCheck(env, sec, 'a noisy picture installed');
+  sec.ok(Q.menuWord(env, 1) === 1, 'Undo disabled at the start');
+  // a small stroke: the box, the area, Undo, redo, redo
+  let r = doStroke(env, sec, 'a stroke (pencil)', [[200, 80], [230, 100], [250, 90]]);
+  sec.ok(!!r.box, 'box');
+  sec.ok(st.undoOn && Q.menuWord(env, 1) === 3, () => `after a stroke Undo is enabled: model ${st.undoOn}, Edit word ${Q.menuWord(env, 1).toString(2)}`);
+  undoAreaOk(env, sec, 'a stroke');
+  const pre = st.clone();
+  editMenu(env, 0); st.undo();
+  after('Undo');
+  sec.ok(st.undoOn && Q.menuWord(env, 1) === 3, 'Undo stays enabled after an Undo (it redoes)');
+  { const a = pre.copyBytes(Q.SWAP), b = Q.copyOf(env); sec.ok(!eq(Array.from(a), Array.from(b)), 'Undo changed the copy'); }
+  editMenu(env, 0); st.undo();
+  after('Undo again (redo)');
+  sec.ok(eq(Array.from(st.copyBytes()), Array.from(pre.copyBytes())), 'model: undo twice is the identity');
+  editMenu(env, 0); st.undo();
+  after('Undo, a third time');
+  editMenu(env, 0); st.undo();
+  after('Undo, a fourth time');
+  // eraser strokes and undo
+  Q.chooseTool(env, 3); st.chooseTool(3);
+  r = doStroke(env, sec, 'an eraser stroke', [[150, 60], [200, 66], [250, 60], [250, 100]]);
+  undoAreaOk(env, sec, 'eraser stroke');
+  editMenu(env, 0); st.undo(); after('Undo of the eraser stroke');
+  // a new stroke replaces the one level
+  Q.chooseTool(env, 1); st.chooseTool(1);
+  doStroke(env, sec, 'a new stroke replaces the undo area', [[300, 50], [330, 60]]);
+  undoAreaOk(env, sec, 'replaced');
+  // the box: single click in the corners (clamped columns and rows), widened to even columns
+  for (const [name, p] of [['top-left corner', [128, 32]], ['top-right corner', [447, 32]], ['bottom-left corner', [128, 175]], ['bottom-right corner', [447, 175]], ['column 1 / 2', [140, 100]], ['column 2 / 3', [150, 100]], ['an odd column 25', [330, 100]]]) {
+    const rr = doStroke(env, sec, `a click, ${name}`, [p]);
+    undoAreaOk(env, sec, name);
+    editMenu(env, 0); st.undo(); after(`Undo of the click, ${name}`);
+  }
+  // the 2,048-byte boundary: a stroke whose box is 32 columns x 64 rows fits, 32 x 65 does not (PAINT 15)
+  for (const [name, p0, p1, wantFit] of [['32 x 64 (2,048 bytes)', [152, 60], [384, 115], true], ['32 x 65 (2,080 bytes)', [152, 60], [384, 116], false]]) {
+    const was = st.clone();
+    const rr = Q.stroke(env, [p0, p1], {});
+    const b = rr.box, fit = b.nc * b.nr <= 2048;
+    sec.ok(fit === wantFit && b.nc === 32 && b.nr === (wantFit ? 64 : 65), () => `the model's box for ${name}: ${JSON.stringify(b)}`);
+    settleCheck(env, sec, `the stroke with a box of ${name}`, wantFit ? {} : { noBox: true });
+    if (wantFit) { undoAreaOk(env, sec, name); sec.ok(Q.menuWord(env, 1) === 3, `${name}: Undo enabled`); }
+    else sec.ok(Q.menuWord(env, 1) === 1 && Q.statusOf(env) === 'Too big to undo' && m.ram[S.PN_UNDO] === 0, () => `${name}: Edit word ${Q.menuWord(env, 1).toString(2)}, status "${Q.statusOf(env)}", PN_UNDO ${m.ram[S.PN_UNDO]}`);
+  }
+  // a too-big stroke, then a small one: Undo is back; the status after a fitting stroke is not specified
+  {
+    const rr = Q.stroke(env, [[140, 45], [440, 45], [440, 170], [140, 170]], {});
+    settleCheck(env, sec, 'a stroke round the picture (a very big box)', { noBox: true });
+    sec.ok(!st.undoOn && Q.menuWord(env, 1) === 1 && Q.statusOf(env) === 'Too big to undo', () => `very big box: Edit word ${Q.menuWord(env, 1).toString(2)}, status "${Q.statusOf(env)}"`);
+    const rr2 = Q.stroke(env, [[300, 100], [310, 105]], {});
+    settleCheck(env, sec, 'a small stroke after a too-big one', { adoptStatus: true });
+    undoAreaOk(env, sec, 'small after big');
+    sec.ok(Q.menuWord(env, 1) === 3, 'Undo enabled again');
+  }
+  // random strokes with undo, redo and a check after each
+  for (let i = 0; i < NRAND; i++) {
+    const t = rng.pick([1, 3]); Q.chooseTool(env, t); st.chooseTool(t);
+    doStroke(env, sec, `random stroke ${i + 1}`, rndWalk(rng.int(2, 8), rng.int(135, 440), rng.int(40, 170), rng.int(1, 60), [129, 33], [446, 174]), { check: { adoptStatus: true } });
+    if (st.undoOn) { undoAreaOk(env, sec, `random ${i + 1}`); editMenu(env, 0); st.undo(); after(`random ${i + 1}: Undo`, { adoptStatus: true }); }
+  }
+  // Clear: asks (the picture has changed), Discard clears, Undo disabled, dirty 1
+  Q.chooseTool(env, 1); st.chooseTool(1);
+  doStroke(env, sec, 'a stroke before Clear', [[200, 100], [260, 120]], { check: { adoptStatus: true } });
+  sec.ok(st.undoOn && st.dirty, 'model: undo on, dirty');
+  editMenu(env, 1);                                           // Edit > Clear
+  sec.ok(waitDialog(env, 'ask'), 'Clear on a changed picture asks "Discard the document?"');
+  Q.check(env, sec, 'Clear: the question', { dialog: 'ask', noCopy: true });
+  Q.askAnswer(env, 'discard'); st.clear();
+  settleCheck(env, sec, 'Clear, Discard', { adoptStatus: true });
+  sec.ok(Q.menuWord(env, 1) === 1 && m.ram[S.PN_UNDO] === 0 && m.ram[S.PN_DIRTY] === 1, () => `Clear: Edit word ${Q.menuWord(env, 1).toString(2)}, PN_UNDO ${m.ram[S.PN_UNDO]}, PN_DIRTY ${m.ram[S.PN_DIRTY]}`);
+  sec.ok(st.pic.count() === 0, 'model: white');
+  editMenu(env, 0);                                           // Undo is disabled: nothing happens
+  env.frames_(10);
+  settleCheck(env, sec, 'a click on the disabled Undo does nothing');
+  sec.end(`stack so far ${env.stack.depth()} bytes; image writes ${env.img.n}`);
+}
+
+// ===========================================================================================================================================
+// 6. Files: Save, Open, the discard question, New
+const savedFile = (env, n = 0) => env.host.saves[env.host.saves.length - 1 - n];
+/** File > Save...: the name dialog opens (Field focused); returns the Field model. */
+function openSaveDialog(env, sec, ctx) {
+  fileMenu(env, 2);
+  sec.ok(waitDialog(env, 'name'), () => `${ctx}: the name dialog did not open (windows ${JSON.stringify(L.openWindows(env.m, env.S).map((w) => [w.title, w.x, w.y, w.w, w.h]))})`);
+  env.frames_(6);
+  // the Field's text as the machine holds it (the Field's buffer: a length byte and the codes)
+  const fv = L.allViews(env.m, env.S).find((v) => v.cls === env.S.CL_Field);
+  const fb = fv ? rd16(env.m, fv.a + env.S.Field_buf) : 0, mt = fb ? Q.strAt(env.m, fb) : '';
+  // PAINT 9 (corrected): the Field starts with the picture's name: "Untitled" for a picture never saved, else the saved / opened name
+  const want = env.st.name === '' ? 'Untitled' : env.st.name;
+  sec.ok(mt === want, () => `${ctx}: the name dialog's Field starts with ${JSON.stringify(mt)}, want ${JSON.stringify(want)}`);
+  const f = W3.newSaveField(codes(mt));
+  Q.check(env, sec, `${ctx}: the name dialog`, { dialog: 'name', field: f, noCopy: true });
+  return f;
+}
+/** Finish a Save: ENTER in the Field. Returns the commands the host got. */
+function finishSave(env, sec, ctx, f, { fail = null } = {}) {
+  const h = env.host, log0 = h.log.length, saves0 = h.saves.length;
+  L.typeCode(env, 13, 3, 3);
+  env.frames_(60);
+  return { cmds: h.log.slice(log0).map((c) => ({ n: c.n, len: c.bytes.length, b0: c.bytes[0] })), saves: h.saves.slice(saves0) };
+}
+function saveAs(env, sec, ctx, typed, expectName, o = {}) {
+  const st = env.st, f = openSaveDialog(env, sec, ctx);
+  Q.fieldDelete(env, f, f.buf.length); Q.fieldType(env, f, typed);
+  env.frames_(8);
+  Q.check(env, sec, `${ctx}: the name typed`, { dialog: 'name', field: f, noCopy: true });
+  const want = st.pbm();
+  const r = finishSave(env, sec, ctx, f);
+  sec.ok(r.saves.length === 1, () => `${ctx}: ${r.saves.length} files finished on the host; commands ${JSON.stringify(r.cmds.map((c) => c.n))}`);
+  const s = r.saves[0];
+  if (s) {
+    sec.ok(s.name === expectName, () => `${ctx}: the host's file name "${s.name}", want "${expectName}"`);
+    sec.ok(s.binary === true, () => `${ctx}: the file was written in ${s.binary ? 'binary' : 'TEXT'} mode`);
+    const i = want.findIndex((v, k) => s.bytes[k] !== v);
+    sec.ok(s.bytes.length === P.PBM_LEN && i < 0, () => `${ctx}: the saved bytes: ${s.bytes.length} long, want ${P.PBM_LEN}; first difference at byte ${i} (${s.bytes[i]}, model ${want[i]})`);
+    sec.ok(s.bytes.slice(0, 11).every((v, k) => v === P.PBM_HEADER[k]), () => `${ctx}: the header ${JSON.stringify(String.fromCharCode(...s.bytes.slice(0, 11)))}`);
+  }
+  const ns = r.cmds.map((c) => c.n);
+  sec.ok(ns[0] === 2 && ns[ns.length - 1] === 5 && ns.slice(1, -1).every((n) => n === 4), () => `${ctx}: the host's commands ${JSON.stringify(ns.length > 12 ? [...ns.slice(0, 6), '...', ...ns.slice(-3)] : ns)}, want open (2), writes (4), close (5)`);
+  sec.ok(r.cmds[0] && r.cmds[0].b0 === 3, () => `${ctx}: FS_OPEN's mode ${r.cmds[0] && r.cmds[0].b0}, want 3 (write, binary)`);
+  const writes = r.cmds.filter((c) => c.n === 4).map((c) => c.len - 2);
+  sec.ok(writes.reduce((a, b) => a + b, 0) === P.PBM_LEN, () => `${ctx}: ${writes.length} writes totalling ${writes.reduce((a, b) => a + b, 0)} bytes, want ${P.PBM_LEN}`);
+  sec.ok(writes[0] === 11 && writes.slice(1).every((n) => n === 40) && writes.length === 145, () => `${ctx}: write sizes ${JSON.stringify(writes.slice(0, 4))}... (${writes.length} writes), PAINT 9: the header (11), then 144 rows of 40`);
+  st.name = expectName; st.dirty = false;
+  return r;
+}
+/** Open a file through the picker: File > Open... (the discard question answered by `discard` when the picture has changed), the pick answered with `bytes`. */
+function openFile(env, sec, ctx, name, bytes, { discard = 'discard', hook = null } = {}) {
+  const st = env.st, h = env.host;
+  fileMenu(env, 1);
+  if (st.dirty) {
+    sec.ok(waitDialog(env, 'ask'), () => `${ctx}: the picture has changed: "Discard the document?" should be asked first`);
+    sec.ok(!h.picking, `${ctx}: the pick began before the question was answered`);
+    Q.check(env, sec, `${ctx}: the question`, { dialog: 'ask', noCopy: true });
+    Q.askAnswer(env, discard);
+    if (discard === 'cancel' || discard === 'esc') { env.frames_(10); sec.ok(!h.picking, `${ctx}: Cancel: the pick must not start`); settleCheck(env, sec, `${ctx}: Cancel leaves everything`); return { cancelled: true }; }
+  }
+  const ok = Q.until(env, () => h.picking, 60);
+  sec.ok(ok, () => `${ctx}: FS_PICK was not called`);
+  if (!ok) return { picked: false };
+  h.hook = hook;
+  const log0 = h.log.length;
+  h.answer(name, bytes);
+  env.frames_(70);
+  h.hook = null;
+  return { picked: true, cmds: h.log.slice(log0).map((c) => ({ n: c.n, len: c.bytes.length, b0: c.bytes[0] })) };
+}
+const pbmOf = (bit) => { const out = [...P.PBM_HEADER]; for (let r = 0; r < 144; r++) for (let k = 0; k < 40; k++) { let v = 0; for (let j = 0; j < 8; j++) v = (v << 1) | (bit(8 * k + j, r) ? 1 : 0); out.push(v); } return out; };
+/** The model's picture := the machine's copy (for the cases the contract does not settle). */
+function syncFromCopy(env) {
+  const cp = Q.copyOf(env), st = env.st;
+  for (let r = 0; r < 144; r++) for (let k = 0; k < 40; k++) { const v = cp[4 + ((k & 1) ^ 1) * 2880 + 20 * r + (k >> 1)]; for (let j = 0; j < 8; j++) st.pic.set(P.PIC.x + 8 * k + j, P.PIC.y + r, (v >> (7 - j)) & 1); }
+}
+const alertText = (env) => { const d = Q.dialogKind(env); if (!d || d.kind !== 'alert') return null; const lbl = d.kids.find((k) => k.cls === env.S.CL_Label); return lbl ? Q.strAt(env.m, rd16(env.m, lbl.a + env.S.Label_text)) : null; };
+
+function g6() {
+  const env = newEnv(), { m, S } = env, st = env.st, h = env.host;
+  const sec = new Sec('6 files: Save... (name dialog, PBM bytes, ".pbm", title, PN_DIRTY), Open... (round trips, the alerts), the discard question for New / Open / Clear, New (PAINT 8, 9, 15)');
+  // draw something, save it as "one"
+  Q.chooseTool(env, 1);
+  doStroke(env, sec, 'a stroke to save', [[150, 50], [250, 120], [330, 60], [440, 170]]);
+  doStroke(env, sec, 'a second stroke', [[135, 160], [220, 160]]);
+  sec.ok(st.dirty && m.ram[S.PN_DIRTY] === 1, 'changed');
+  // Cancel of the dialog: nothing happens, the host hears nothing
+  {
+    const f = openSaveDialog(env, sec, 'Save, then Cancel'), n0 = h.log.length;
+    Q.fieldType(env, f, 'zz');
+    const [x, y] = Q.centreOf(W3.SAVE.cancel); L.click(env, x, y, 3, 6); env.frames_(20);
+    sec.ok(h.log.length === n0, () => `Cancel sent ${h.log.length - n0} command(s) to the host`);
+    settleCheck(env, sec, 'after Cancel of the name dialog');
+  }
+  saveAs(env, sec, 'Save "one"', 'one', 'one.pbm');
+  settleCheck(env, sec, 'after the save', {});
+  sec.ok(st.title === 'Paint: one.pbm' && Q.winTitle(env) === 'Paint: one.pbm', () => `title "${Q.winTitle(env)}"`);
+  // save again: the Field holds the name; a name with a "." is not given a second extension
+  saveAs(env, sec, 'Save "pic.x"', 'pic.x', 'pic.x');
+  settleCheck(env, sec, 'after the second save');
+  saveAs(env, sec, 'Save "two.pbm"', 'two.pbm', 'two.pbm');
+  settleCheck(env, sec, 'after the third save');
+  // a failing host: the alert, the title and PN_DIRTY unchanged
+  doStroke(env, sec, 'a stroke (changed again)', [[300, 130], [360, 150]]);
+  {
+    h.hook = (n) => (n === 2 ? { status: 3 } : undefined);
+    const f = openSaveDialog(env, sec, 'Save with a failing host');
+    Q.fieldDelete(env, f, f.buf.length); Q.fieldType(env, f, 'bad');
+    L.typeCode(env, 13, 3, 3); env.frames_(40);
+    h.hook = null;
+    const a = alertText(env);
+    sec.ok(a === 'Cannot save the picture.', () => `a host failure at FS_OPEN: the alert says ${JSON.stringify(a)}, want "Cannot save the picture."`);
+    Q.check(env, sec, 'Save failing: the alert', { dialog: 'alert', msg: 'Cannot save the picture.', noCopy: true });
+    sec.ok(m.ram[S.PN_DIRTY] === 1, 'a failed Save leaves PN_DIRTY set');
+    Q.alertOk(env, 'enter'); env.frames_(10);
+    settleCheck(env, sec, 'after the alert (the name and the dirty flag are as before)');
+  }
+  {
+    const saves0 = h.saves.length;
+    h.hook = (n) => (n === 4 ? { status: 6 } : undefined);
+    const f = openSaveDialog(env, sec, 'Save with a host that refuses the writes');
+    L.typeCode(env, 13, 3, 3); env.frames_(40);
+    h.hook = null;
+    const a = alertText(env);
+    sec.ok(a === 'Cannot save the picture.', () => `a host failure at FS_WRITE: the alert says ${JSON.stringify(a)}, want "Cannot save the picture."`);
+    sec.ok(m.ram[S.PN_DIRTY] === 1, 'a failed write leaves PN_DIRTY set');
+    sec.note(`a failing FS_WRITE: the host then got ${h.log.slice(-3).map((c) => c.n)} last; files finished: ${h.saves.length - saves0}`);
+    if (Q.dialogKind(env)) Q.alertOk(env, 'click');
+    env.frames_(10);
+    settleCheck(env, sec, 'after the second alert');
+  }
+  // save the picture under "keep" for the round trip; remember it
+  saveAs(env, sec, 'Save "keep"', 'keep', 'keep.pbm');
+  const keep = st.clone(), keepBytes = savedFile(env).bytes.slice();
+  // New: unchanged picture, no question; "Untitled", white, dirty 0
+  fileMenu(env, 0); env.frames_(30);
+  sec.ok(!Q.dialogKind(env), 'New on an unchanged picture asks nothing');
+  st.newDoc();
+  settleCheck(env, sec, 'New (unchanged picture)', { adoptStatus: true });
+  sec.ok(st.title === 'Paint: Untitled' && m.ram[S.PN_DIRTY] === 0 && st.pic.count() === 0, 'model: Untitled, white, clean');
+  // Open "keep.pbm": the round trip
+  let r = openFile(env, sec, 'Open "keep.pbm"', 'keep.pbm', keepBytes);
+  const ns = (r.cmds || []).map((c) => c.n);
+  sec.ok(ns[0] === 1 || ns[0] === 2, () => `Open: the host's commands ${JSON.stringify(ns.slice(0, 6))}`);
+  sec.ok(r.cmds && r.cmds.some((c) => c.n === 2 && c.b0 === 2), () => `FS_OPEN for reading must use mode 2 (read, binary): ${JSON.stringify((r.cmds || []).filter((c) => c.n === 2).map((c) => c.b0))}`);
+  sec.ok(ns.includes(5), 'the file is closed');
+  st.loadPbm(keepBytes); st.name = 'keep.pbm';
+  settleCheck(env, sec, 'Open "keep.pbm": the round trip', { adoptStatus: true });
+  sec.ok(eq(Array.from(st.copyBytes()), Array.from(keep.copyBytes())), 'model: the opened picture is the saved one');
+  sec.ok(Q.menuWord(env, 1) === 1 && m.ram[S.PN_UNDO] === 0, 'Undo is disabled after an Open');
+  // Opens of files built here
+  const files = [
+    ['noise (50%)', pbmOf(noise(21, 0.5))], ['all ink', pbmOf(() => 1)], ['white', pbmOf(() => 0)], ['sparse', pbmOf(noise(22, 0.03))],
+    ['one pixel at each corner', pbmOf((x, y) => (x === 0 || x === 319) && (y === 0 || y === 143))],
+    ['columns of 8', pbmOf((x) => ((x >> 3) & 1))],
+  ];
+  for (const [name, bytes] of files) {
+    openFile(env, sec, `Open ${name}`, 'file.pbm', bytes);
+    st.loadPbm(bytes); st.name = 'file.pbm';
+    settleCheck(env, sec, `Open ${name}`, { adoptStatus: true });
+    sec.ok(m.ram[S.PN_DIRTY] === 0, 'dirty 0 after Open');
+  }
+  // an opened picture can be drawn on and undone
+  doStroke(env, sec, 'a stroke on an opened picture', [[200, 80], [230, 100]], { check: { adoptStatus: true } });
+  undoAreaOk(env, sec, 'a stroke on an opened picture');
+  // the alerts: a wrong length, a wrong header, an empty file; the picture is left alone
+  const good = pbmOf(noise(23, 0.3));
+  const bad = [
+    ['5,770 bytes', good.slice(0, 5770)], ['5,772 bytes', [...good, 0]], ['an empty file', []], ['header only (11 bytes)', good.slice(0, 11)],
+    ['"P1" for "P4"', [0x50, 0x31, ...good.slice(2)]], ['"320 143"', [...good.slice(0, 9), 0x33, ...good.slice(10)]], ['"319 144"', [...good.slice(0, 3), 0x33, 0x31, 0x39, ...good.slice(6)]],
+    ['a comment line (same length)', [...codes('P4\n#a 320 144\n'.padEnd(11, ' ')).slice(0, 11), ...good.slice(11)]], ['"P4 320 144 " with spaces', [...codes('P4 320 144\n'), ...good.slice(11)]],
+    ['CR LF line ends (same length)', [...codes('P4\r\n320 144\r\n').slice(0, 11), ...good.slice(11)]], ['a text file', codes('hello world, this is not a picture\n')],
+  ];
+  for (const [name, bytes] of bad) {
+    // the picture is changed first so that a wrongly accepted file shows: a stroke, then Open (Discard)
+    const before = st.clone();
+    openFile(env, sec, `Open ${name}`, 'bad.pbm', bytes);
+    const a = alertText(env);
+    sec.ok(a === 'Not a 320 x 144 PBM picture.', () => `Open ${name}: the alert says ${JSON.stringify(a)}, want "Not a 320 x 144 PBM picture."`);
+    Q.check(env, sec, `Open ${name}: the alert`, { dialog: 'alert', msg: 'Not a 320 x 144 PBM picture.', noCopy: true, adoptStatus: true });
+    Q.alertOk(env, 'enter'); env.frames_(10);
+    // after the alert the picture is as it was; the name and dirty are unchanged except that the Discard was answered: not asked, since the picture was not changed
+    settleCheck(env, sec, `Open ${name}: after the alert the picture is as before`, { adoptStatus: true });
+    sec.ok(eq(Array.from(st.copyBytes()), Array.from(before.copyBytes())), 'model unchanged');
+  }
+  // cancel the picker: nothing changes
+  {
+    fileMenu(env, 1);
+    if (st.dirty) { sec.ok(waitDialog(env, 'ask'), 'Open (changed): the question'); Q.askAnswer(env, 'discard'); }
+    const ok = Q.until(env, () => h.picking, 60);
+    sec.ok(ok, 'Open: the pick began');
+    if (ok) h.answer(null);
+    env.frames_(30);
+    settleCheck(env, sec, 'Open, the pick cancelled: nothing changed', { adoptStatus: true });
+  }
+  // host failures at the read
+  {
+    const before = st.clone();
+    openFile(env, sec, 'Open with a read failure', 'rf.pbm', good, { hook: (n) => (n === 3 ? { status: 6 } : undefined) });
+    const a = alertText(env);
+    sec.ok(a === 'Cannot read the file.', () => `a host failure at FS_READ: the alert says ${JSON.stringify(a)}, want "Cannot read the file."`);
+    Q.check(env, sec, 'Open with a read failure: the alert', { dialog: 'alert', msg: a ?? 'Cannot read the file.', noCopy: true, adoptStatus: true });
+    Q.alertOk(env, 'enter'); env.frames_(10);
+    settleCheck(env, sec, 'after the alert, the display is the old picture', { adoptStatus: true, noCopy: true });
+    const cp = Q.copyOf(env), i = Q.firstDiffBytes(cp, before.copyBytes(Q.SWAP));
+    sec.note(i < 0 ? 'a failed read (the first FS_READ) leaves the copy untouched' : `a failed read (the first FS_READ) changed the copy at ${Q.describeIdx(i)}`);
+    sec.ok(Q.statusOf(env) !== undefined, 'status read');
+  }
+  {
+    // a read that fails half way (the 20th FS_READ)
+    let k = 0;
+    openFile(env, sec, 'Open with a read failure half way', 'rf2.pbm', good, { hook: (n) => (n === 3 && ++k === 20 ? { status: 6 } : undefined) });
+    const a = alertText(env);
+    sec.ok(a === 'Cannot read the file.', () => `a host failure in the middle of the file: the alert says ${JSON.stringify(a)}, want "Cannot read the file."`);
+    if (a) { Q.alertOk(env, 'enter'); env.frames_(10); }
+    const cp = Q.copyOf(env), was = st.copyBytes(Q.SWAP), nd = cp.reduce((n, v, i) => n + (v !== was[i] ? 1 : 0), 0);
+    const dp = Q.displayPlanar(env), dd = dp.reduce((n, v, i) => n + (v !== was[i] ? 1 : 0), 0);
+    sec.note(`a read that fails half way (the 20th FS_READ): ${nd} copy byte(s) and ${dd} displayed byte(s) differ from the picture before the Open (the contract does not say what the picture shows after it)`);
+    Q.park(env, 3);
+    Q.copyIsDisplay(env, sec, 'after a half-way read failure: the display is the copy');
+    st.status = Q.statusOf(env);
+    syncFromCopy(env);                                 // the model follows the machine's copy from here
+    settleCheck(env, sec, 'after a half-way read failure: the model follows the machine\'s copy', { adoptStatus: true });
+  }
+  {
+    // FS_OPEN refused
+    openFile(env, sec, 'Open with a host that refuses FS_OPEN', 'rf3.pbm', good, { hook: (n) => (n === 2 ? { status: 3 } : undefined) });
+    const a = alertText(env);
+    sec.ok(a !== null, 'FS_OPEN refused: an alert is shown');
+    sec.note(`FS_OPEN refused by the host: the alert says ${JSON.stringify(a)} (the contract names "Cannot read the file." for a read failure only)`);
+    if (a) { Q.alertOk(env, 'enter'); env.frames_(10); }
+  }
+  // restore a known state: Open the good file again (this machine's copy may hold half a picture)
+  openFile(env, sec, 'Open the good file again', 'good.pbm', good);
+  st.loadPbm(good); st.name = 'good.pbm';
+  settleCheck(env, sec, 'Open the good file again', { adoptStatus: true });
+
+  // ---- the discard question
+  const stroke1 = () => doStroke(env, sec, 'a stroke (changes the picture)', [[200, 100], [240, 120]], { check: { adoptStatus: true } });
+  // New, changed: Cancel leaves everything; Discard (ENTER, click) does New
+  for (const how of ['cancel', 'esc', 'discard', 'enter']) {
+    stroke1();
+    const was = st.clone();
+    fileMenu(env, 0);
+    sec.ok(waitDialog(env, 'ask'), `New (changed), ${how}: the question`);
+    Q.check(env, sec, `New (changed), ${how}: the question`, { dialog: 'ask', noCopy: true });
+    Q.askAnswer(env, how);
+    if (how === 'cancel' || how === 'esc') settleCheck(env, sec, `New (changed): ${how} leaves everything`, { adoptStatus: true });
+    else { st.newDoc(); settleCheck(env, sec, `New (changed): ${how} gives Untitled`, { adoptStatus: true }); sec.ok(st.title === 'Paint: Untitled' && st.pic.count() === 0 && m.ram[S.PN_DIRTY] === 0, 'Untitled, white, clean'); }
+    if (how === 'cancel' || how === 'esc') sec.ok(eq(Array.from(st.copyBytes()), Array.from(was.copyBytes())), 'model: unchanged');
+  }
+  // Clear: changed asks; unchanged does not
+  stroke1();
+  editMenu(env, 1); sec.ok(waitDialog(env, 'ask'), 'Clear (changed): the question'); Q.askAnswer(env, 'cancel');
+  settleCheck(env, sec, 'Clear (changed), Cancel', { adoptStatus: true });
+  editMenu(env, 1); sec.ok(waitDialog(env, 'ask'), 'Clear (changed): the question again'); Q.askAnswer(env, 'enter'); st.clear();
+  settleCheck(env, sec, 'Clear (changed), Discard', { adoptStatus: true });
+  fileMenu(env, 0); sec.ok(waitDialog(env, 'ask'), 'New after Clear (PN_DIRTY is 1): the question'); Q.askAnswer(env, 'discard'); st.newDoc();
+  settleCheck(env, sec, 'New to make the picture unchanged', { adoptStatus: true });
+  editMenu(env, 1); env.frames_(30);
+  sec.ok(!Q.dialogKind(env), 'Clear on an unchanged picture asks nothing'); st.clear();
+  settleCheck(env, sec, 'Clear (unchanged)', { adoptStatus: true });
+  sec.ok(m.ram[S.PN_DIRTY] === 1, () => `Clear sets PN_DIRTY (${m.ram[S.PN_DIRTY]})`);
+  // Open with Cancel at the question: the picker is not called
+  stroke1();
+  r = openFile(env, sec, 'Open (changed), Cancel', 'x.pbm', good, { discard: 'cancel' });
+  stroke1();
+  r = openFile(env, sec, 'Open (changed), ESC', 'x.pbm', good, { discard: 'esc' });
+  // Open with Discard
+  r = openFile(env, sec, 'Open (changed), Discard', 'again.pbm', good);
+  st.loadPbm(good); st.name = 'again.pbm';
+  settleCheck(env, sec, 'Open (changed), Discard', { adoptStatus: true });
+  sec.end(`stack so far ${env.stack.depth()} bytes; image writes ${env.img.n}; host commands ${h.log.length}`);
+}
+
+// ===========================================================================================================================================
+// 7. Quit and relaunch
+function g7() {
+  const sec = new Sec('7 quit: File > Quit, the close box and SYMBOL SHIFT + Q return to the shell (K_PROG 0); a changed picture asks first; relaunching shows a fresh white picture (PAINT 8, 15)');
+  for (const how of ['menu', 'closebox', 'ssq']) {
+    const env = newEnv(), { m, S } = env, st = env.st;
+    const quit = () => { env.img.armed = false; if (how === 'menu') { fileMenu(env, 4); return L.waitShell(env, 60); } return how === 'closebox' ? L.quitByCloseBox(env, 4) : L.quitBySSQ(env); };
+    // unchanged: no question
+    const ok = quit();
+    sec.ok(ok && m.ram[S.K_PROG] === 0, () => `${how}: unchanged picture: K_PROG ${m.ram[S.K_PROG]}, the shell ${ok ? 'is' : 'is not'} up`);
+    sec.ok(L.progUp(env, 0), () => `${how}: the shell's window is up after Quit`);   // (the shell's own pixels are tests/shell-s1.mjs's business: its model is being updated for the fourth icon)
+    // relaunch: a fresh white picture (the launcher copies the image to $C000: the image-write watch is off meanwhile)
+    env.img.armed = false;
+    H.leapMenu(env, 6);
+    sec.ok(L.waitProgram(env, 4, 160) >= 0, `${how}: relaunched`);
+    env.frames_(24); env.img.armed = true;
+    st.reset();
+    Q.park(env, 6);
+    Q.check(env, sec, `${how}: relaunch`, {});
+    // changed: ask; cancel stays; discard quits and the next launch is fresh
+    doStroke(env, sec, `${how}: a stroke`, [[200, 100], [240, 120], [260, 90]], { check: { adoptStatus: true } });
+    const ok2 = (() => { if (how === 'menu') fileMenu(env, 4); else if (how === 'closebox') { const w = L.PROG_WIN[4], b = L.closeBoxOf(w.x, w.y, w.w); L.click(env, b.x + (b.w >> 1), b.y + (b.h >> 1), 3, 6); } else L.typeCode(env, 17, 3, 3); return waitDialog(env, 'ask'); })();
+    sec.ok(ok2, `${how}: a changed picture asks "Discard the document?"`);
+    sec.ok(m.ram[S.K_PROG] === 4, `${how}: still in Paint while the question is open`);
+    Q.check(env, sec, `${how}: the question`, { dialog: 'ask', noCopy: true });
+    Q.askAnswer(env, 'cancel');
+    settleCheck(env, sec, `${how}: Cancel stays in Paint, the picture as it was`, { adoptStatus: true });
+    if (how === 'menu') fileMenu(env, 4); else if (how === 'closebox') { const w = L.PROG_WIN[4], b = L.closeBoxOf(w.x, w.y, w.w); L.click(env, b.x + (b.w >> 1), b.y + (b.h >> 1), 3, 6); } else L.typeCode(env, 17, 3, 3);
+    sec.ok(waitDialog(env, 'ask'), `${how}: the question again`);
+    env.img.armed = false;                      // the shell's own image is copied to $C000 on the way back
+    Q.askAnswer(env, 'discard'); env.frames_(30);
+    sec.ok(L.waitShell(env, 60) && m.ram[S.K_PROG] === 0, () => `${how}: Discard quits (K_PROG ${m.ram[S.K_PROG]})`);
+    env.img.armed = false;
+    H.leapMenu(env, 6);
+    sec.ok(L.waitProgram(env, 4, 160) >= 0, `${how}: relaunched after a changed quit`);
+    env.frames_(24); env.img.armed = true; st.reset(); Q.park(env, 6);
+    Q.check(env, sec, `${how}: relaunch after a discard`, {});
+    Q.copyIsDisplay(env, sec, `${how}: relaunch after a discard`);
+    sec.ok(env.w.n === 0, () => `${how}: memory watch: ${env.w.summary()}`);
+  }
+  sec.end();
+}
+
+// ===========================================================================================================================================
+// 8. Exposure: dialogs over the canvas, a dragged window
+function g8() {
+  const env = newEnv(), { m, S } = env, st = env.st;
+  const sec = new Sec('8 exposure: dialogs cover part of the canvas and are closed again (the redraw restores exactly the covered part); Paint\'s window dragged to other cell offsets, then used (PAINT 4)');
+  Q.install(env, noise(31, 0.5));
+  settleCheck(env, sec, 'a noisy picture installed');
+  // the ask over the canvas, cancelled; the alert over the canvas; the name dialog over the canvas
+  doStroke(env, sec, 'a stroke (so that the picture is changed)', [[200, 100], [300, 120]], { check: { adoptStatus: true } });
+  for (const how of ['cancel', 'esc', 'cancel']) {
+    fileMenu(env, 0); waitDialog(env, 'ask');
+    Q.check(env, sec, 'the question over the canvas (screen with the dialog)', { dialog: 'ask', noCopy: true });
+    Q.askAnswer(env, how);
+    settleCheck(env, sec, `the question closed (${how}): the canvas is exactly the picture`, { adoptStatus: true });
+  }
+  { const f = openSaveDialog(env, sec, 'the name dialog over the canvas'); const [x, y] = Q.centreOf(W3.SAVE.cancel); L.click(env, x, y, 3, 6); env.frames_(20); settleCheck(env, sec, 'the name dialog closed: the canvas is exactly the picture', { adoptStatus: true }); }
+  { // the alert over the canvas
+    const bad = pbmOf(noise(32, 0.5)).slice(0, 100);
+    st.dirty = m.ram[S.PN_DIRTY] === 1;
+    fileMenu(env, 1); if (st.dirty) { waitDialog(env, 'ask'); Q.askAnswer(env, 'discard'); }
+    Q.until(env, () => env.host.picking, 60); env.host.answer('short.pbm', bad); env.frames_(60);
+    sec.ok(alertText(env) === 'Not a 320 x 144 PBM picture.', () => `alert ${alertText(env)}`);
+    Q.check(env, sec, 'the alert over the canvas', { dialog: 'alert', msg: 'Not a 320 x 144 PBM picture.', noCopy: true, adoptStatus: true });
+    Q.alertOk(env, 'click'); env.frames_(10);
+    settleCheck(env, sec, 'the alert closed: the canvas is exactly the picture', { adoptStatus: true });
+  }
+  // the window dragged by its title bar
+  const drag = (dx, dy) => {
+    const w = Q.paintWin(env), tx = w.x + 200, ty = w.y + 3;
+    L.moveTo(env, tx, ty); m.mouse.buttons = L.MOUSE_LEFT; env.frames_(3);
+    L.moveTo(env, tx + dx, ty + dy); env.frames_(3);
+    m.mouse.buttons = L.MOUSE_UP; env.frames_(30);
+    const w2 = Q.paintWin(env);
+    st.ox = w2.x - 48; st.oy = w2.y - 16;
+    return [w2.x - w.x, w2.y - w.y];
+  };
+  // every drag: the screen equals the model (the picture origin is the Canvas view's x + 2, y + 2), then the program is used in the moved window
+  let n = 0; const seen = [];
+  for (const [dx, dy] of [[40, 0], [-30, 12], [-100, 0], [64, 16], [0, -20], [120, 0], [-130, 0], [32, 8], [0, 24], [-16, 16]]) {
+    const [rx, ry] = drag(dx, dy);
+    sec.note(`dragged by (${dx}, ${dy}): the window moved by (${rx}, ${ry})`);
+    const w = Q.paintWin(env), tag = `the window at (${w.x}, ${w.y})`; seen.push(`(${w.x}, ${w.y})`);
+    sec.ok(w.x % 16 === 0 && w.y % 8 === 0, () => `the window's position (${w.x}, ${w.y}) is cell-aligned`);
+    const k = Q.paintKids(env);
+    sec.ok(k.length === 3 && k[0].x === 55 + st.ox && k[1].x === 126 + st.ox && k[2].y === 180 + st.oy && k[1].y === 30 + st.oy, () => `${tag}: the views moved with the window: ${JSON.stringify(k.map((v) => [v.x, v.y]))}`);
+    settleCheck(env, sec, `after the drag to (${w.x}, ${w.y}): the screen is the model's (the canvas inside its view)`, { adoptStatus: true });
+    const px = (a) => w.x + 80 + a, py = (a) => w.y + 30 + a;                 // inside the picture (its origin is (w.x + 80, w.y + 16))
+    doStroke(env, sec, `${tag}: a pencil stroke`, [[px(20), py(20)], [px(60), py(50)], [px(120), py(40)], [px(120), py(90)]], { check: { adoptStatus: true } });
+    sec.ok(st.undoOn, `${tag}: the stroke can be undone`);
+    undoAreaOk(env, sec, tag);
+    editMenu(env, 0); st.undo(); settleCheck(env, sec, `${tag}: Undo`, { adoptStatus: true }); undoAreaOk(env, sec, `${tag}: Undo`);
+    editMenu(env, 0); st.undo(); settleCheck(env, sec, `${tag}: Undo again (redo)`, { adoptStatus: true });
+    Q.chooseTool(env, 3); st.chooseTool(3);
+    doStroke(env, sec, `${tag}: an eraser stroke`, [[px(30), py(30)], [px(90), py(36)], [px(150), py(60)]], { check: { adoptStatus: true } });
+    Q.chooseTool(env, 1); st.chooseTool(1);
+    doStroke(env, sec, `${tag}: a stroke that leaves the picture on the left (clipped)`, [[px(10), py(70)], [px(-10), py(70)], [px(-30), py(72)], [px(40), py(100)]], { check: { adoptStatus: true } });
+    // cover and uncover: the ask, the name dialog and the alert are fixed on the desk and cover the canvas at this offset
+    fileMenu(env, 0); sec.ok(waitDialog(env, 'ask'), `${tag}: the question`);
+    Q.check(env, sec, `${tag}: the question over the canvas`, { dialog: 'ask', noCopy: true });
+    Q.askAnswer(env, 'cancel');
+    settleCheck(env, sec, `${tag}: the question closed: the canvas is exactly the picture`, { adoptStatus: true });
+    openSaveDialog(env, sec, `${tag}: the name dialog`); { const [x, y] = Q.centreOf(W3.SAVE.cancel); L.click(env, x, y, 3, 6); env.frames_(20); }
+    settleCheck(env, sec, `${tag}: the name dialog closed: the canvas is exactly the picture`, { adoptStatus: true });
+    // Save, then Open of a file of our own: the file is the picture, the picture follows the file
+    const r = saveAs(env, sec, `${tag}: Save`, `m${n}`, `m${n}.pbm`);
+    settleCheck(env, sec, `${tag}: after the save`, { adoptStatus: true });
+    const file = pbmOf(noise(60 + n, 0.4));
+    openFile(env, sec, `${tag}: Open`, `o${n}.pbm`, file);
+    st.loadPbm(file); st.name = `o${n}.pbm`;
+    settleCheck(env, sec, `${tag}: after the Open`, { adoptStatus: true });
+    doStroke(env, sec, `${tag}: a stroke on the opened picture`, [[px(50), py(50)], [px(80), py(70)]], { check: { adoptStatus: true } });
+    editMenu(env, 1); sec.ok(waitDialog(env, 'ask'), `${tag}: Clear asks`); Q.askAnswer(env, 'discard'); st.clear();
+    settleCheck(env, sec, `${tag}: Clear`, { adoptStatus: true });
+    n++;
+  }
+  // back home: the window at (48, 16) again
+  drag(-st.ox, -st.oy);
+  settleCheck(env, sec, 'dragged back to (48, 16): the screen is the model\'s', { adoptStatus: true });
+  doStroke(env, sec, 'a stroke at home again', [[200, 100], [260, 130]], { check: { adoptStatus: true } });
+  sec.end(`window positions tried: ${seen.join(' ')}; stack so far ${env.stack.depth()} bytes; memory watch: ${env.w.summary()}`);
+}
+
+// ===========================================================================================================================================
+// 9. Bounds and report rows
+function g9() {
+  const sec = new Sec('9 bounds: stack <= 128 on every path, no DI (V_FRAMES + 1 a frame), the memory watch (BANKING 10.7) clean, no write to the program image outside its variables, the image and its variables end at or below AL_RAM (rows with no bound are reports; PAINT 12\'s own bounds are quoted in their notes)');
+  const env = newEnv(), { m, S } = env, st = env.st;
+  sec.ok(S.PN_VARS_END <= S.AL_RAM, () => `PN_VARS_END ${hex(S.PN_VARS_END)} is above AL_RAM ${hex(S.AL_RAM)}`);
+  sec.note(`Paint: code and image PN_END - PN_START = ${S.PN_END - S.PN_START} bytes, image ${S.PN_IMG_LEN}, variables ${S.PN_VARS_END - S.PN_VARS}; the image ends at ${hex(0xC000 + S.PN_IMG_LEN)}, the variables at ${hex(S.PN_VARS_END)}, AL_RAM ${hex(S.AL_RAM)} (${S.AL_RAM - S.PN_VARS_END} bytes spare)`);
+  const idle = Q.busy(env, () => env.frames_(6)).map((p) => p.t1 - p.t0), base = Math.max(...idle);
+  sec.note(`an idle frame: ISR entry to HALT ${Math.min(...idle)}-${base} T`);
+  const marks = [S.pn_undo, S.pn_commit, S.pn_save, S.pn_open, S.pn_seg].filter(Boolean);
+  // a pencil step of 30 pixels: from the E_MOVE (the frame's ISR) to idle
+  {
+    L.moveTo(env, 200, 80); env.frames_(2);
+    m.mouse.buttons = L.MOUSE_LEFT; env.frame(); st.press(200, 80);
+    const ts = [], seg = [];
+    for (let i = 1; i <= 8; i++) {
+      const dir = i % 2 ? 1 : -1;
+      const per = Q.busy(env, () => Q.stepTo(env, 200 + (dir > 0 ? 30 : 0), 80), marks);
+      ts.push(Math.max(...per.map((p) => p.t1 - p.t0))); seg.push(...Q.spansFrom(per.ev, S.pn_seg));
+      const [x, y] = L.pointerPos(m, S); st.move(x, y);
+    }
+    row('pencil step: a 30-pixel segment, ISR entry of the E_MOVE frame to HALT (shielded, clipped)', Math.max(...ts), null, `idle frame ${base}; ${ts.join(', ')}`, 58000);
+    if (seg.length) row('pencil step: pn_seg (the segment routine) entry to HALT', Math.max(...seg), null, `${seg.join(', ')}`);
+    m.mouse.buttons = L.MOUSE_UP; env.frames_(14); st.release();
+  }
+  // the commit (release to idle): small and large box
+  const commit = (pts) => {
+    L.moveTo(env, pts[0][0], pts[0][1]); env.frames_(2);
+    m.mouse.buttons = L.MOUSE_LEFT; env.frame(); st.press(...L.pointerPos(m, S));
+    for (const p of Q.expand(pts).slice(1)) { const [x, y] = Q.stepTo(env, p[0], p[1]); st.move(x, y); }
+    let box;
+    const per = Q.busy(env, () => { m.mouse.buttons = L.MOUSE_UP; env.frame(); box = st.release(); env.frames_(10); }, marks);
+    const cs = Q.spansFrom(per.ev, S.pn_commit);
+    return { box, commit: cs[0], first: per[0].t1 - per[0].t0 };
+  };
+  {
+    const a = commit([[200, 100]]);
+    row(`commit, a single click (box ${a.box.nc} x ${a.box.nr}): pn_commit entry to HALT`, a.commit, null, `release frame ISR to HALT ${a.first}`, 260000);
+    settleCheck(env, sec, 'after the small commit', { adoptStatus: true });
+    const b = commit([[152, 60], [384, 115]]);
+    row(`commit, a ${b.box.nc} x ${b.box.nr} box (${b.box.nc * b.box.nr} bytes): pn_commit entry to HALT`, b.commit, null, `release frame ISR to HALT ${b.first}`, 260000);
+    settleCheck(env, sec, 'after the large commit', { adoptStatus: true });
+    const c = commit([[140, 45], [440, 45], [440, 170], [140, 170]]);
+    row(`commit, a too-big box (${c.box.nc} x ${c.box.nr}): pn_commit entry to HALT`, c.commit, null, `release frame ISR to HALT ${c.first}`, 260000);
+    settleCheck(env, sec, 'after the too-big commit', { adoptStatus: true, noBox: true });
+  }
+  // Undo of a ~2,000-byte box
+  {
+    Q.install(env, noise(41, 0.5));
+    const rr = Q.stroke(env, [[152, 60], [384, 114]], {});
+    settleCheck(env, sec, 'the stroke for the Undo timing', { adoptStatus: true });
+    sec.ok(st.undoOn, () => `box ${JSON.stringify(rr.box)} for Undo fits`);
+    const bytes = rr.box.nc * rr.box.nr;
+    const per = Q.busy(env, () => { editMenu(env, 0, { settle: 0 }); env.frames_(14); }, marks);
+    st.undo();
+    const u = Q.spansFrom(per.ev, S.pn_undo);
+    row(`Undo of a ${rr.box.nc} x ${rr.box.nr} box (${bytes} bytes): pn_undo entry to HALT`, u[0], null, `the busy periods of the whole menu action: ${per.map((p) => p.t1 - p.t0).filter((d) => d > base + 200).join(', ')}`, 150000);
+    settleCheck(env, sec, 'after the timed Undo', { adoptStatus: true });
+  }
+  // Save and Open of the whole picture
+  {
+    const f = openSaveDialog(env, sec, 'Save for timing');
+    Q.fieldDelete(env, f, f.buf.length); Q.fieldType(env, f, 'timing');
+    const per = Q.busy(env, () => { L.typeCode(env, 13, 3, 0); env.frames_(60); }, marks);
+    const sv = Q.spansFrom(per.ev, S.pn_save);
+    row('Save of the whole picture (5,771 bytes, 145 writes): pn_save entry to HALT', sv[0], null, `EST 400,000`);
+    st.name = 'timing.pbm'; st.dirty = false;
+    settleCheck(env, sec, 'after the timed Save');
+    const file = pbmOf(noise(42, 0.5));
+    fileMenu(env, 1); Q.until(env, () => env.host.picking, 60);
+    const per2 = Q.busy(env, () => { env.host.answer('t.pbm', file); env.frames_(60); }, marks);
+    row('Open of the whole picture (5,771 bytes): the pick answered to HALT (the busiest ISR-to-HALT period)', Math.max(...per2.map((p) => p.t1 - p.t0)), null, `EST 450,000`);
+    st.loadPbm(file); st.name = 't.pbm';
+    settleCheck(env, sec, 'after the timed Open', { adoptStatus: true });
+  }
+  // closing the 256 x 64 question over the canvas: the exposed part redrawn
+  {
+    st.dirty = true; m.ram[S.PN_DIRTY] = 1;
+    fileMenu(env, 0); waitDialog(env, 'ask');
+    const per = Q.busy(env, () => { Q.askAnswer(env, 'cancel'); });
+    const durs = per.map((p) => p.t1 - p.t0);
+    row('closing the 256 x 64 question over the canvas: the busiest ISR-to-HALT period (the exposed part redrawn)', Math.max(...durs), null, `busy periods ${durs.filter((d) => d > base + 200).join(', ')}`);
+    settleCheck(env, sec, 'after the question closed', { adoptStatus: true });
+  }
+  // the redraw of a fully exposed canvas: W_INVAL of the canvas rectangle and W_UPDATE, called directly on a machine of its own (nothing runs on it afterwards)
+  {
+    const e2 = newEnv(), st2 = e2.st;
+    Q.install(e2, noise(43, 0.5));
+    const T2 = TKcalls(e2);
+    const t1 = T2.inval(126, 30, 324, 148), t2 = T2.update();
+    const stk = T2.lastStack();
+    row('a fully exposed canvas (W_INVAL of the canvas view, then W_UPDATE): redrawn', t1 + t2, null, `W_INVAL ${t1} + W_UPDATE ${t2}`, 330000);
+    row('stack of the direct W_UPDATE call (the redraw, crossings included), bytes below the return address', stk, 128, '');
+    const d = H.diffDisp(H.readDisp(e2.m), P.toDisp(P.renderScreen(st2)), L.pointerMask(e2.m, e2.S));
+    sec.ok(d === null, () => `after the direct redraw the screen is not the model's: ${d}`);
+  }
+  // the bounds
+  const depth = Math.max(...envs.map((e) => e.stack.depth()));
+  const all = envs.map((e) => ({ s: e.stack.depth(), di: e.vf.bad, n: e.vf.checked, w: e.w.n, img: e.img.n }));
+  row('stack depth, the highest of every path run in this suite (crossings included)', depth, 128, `per machine: ${all.map((a) => a.s).join(', ')}`);
+  row('frames in which V_FRAMES did not advance by 1 (a DI held across a frame), all machines', all.reduce((a, b) => a + b.di, 0), 0, `${all.reduce((a, b) => a + b.n, 0)} frames checked; ${envs.flatMap((e) => e.vfBad).slice(0, 6).join(', ')}`);
+  row('memory watch violations (BANKING 10.7), all machines', all.reduce((a, b) => a + b.w, 0), 0, envs.map((e) => (e.w.n ? e.w.summary() : '')).filter(Boolean)[0] || '');
+  row('writes to the program image outside Paint\'s variables, all machines', all.reduce((a, b) => a + b.img, 0), 0, envs.map((e) => e.img.first[0] || '').filter(Boolean)[0] || '');
+  row('Paint\'s image + variables end at or below AL_RAM: PN_VARS_END - AL_RAM (bytes, <= 0)', S.PN_VARS_END - S.AL_RAM, 0, `${hex(S.PN_VARS_END)} against ${hex(S.AL_RAM)}`);
+  sec.end();
+}
+// direct calls of the kernel's window routines (group 9's exposed-canvas row), on a machine on which no frame is run afterwards
+function TKcalls(env) {
+  const { S } = env;
+  env.rng = null;
+  L.park(env);
+  return {
+    stack: 0,
+    lastStack() { return this.stack; },
+    inval(x, y, w, h) { T.poke16(env, S.GA, x); T.poke16(env, S.GA + 2, y); T.poke16(env, S.GA + 4, w); T.poke16(env, S.GA + 6, h); const r = T.runCall(env, S.W_INVAL, {}, { ints: false }); this.stack = Math.max(this.stack, r.stack); return r.t; },
+    update() { const r = T.runCall(env, S.W_UPDATE, {}, { ints: false }); this.stack = Math.max(this.stack, r.stack); return r.t; },
+  };
+}
+
+// ===========================================================================================================================================
+const run = [[1, g1], [2, g2], [3, g3], [4, g4], [5, g5], [6, g6], [7, g7], [8, g8], [9, g9]];
+for (const [n, f] of run) if (has(n)) { const t0 = Date.now(); try { f(); } catch (e) { C.check(`group ${n} ran to the end`, false, e.stack.split('\n').slice(0, 3).join(' | ')); } if (VERBOSE) console.log(`  (group ${n}: ${((Date.now() - t0) / 1000).toFixed(1)} s)`); }
+finish();
