@@ -110,7 +110,7 @@ export function bootDesk5(opts = {}) {
 export function shellUp(env) {
   const { m, S } = env;
   if (m.ram[S.K_PROG] !== 0) return false;
-  const v = allViews(m, S), win = v.find((x) => x.cls === S.CL_Window && x.x === 32 && x.y === 24 && x.w === 320 && x.h === 80);
+  const v = allViews(m, S), win = v.find((x) => (x.cls === S.CL_Window || x.cls === S.CL_CWindow) && x.x === 32 && x.y === 24 && x.w === 320 && x.h === 80);
   return !!win && v.filter((x) => x.cls === S.CL_Icon && x.depth === win.depth + 1).length === 4;
 }
 /** The program's windows on the desk (W_SLOTS, slots 1..14): [{ a, cls, x, y, w, h, title }]. */
