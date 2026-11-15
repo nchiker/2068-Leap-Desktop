@@ -1042,7 +1042,7 @@ it checks out with submodules, runs `node tools/pages-prep.mjs _site`, and deplo
 `tools/pages-prep.mjs` assembles `_site/` as `_site/web`, `_site/tsrun` (the modules, shaders and stock ROM, not the Go server or the
 other ROM sets), `_site/build/desk5.dck` (copied from the prebuilt `pages/desk5.dck`, 57,353 bytes), and an `index.html` that redirects to
 `web/?cart=desk5`. `pages/desk5.dck` is refreshed by hand (`node tools/build.mjs desk5 && cp build/desk5.dck pages/desk5.dck`).
-The deployment is not live yet because the private repository's plan does not support GitHub Pages.
+The site is live at https://nchiker.github.io/2068-Leap-Desktop/ (the repository was made public on 2026-11-15, because Pages is not available for a private repository on the owner's plan).
 
 ---
 

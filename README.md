@@ -6,6 +6,8 @@ DOCK cartridge, uses the 512x192 64-column video mode, and is tested on emulator
 **Status:** the graphics spike (slices S1-S5, `docs/GRAPHICS_SPIKE.md`) is done on emulators: TSRun, ZEsarUX 13.0 and Fuse 1.9.1.
 The mode decision (keep mode 6) and what the spike changes are in `docs/FEASIBILITY.md` section 5a; next is the code-size decision, then roadmap step 3. The design and the plan are in [`docs/FEASIBILITY.md`](docs/FEASIBILITY.md).
 
+**Try it in a browser:** https://nchiker.github.io/2068-Leap-Desktop/ (TSRun running `desk5.dck`; click the screen to give it the keyboard). How it works: [`docs/TECHNICAL.md`](docs/TECHNICAL.md). The page serves the prebuilt `pages/desk5.dck`; refresh it with `node tools/build.mjs desk5 && cp build/desk5.dck pages/desk5.dck`.
+
 ## Layout
 
 | Path | What |
