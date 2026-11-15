@@ -44,7 +44,7 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
   read when `K_MSET` turns it on; TSRun emulates it as `m.mouse`, and the test page has a Mouse switch.
 - Step 5 placement (owner, 2026-11-12): toolkit always mapped; shell, Calculator, Write in DOCK 2-3; DOCK 6 for resources and
   later Paint's drawing core. The old step 5 growth bound (3,400) is replaced by the free-space measure (SIZE 2).
-- Step 5 cartridge `desk5` (DOCK 0-5): boots into the shell (`docs/SHELL.md`). Programs: 0 shell, 1 Calculator, 2 Key Caps (it replaced the Controls demo; `docs/KEYCAPS.md`), 3 Write (`src/apps/write.asm`, `docs/WRITE.md`; its symbols take the prefix `WR_`; `WR_MENU` is banked, so tests call it under A); one
+- Step 5 cartridge `desk5` (DOCK 0-6, 57 KB since P0): boots into the shell (`docs/SHELL.md`; since P1 the shell window is 320 wide with four icons). Programs: 0 shell, 1 Calculator, 2 Key Caps (it replaced the Controls demo; `docs/KEYCAPS.md`), 4 Paint (`src/apps/paint.asm`, `docs/PAINT.md`; symbols `PN_` / `pn_`: `PT_` is the pointer's), 3 Write (`src/apps/write.asm`, `docs/WRITE.md`; its symbols take the prefix `WR_`; `WR_MENU` is banked, so tests call it under A); one
   at a time through `K_LAUNCH` / `K_QUIT`; each copies its RAM image to `$C000` (<= 1 KB); app arena `$C400-$DFFF`. Windows
   that programs close are `CWindow`s (close box; SYMBOL SHIFT + Q = key code `CLOSE` 17). Programs dispatch with `TK_DISPATCH`.
 - Tests that use `desk5` boot through the shell (`tests/calc-lib.mjs` `bootDesk5`, `tests/shell-lib.mjs`).
@@ -164,6 +164,15 @@ Read `docs/FEASIBILITY.md` first (the architecture and the roadmap), then this f
   - the mock-ups are `docs/keycaps/kc3-*.png` (`node tools/kc-mock.mjs`);
   - 1,113 bytes, under the 1,225 bound;
   - the owner accepted its speed: "keycaps speed is fine - no effort needs to be spent on this".
+
+## Hand-off (2026-11-15): Paint P0 and P1 are built; read `docs/PAINT.md` (contract, section 13 decisions, section 15 as built)
+
+- **Owner approved the Paint contract on 2026-11-14 ("accept the recommendations, start P0").** The decisions are in `docs/PAINT.md` 13: canvas 320 x 144, PBM P4 files, one-level Undo (boxes up to 2,048 bytes), no `AL_RUN`, arrow cursor only, tools in the order P1 pencil/eraser, P2 patterns/brush/spray/line/shapes, P3 marquee/bucket, P4 FatBits.
+- **P0 (SIZE 4, `docs/SIZE.md` 8), committed:** `G_SCROLLV`, `G_BLIT`, `G_LINE` and the shell's icons are in DOCK 6 (`s3sv/s3bl/s3ln.asm`, `G_LIB6`, desk5 only); the pool has about 5,800 bytes free; every other target is byte-identical; `tests/g6-line.mjs` runs `G_LINE` under mapping R.
+- **P1, committed (`docs/PAINT.md` 15):** the program, the tool box (`Palette` class), the banded canvas redraw (`G_RESTRECT` ignores the clip), pencil and eraser, the commit, Undo (`K_BOX` in the pool, cold RAM `$5800`), Clear, New, Open, Save (PBM), the discard question, and a window that can be dragged (the picture's origin is the canvas view's). The shell registers it (four icons, "Paint" in the Leap menu). Tests: `tests/pt-p1.mjs` (26 rows, 10 groups, model `pt-model.mjs`, harness `pt-lib.mjs`). All 22 suites pass (`node tools/runtests.mjs --compare build/test-logs/2026-11-15_00-18-58`), Fuse 6 of 6, ZEsarUX 177 of 177.
+- **Waiting on the owner:** (1) to try P1 in the browser (`http://localhost:8080/web/?cart=desk5`, Leap menu > Paint); (2) **two bounds missed, reported with numbers (PAINT 15):** Undo of a 2,016-byte box 263,667 T against 150,000, and a fully exposed canvas 582,978 T against 330,000. Options: accept the measured figures (the owner has done so before), or speed up (a pool routine `G_PUTRECT` that restores a sub-rectangle with a stride, about +150 pool bytes, would roughly halve the exposure redraw).
+- **Still to do for Paint:** a Paint session in the ZEsarUX and Fuse runners (like Key Caps' and the Find session); the shell perf rows for program 4; P2, P3, P4 as in the contract; `docs/PROVENANCE.md` has nothing to add (no copied code).
+- **Possible issue in older programs (not checked):** Paint had to follow its window when dragged; Key Caps and Notepad draw at fixed screen positions and may show the same fault when their windows are dragged.
 
 ## Hand-off (2026-11-14, end of the test-speed / pool / audit session; Paint is next)
 
