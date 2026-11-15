@@ -48,6 +48,12 @@ PN_START:
     call AL_VIEW                    ; the tool box
     call AL_VIEW                    ; the canvas
     ld (PN_CV),de
+    push hl                         ; (the next table entry)
+    push ix
+    ld ix,(PN_CV)
+    call pn_org
+    pop ix
+    pop hl
     call AL_VIEW                    ; the status line
     ld (PN_LBL),de
     KFAR W_OPEN
@@ -353,20 +359,30 @@ pn_pevent:
 ; restored from its copy by bands of up to 8 rows (PAINT 4): G_RESTRECT ignores the clip, so each band packs only the columns and rows
 ; of the clip (the repaint rectangles are cells of 16 x 8 pixels: the first column and the column count are even).
 pn_cdraw:
+    call pn_org
     xor a
     ld (GOP),a
-    ld hl,126
+    ld hl,(PN_OX)                   ; the border: the view's rectangle and the one inside it (the picture is 2 pixels in)
+    dec hl
+    dec hl
     ld (GA),hl
-    ld hl,30
+    ld a,(PN_OY)
+    sub 2
+    ld l,a
+    ld h,0
     ld (GA+2),hl
     ld hl,324
     ld (GA+4),hl
     ld hl,148
     ld (GA+6),hl
     KFAR G_FRAME
-    ld hl,127
+    ld hl,(PN_OX)
+    dec hl
     ld (GA),hl
-    ld hl,31
+    ld a,(PN_OY)
+    dec a
+    ld l,a
+    ld h,0
     ld (GA+2),hl
     ld hl,322
     ld (GA+4),hl
@@ -374,7 +390,7 @@ pn_cdraw:
     ld (GA+6),hl
     KFAR G_FRAME
     ld hl,(GCX0)                    ; the clip in the picture's pixels: columns k0 .. k1 (byte columns, k0 even, k1 even)
-    ld de,128
+    ld de,(PN_OX)
     or a
     sbc hl,de
     jr nc,.x0
@@ -425,8 +441,10 @@ pn_cdraw:
     ld a,(hl)
     srl a
     ld (PN_O),a                     ; the offset of k0 in a part's row
+    ld a,(PN_OY)
+    ld e,a
+    ld d,0
     ld hl,(GCY0)                    ; the rows: r0 .. r1 (picture rows)
-    ld de,32
     or a
     sbc hl,de
     jr nc,.y0
@@ -458,16 +476,20 @@ pn_bands:
     ld a,8
 .n:
     ld (PN_NR),a
-    ld hl,(PN_BAND)                 ; the header: c0, nc, y0, nr
-    ld a,(PN_K0)
-    add a,16
+    ld a,(PN_OXC)                   ; the header: c0, nc, y0, nr
+    ld hl,PN_K0
+    add a,(hl)
+    ld hl,(PN_BAND)
     ld (hl),a
     inc hl
     ld a,(PN_NC)
     ld (hl),a
     inc hl
-    ld a,(PN_R)
-    add a,32
+    ld a,(PN_OY)
+    ld de,PN_R
+    ex de,hl
+    add a,(hl)
+    ex de,hl
     ld (hl),a
     inc hl
     ld a,(PN_NR)
@@ -533,6 +555,7 @@ pn_rows:
 ; pn_cevent: Canvas' M_EVENT (DE = K_EV; carry = consumed).  A press inside the picture starts a stroke with the pencil or the eraser and
 ; takes the capture; a move while drawing adds a segment; the release commits (PAINT 5).
 pn_cevent:
+    call pn_org
     ex de,hl
     ld b,(hl)                       ; the type
     inc hl
@@ -574,9 +597,10 @@ pn_cevent:
     scf
     ret
 .dn:
-    ld de,-128                      ; inside the picture: 0 <= x - 128 < 320, 0 <= y - 32 < 144
-    add hl,de
-    jr nc,.no
+    ld de,(PN_OX)                   ; inside the picture: 0 <= x - OX < 320, 0 <= y - OY < 144
+    or a
+    sbc hl,de
+    jr c,.no
     ld a,h
     or a
     jr z,.xin
@@ -587,7 +611,8 @@ pn_cevent:
     jr nc,.no
 .xin:
     ld a,(PN_NY)
-    sub 32
+    ld hl,PN_OY
+    sub (hl)
     jr c,.no
     cp 144
     jr nc,.no
@@ -618,26 +643,49 @@ pn_cevent:
     scf
     ret
 
+; pn_org: IX = the Canvas: the picture's origin = the view's (x + 2, y + 2): PN_OX, PN_OY, PN_OXC (its byte column).  The window may have
+; been dragged (by whole cells: the origin keeps an even byte column).  Clobbers AF, HL.
+pn_org:
+    ld l,(ix+View_x)
+    ld h,(ix+View_x+1)
+    inc hl
+    inc hl
+    ld (PN_OX),hl
+    srl h
+    rr l
+    srl h
+    rr l
+    srl h
+    rr l
+    ld a,l
+    ld (PN_OXC),a
+    ld a,(ix+View_y)
+    add a,2
+    ld (PN_OY),a
+    ret
+
 ; pn_shield: the pointer shielded from the picture, the clip the picture; pn_unshield: the clip the whole screen, the shield off.  GA is
 ; left as the picture's rectangle after pn_shield (P_SHIELD keeps it).  Clobber AF, BC, DE, HL.
 pn_shield:
-    ld hl,128
+    ld hl,(PN_OX)
     ld (GA),hl
-    ld hl,32
+    ld (GCX0),hl
+    ld de,320
+    add hl,de
+    ld (GCX1),hl
+    ld a,(PN_OY)
+    ld l,a
+    ld h,0
     ld (GA+2),hl
+    ld (GCY0),hl
+    ld de,144
+    add hl,de
+    ld (GCY1),hl
     ld hl,320
     ld (GA+4),hl
     ld hl,144
     ld (GA+6),hl
     KFAR P_SHIELD
-    ld hl,128
-    ld (GCX0),hl
-    ld hl,448
-    ld (GCX1),hl
-    ld hl,32
-    ld (GCY0),hl
-    ld hl,176
-    ld (GCY1),hl
     ret
 pn_unshield:
     ld hl,0
@@ -843,8 +891,9 @@ pn_stamp:
 ; pn_grow: HL = a screen x, A = a screen y: the stroke's box takes the point's byte column +- 1 and row +- 4, clamped to the picture.
 pn_grow:
     ld c,a
-    ld de,-128
-    add hl,de                       ; the picture's x (negative: 0)
+    ld de,(PN_OX)
+    or a
+    sbc hl,de                       ; the picture's x (negative: 0)
     bit 7,h
     jr z,.p
     ld hl,0
@@ -881,7 +930,8 @@ pn_grow:
     ld (hl),a
 .h2:
     ld a,c
-    sub 32
+    ld hl,PN_OY
+    sub (hl)
     jr nc,.r
     xor a
 .r:
@@ -1440,7 +1490,10 @@ PN_TITLE    EQU PN_DK + 1           ; "Paint: " and the name: a length byte and 
 PN_NAME     EQU PN_TITLE + 40       ; the picture's name: a length byte and up to 30 codes
 PN_FBUF     EQU PN_NAME + 31        ; the Save dialog's Field
 PN_PNAME    EQU PN_FBUF + 31        ; the picked name (FS_PICK)
-PN_VARS_END EQU PN_PNAME + 32
+PN_OX       EQU PN_PNAME + 32       ; the picture's origin (screen x, y) and its byte column
+PN_OY       EQU PN_OX + 2
+PN_OXC      EQU PN_OY + 1
+PN_VARS_END EQU PN_OXC + 1
 PN_VARS_LEN EQU PN_VARS_END - PN_VARS
     ASSERT PN_VARS_END <= AL_RAM && PN_IMG_LEN <= 1024
     ASSERT (CL_Canvas >> 8) == ((CL_Canvas + 11) >> 8) && (CL_Palette >> 8) == ((CL_Palette + 11) >> 8)
