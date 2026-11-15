@@ -265,3 +265,13 @@ by their close box or SYMBOL SHIFT + Q. **Every bound passes** (`tests/shell-per
 **Found and fixed:** the 48-pixel `Icon` (10.5).
 
 **Owner review (2026-11-12):** "desktop looks great". The shell's look and the two icons (`src/apps/icons.txt`) are approved.
+
+## 12. The shell's window closes; "Show Desktop" (owner, 2026-11-15: "do (1) and (2) after P2 is done"; idea from zxdesk's README)
+
+**What:** every window can be closed, the shell's own included, and the desktop opens it again. Today the shell window is a plain `Window` (no close box) and the desktop is never empty.
+
+- **The shell window is a `CWindow`** (close box on the left, SS+Q = key code `CLOSE` 17), id `S_WINID` = 255 (as the programs' windows). Its close box or SS+Q posts `E_CMD` 255; the shell loop answers with `W_CLOSE` of its window (the window object is kept, not destroyed) and `S_OPEN` = 0. With no window, the desktop (the 25% grey) and the menu bar remain, the Leap menu still works, and SS+Q does nothing.
+- **The "Leap" menu gains an item 7, "Show Desktop":** with the window closed it is opened again (`W_OPEN`, `S_OPEN` = 1, icons and their focus as at start); with it open it is raised (`W_RAISE`). The items are About (1), a separator (2), Calculator (3), Key Caps (4), Notepad (5), Paint (6), Show Desktop (7).
+- **Programs:** a program quitting restarts the shell (`K_LAUNCH` 0 runs `S_START`), which opens its window again; the closed state is not kept across a launch.
+- **Cost:** pool 0 bytes; the shell's code and image about +40 bytes (DOCK 2-3). The shell's window class changes from `CL_Window` to `CL_CWindow`, which tests that look for the shell by class must follow (`shellUp` in `tests/calc-lib.mjs`).
+- **Tests (Sonnet):** the shell's screen (a close box on the window), the Leap menu (seven items), close by the box and by SS+Q (the screen is the empty desktop; the Leap menu works; a program can still be launched from the menu and quits back to an open shell), Show Desktop when closed (the shell as at start) and when open (raised, nothing else changes), SS+Q with no window does nothing, About with the window closed.

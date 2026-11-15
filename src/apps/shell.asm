@@ -3,6 +3,7 @@
 
 ICON_X0     EQU 48
 ICON_DX     EQU 64
+S_WINID     EQU 255
 
 ; S_START: the image, the menu, the window and its icons, then the event loop.  Never returns.
 S_START:
@@ -61,6 +62,7 @@ S_START:
     ld ix,(S_WIN)
     KFAR W_OPEN
     ld a,1
+    ld (S_OPEN),a
     KFAR K_MSET
 s_loop:
     call K_GETEV
@@ -78,18 +80,40 @@ s_loop:
     ld a,(K_EV+2)
     cp 1
     jr z,.about
+    cp 7
+    jr z,.show                  ; Show Desktop (SHELL 12)
     sub 2
     jr c,s_loop
     jr z,s_loop
     cp S_NICONS + 1
     jr nc,s_loop
     KFAR K_LAUNCH               ; item 3 -> program 1, item 4 -> program 2
-.cmd:                           ; the About dialog's OK (id 1)
+.cmd:                           ; the About dialog's OK (id 1); the shell window's close box or SS+Q (S_WINID)
     ld a,(K_EV+1)
+    cp S_WINID
+    jr z,.close
     cp 1
     jr nz,s_loop
     ld ix,(S_ABOUT)
     KFAR W_CLOSE
+    jr s_loop
+.close:                         ; every window closes, the last one too (SHELL 12): the window kept, the desktop and the menu bar remain
+    ld ix,(S_WIN)
+    KFAR W_CLOSE
+    xor a
+    ld (S_OPEN),a
+    jr s_loop
+.show:                          ; Show Desktop: the window opened again, or raised when it is open
+    ld ix,(S_WIN)
+    ld a,(S_OPEN)
+    or a
+    jr nz,.raise
+    KFAR W_OPEN
+    ld a,1
+    ld (S_OPEN),a
+    jr s_loop
+.raise:
+    KFAR W_RAISE
     jr s_loop
 .about:                         ; the library's alert (APPLIB 5)
     ld hl,S_ABOUT
@@ -97,11 +121,11 @@ s_loop:
     call AL_ALERT
     jr s_loop
 
-S_TWIN:                         ; the shell's window (SHELL 4): an APPLIB 3 entry
-    DW CL_Window, 32
+S_TWIN:                         ; the shell's window (SHELL 4, 12): an APPLIB 3 entry; a CWindow: its close box and SS+Q post E_CMD S_WINID
+    DW CL_CWindow, 32
     DB 24
     DW 320                      ; four icons at x = 48 + 64 (p - 1): Paint is the fourth (docs/PAINT.md 10)
-    DB 80, 0, 0, 8
+    DB 80, 0, S_WINID, 8
     DW S_TITLE
 
 ; ---------------------------------------------------------------------------------------------------------------------------
@@ -253,14 +277,16 @@ S_MENUS:
     DB 1
     DW S_M1
 S_M1:
-    DB 1, 4, "Leap", 6
+    DB 1, 4, "Leap", 7
     DB 1, 0, 21, "About Leap Desktop..."
     DB 2, 2, 0                  ; a separator
     DB 3, 0, 10, "Calculator"
     DB 4, 0, 8, "Key Caps"
     DB 5, 0, 7, "Notepad"
     DB 6, 0, 5, "Paint"
+    DB 7, 0, 12, "Show Desktop"
 S_WIN:      DW 0
+S_OPEN:     DB 0                ; 1 while the shell's window is open
 S_ABOUT:    DW 0
 S_LAST:     DW 0                ; the icon last pressed
 S_TW:       DW 0
