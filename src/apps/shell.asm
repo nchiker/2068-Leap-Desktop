@@ -86,6 +86,10 @@ s_loop:
     jr z,.show                  ; Show Desktop (SHELL 12)
     cp 8
     jr z,.snd                   ; Sound Off / Sound On (docs/SOUND.md 5)
+    cp 9
+    jr nz,.p
+    ld a,7                      ; the Puzzle: item 9 is program 5
+.p:
     sub 2
     jr c,s_loop
     jr z,s_loop
@@ -142,7 +146,7 @@ s_loop:
 S_TWIN:                         ; the shell's window (SHELL 4, 12): an APPLIB 3 entry; a CWindow: its close box and SS+Q post E_CMD S_WINID
     DW CL_CWindow, 32
     DB 24
-    DW 320                      ; four icons at x = 48 + 64 (p - 1): Paint is the fourth (docs/PAINT.md 10)
+    DW 384                      ; five icons at x = 48 + 64 (p - 1): Paint is the fourth, the Puzzle the fifth (docs/PAINT.md 10, docs/PUZZLE.md)
     DB 80, 0, S_WINID, 8
     DW S_TITLE
 
@@ -289,19 +293,21 @@ S_NCALC:    DB 10, "Calculator"
 S_NCTRL:    DB 8, "Key Caps"
 S_NWRITE:   DB 7, "Notepad"
 S_NPAINT:   DB 5, "Paint"
-S_NAMES:    DW S_NCALC, S_NCTRL, S_NWRITE, S_NPAINT
-S_SETS:     DW ICON_CALC, ICON_KEYS, ICON_WRITE, ICON_PAINT   ; the bitmaps are in DOCK 6 (desk5.asm, docs/SIZE.md 4): G_ICON runs under R
+S_NPUZ:     DB 6, "Puzzle"
+S_NAMES:    DW S_NCALC, S_NCTRL, S_NWRITE, S_NPAINT, S_NPUZ
+S_SETS:     DW ICON_CALC, ICON_KEYS, ICON_WRITE, ICON_PAINT, ICON_PUZZLE   ; the bitmaps are in DOCK 6 (desk5.asm, docs/SIZE.md 4): G_ICON runs under R
 S_MENUS:
     DB 1
     DW S_M1
 S_M1:
-    DB 1, 4, "Leap", 8
+    DB 1, 4, "Leap", 9
     DB 1, 0, 21, "About Leap Desktop..."
     DB 2, 2, 0                  ; a separator
     DB 3, 0, 10, "Calculator"
     DB 4, 0, 8, "Key Caps"
     DB 5, 0, 7, "Notepad"
     DB 6, 0, 5, "Paint"
+    DB 9, 0, 6, "Puzzle"
     DB 7, 0, 12, "Show Desktop"
     DB 8, 0, 9
 S_SNDTXT:   DB "Sound Off"
@@ -313,7 +319,7 @@ S_TW:       DW 0
 S_I:        DB 0
     ENT
 S_IMG_LEN   EQU $ - S_IMG
-S_NICONS    EQU 4
+S_NICONS    EQU 5
 Icon_prog   EQU 16
 Icon_name   EQU 17
 Icon_SIZE   EQU 19
