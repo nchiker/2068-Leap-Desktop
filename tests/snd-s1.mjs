@@ -323,7 +323,7 @@ function shellEvents() {
   // 5a. menu choices and About
   {
     const sec = new Sec('5 shell events: a Leap menu item chosen sounds the select (id 2) once; About then the alert (3, chained to 6) in the same frame; a menu closed with nothing highlighted is silent (released on the title, released away from the items, ESC); Show Desktop; the alert\'s OK by key (ENTER, SPACE) and ESC / BREAK: the click (id 1) once per press');
-    scen(env, log, sec, 'Leap > Show Desktop (item 7)', [2], () => H.leapMenu(env, 7));
+    scen(env, log, sec, 'Leap > Show Desktop (item 8)', [2], () => H.leapMenu(env, 8));
     scen(env, log, sec, 'Leap > About (item 1): select, then the alert', [2, 3], () => H.leapMenu(env, 1), { settleN: 40 });
     scen(env, log, sec, 'the alert\'s OK by ENTER: a click', [1], () => typeKey(env, 13));
     scen(env, log, sec, 'About again (the dialog made once, reused)', [2, 3], () => H.leapMenu(env, 1));
@@ -418,12 +418,12 @@ function paintEvents() {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------
-// 9. the Leap menu's 8th item
+// 9. the Leap menu's Sound item (the 9th row)
 function leapGroup() {
   const { env, log } = shellEnv(); const { m, S: Sy } = env;
-  const sec = new Sec('9 the Leap menu\'s 8th item: "Sound Off" at start (the open dropdown against the model with 8 items), chosen: the select, then channel A silent at once (r8 = 0), K_SOUND 0, the item\'s 9 characters "Sound On ", the dropdown redrawn; with sound off no data write for any event (About, the alert\'s key, Show Desktop, the menu by keys); chosen again: K_SOUND 1, "Sound Off", and the sounds return');
+  const sec = new Sec('9 the Leap menu\'s Sound item (9th row): "Sound Off" at start (the open dropdown against the model with 9 rows), chosen: the select, then channel A silent at once (r8 = 0), K_SOUND 0, the item\'s 9 characters "Sound On ", the dropdown redrawn; with sound off no data write for any event (About, the alert\'s key, Show Desktop, the menu by keys); chosen again: K_SOUND 1, "Sound Off", and the sounds return');
   const txt = () => String.fromCharCode(...m.ram.subarray(Sy.S_SNDTXT, Sy.S_SNDTXT + 9));
-  const lay = (on) => layoutOf([SM.leapMenu(on)]), en = [[true, true, true, true, true, true, true, true]];
+  const lay = (on) => layoutOf([SM.leapMenu(on)]), en = [[true, true, true, true, true, true, true, true, true]];
   const mask = () => L.pointerMask(m, Sy);
   const dropdown = (ctx, on, hi) => {
     L.moveTo(env, 500, 180); env.frames_(3);
@@ -437,31 +437,31 @@ function leapGroup() {
   sec.ok(txt() === 'Sound Off' && m.ram[K_SOUND] === 1, () => `at start the item "${txt()}", K_SOUND ${m.ram[K_SOUND]}`);
   // the menu table in RAM: the item's record is id 8, flags 0, length 9
   { const b = Sy.S_SNDTXT - 3; sec.ok(m.ram[b] === 8 && m.ram[b + 1] === 0 && m.ram[b + 2] === 9, () => `the item's record ${m.ram[b]}, ${m.ram[b + 1]}, ${m.ram[b + 2]}, want 8, 0, 9`); }
-  dropdown('start', true, -1); dropdown('start', true, 7); dropdown('start', true, 6);
+  dropdown('start', true, -1); dropdown('start', true, 8); dropdown('start', true, 7);
   // choose it (item 8): the select (2), then K_SNDSET 0: r8 = 0 at once
-  const d1 = scen(env, log, sec, 'Leap > Sound Off (item 8): the select, then off', [2, 'off'], () => H.leapMenu(env, 8));
+  const d1 = scen(env, log, sec, 'Leap > Sound Off (item 9): the select, then off', [2, 'off'], () => H.leapMenu(env, 9));
   sec.ok(d1.length === 5 && d1[4].reg === 8 && d1[4].v === 0 && d1[4].f === d1[0].f, () => `the writes ${S.fmt(d1.map((e) => ({ f: e.f, reg: e.reg, v: e.v })))}: want the select's four and r8 = 0 in the same frame`);
   sec.ok(m.ram[K_SOUND] === 0 && m.ram[K_SNDN] === 0 && m.ay.regs[8] === 0, () => `K_SOUND ${m.ram[K_SOUND]}, K_SNDN ${m.ram[K_SNDN]}, r8 ${m.ay.regs[8]}`);
   sec.ok(txt() === 'Sound On ', () => `the item now "${txt()}" (${JSON.stringify(txt())}), want "Sound On " (9 characters)`);
   sec.ok(m.ram[K_AYREG] === 8, () => `K_AYREG ${m.ram[K_AYREG]} after the off`);
-  dropdown('sound off', false, -1); dropdown('sound off', false, 7);
+  dropdown('sound off', false, -1); dropdown('sound off', false, 8);
   // with sound off: no data write for any event
   scen(env, log, sec, 'sound off: Leap > About (no select, no alert sound)', [], () => H.leapMenu(env, 1), { on: false });
   scen(env, log, sec, 'sound off: the alert\'s OK by ENTER (no click)', [], () => typeKey(env, 13), { on: false });
-  scen(env, log, sec, 'sound off: Show Desktop', [], () => H.leapMenu(env, 7), { on: false });
+  scen(env, log, sec, 'sound off: Show Desktop', [], () => H.leapMenu(env, 8), { on: false });
   scen(env, log, sec, 'sound off: the menu by keys, MENU, ENTER (About)', [], () => { typeKey(env, 16); typeKey(env, 13); }, { on: false });
   if (L.openWindows(m, Sy).some((w) => w.cls === Sy.CL_Dialog)) typeKey(env, 13);
   scen(env, log, sec, 'sound off: 100 idle frames', [], () => env.frames_(100), { on: false });
   sec.ok(log.dat.length === 0, () => `${log.dat.length} data writes with sound off`);
   // on again: the select is not heard (it was off when chosen), K_SOUND 1, "Sound Off"
-  scen(env, log, sec, 'Leap > Sound On (item 8): no sound written (off when chosen), then on', [], () => H.leapMenu(env, 8), { on: false });
+  scen(env, log, sec, 'Leap > Sound On (item 9): no sound written (off when chosen), then on', [], () => H.leapMenu(env, 9), { on: false });
   sec.ok(m.ram[K_SOUND] === 1 && txt() === 'Sound Off', () => `K_SOUND ${m.ram[K_SOUND]}, the item "${txt()}"`);
   dropdown('sound on again', true, -1);
-  scen(env, log, sec, 'Leap > Show Desktop: the select is back', [2], () => H.leapMenu(env, 7));
+  scen(env, log, sec, 'Leap > Show Desktop: the select is back', [2], () => H.leapMenu(env, 8));
   scen(env, log, sec, 'Leap > About: select and alert again', [2, 3], () => H.leapMenu(env, 1));
   scen(env, log, sec, 'the alert\'s OK by ENTER: the click', [1], () => typeKey(env, 13));
   // choosing Sound Off in the middle of the alert's chain: the item is reachable only with no dialog (modal), so toggle twice quickly
-  scen(env, log, sec, 'Sound Off, On, Off, On (four toggles in a row): the select and r8 = 0 on the 1st and 3rd', [2, 'off', 'on', 2, 'off', 'on'], () => { for (let i = 0; i < 4; i++) H.leapMenu(env, 8); }, { on: true });
+  scen(env, log, sec, 'Sound Off, On, Off, On (four toggles in a row): the select and r8 = 0 on the 1st and 3rd', [2, 'off', 'on', 2, 'off', 'on'], () => { for (let i = 0; i < 4; i++) H.leapMenu(env, 9); }, { on: true });
   sec.ok(m.ram[K_SOUND] === 1 && txt() === 'Sound Off', () => `after four toggles K_SOUND ${m.ram[K_SOUND]}, the item "${txt()}"`);
   sec.end('the Sound item');
   countVf(env);

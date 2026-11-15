@@ -57,13 +57,15 @@ export const ICONART = parseIcons();
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------
 // The programs and the shell's geometry (SHELL 4, 5, 10.4)
-export const SHELL_WIN = { x: 32, y: 24, w: 320, h: 80, title: 'Leap Desktop' };
+export const SHELL_WIN = { x: 32, y: 24, w: 384, h: 80, title: 'Leap Desktop' };
 // PAINT 10: the window is 320 wide and a fourth icon "Paint" (program 4, `icon PAINT` in icons.txt) sits at (240, 40); the menu has item "Paint" (id 6).
 // WRITE 11.2: a third icon "Write" at (176, 40) (its bitmap is `icon WRITE` in icons.txt) and the menu item "Notepad" (id 5) after "Key Caps"
 export const ICONS = [{ name: 'Calculator', art: 'CALC', prog: 1, x: 48, y: 40, w: 64, h: 26 }, { name: 'Key Caps', art: 'KEYS', prog: 2, x: 112, y: 40, w: 64, h: 26 },
-  { name: 'Notepad', art: 'WRITE', prog: 3, x: 176, y: 40, w: 64, h: 26 }, { name: 'Paint', art: 'PAINT', prog: 4, x: 240, y: 40, w: 64, h: 26 }];
-// docs/SOUND.md 5: an 8th item (id 8) shows the action: "Sound Off" while sound is on (the start), "Sound On " (9 characters, a trailing space) while it is off.
-export const leapMenu = (soundOn = true) => menuSpec(1, 'Leap', [[1, 0, 'About Leap Desktop...'], [2, 2, ''], [3, 0, 'Calculator'], [4, 0, 'Key Caps'], [5, 0, 'Notepad'], [6, 0, 'Paint'], [7, 0, 'Show Desktop'], [8, 0, soundOn ? 'Sound Off' : 'Sound On ']]);
+  { name: 'Notepad', art: 'WRITE', prog: 3, x: 176, y: 40, w: 64, h: 26 }, { name: 'Paint', art: 'PAINT', prog: 4, x: 240, y: 40, w: 64, h: 26 },
+  { name: 'Puzzle', art: 'PUZZLE', prog: 5, x: 304, y: 40, w: 64, h: 26 }];   // docs/PUZZLE.md: the window is 384 wide and a fifth icon "Puzzle" (program 5, `icon PUZZLE`) sits at (304, 40)
+// The Puzzle (id 9) is shown 7th, after Paint (rows: About 1, separator 2, Calculator 3, Key Caps 4, Notepad 5, Paint 6, Puzzle 7, Show Desktop 8, Sound 9).
+// docs/SOUND.md 5: the Sound item (id 8, shown 9th) shows the action: "Sound Off" while sound is on (the start), "Sound On " (9 characters, a trailing space) while it is off.
+export const leapMenu = (soundOn = true) => menuSpec(1, 'Leap', [[1, 0, 'About Leap Desktop...'], [2, 2, ''], [3, 0, 'Calculator'], [4, 0, 'Key Caps'], [5, 0, 'Notepad'], [6, 0, 'Paint'], [9, 0, 'Puzzle'], [7, 0, 'Show Desktop'], [8, 0, soundOn ? 'Sound Off' : 'Sound On ']]);
 export const LEAP_MENU = leapMenu(true);
 export const ABOUT = { dialog: { x: 128, y: 64, w: 256, h: 64 }, label: { x: 144, y: 76, w: 224, h: 18, text: 'Leap Desktop, step 5' }, ok: { x: 304, y: 100, w: 64, h: 16, text: 'OK' } };
 export const DBL_FRAMES = 20;
@@ -164,7 +166,7 @@ export class ShellSim {
 if (process.argv[1] === fileURLToPath(import.meta.url) && process.argv.includes('--self-test')) {
   let bad = 0;
   const eq = (name, a, b) => { const ok = JSON.stringify(a) === JSON.stringify(b); if (!ok) bad++; console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${ok ? '' : `: got ${JSON.stringify(a)}, want ${JSON.stringify(b)}`}`); };
-  eq('icons parsed (CALC, KEYS, WRITE, PAINT)', [Object.keys(ICONART), ICONART.CALC.length, ICONART.KEYS[0].length], [['CALC', 'KEYS', 'WRITE', 'PAINT'], 16, 32]);
+  eq('icons parsed (CALC, KEYS, WRITE, PAINT, PUZZLE)', [Object.keys(ICONART), ICONART.CALC.length, ICONART.KEYS[0].length], [['CALC', 'KEYS', 'WRITE', 'PAINT', 'PUZZLE'], 16, 32]);
   // the bitmap: CALC's first row is '....####...' at x + 8: columns 4..27 inked
   { const g = new Gfx6Model(); iconLook(g, ICONS[0], false); eq('CALC row 0 pixels', [g.get(48 + 16 + 3, 40), g.get(48 + 16 + 4, 40), g.get(48 + 16 + 27, 40), g.get(48 + 16 + 28, 40)], [0, 1, 1, 0]); }
   // the name's width and the inverted box

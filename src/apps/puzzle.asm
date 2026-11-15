@@ -379,6 +379,10 @@ pz_draw:
     ld (PZ_I),a
 .l:
     ld a,(PZ_I)
+    call pz_geom
+    call pz_vis
+    jr c,.n                         ; the cell is outside the repaint rectangle
+    ld a,(PZ_I)
     ld c,a
     ld b,0
     ld hl,PZ_B
@@ -386,11 +390,44 @@ pz_draw:
     ld a,(hl)
     or a
     call nz,pz_tile
+.n:
     ld hl,PZ_I
     inc (hl)
     ld a,(hl)
     cp 16
     jr c,.l
+    ret
+
+; pz_vis: GA = a cell's rectangle (64 x 32): NC when it meets the clip, carry when it does not.  Clobbers AF, DE, HL.
+pz_vis:
+    ld hl,(GA)
+    ld de,(GCX1)
+    or a
+    sbc hl,de
+    jr nc,.no                       ; x >= the clip's right edge
+    ld hl,(GA)
+    ld de,64
+    add hl,de
+    ld de,(GCX0)
+    or a
+    sbc hl,de
+    jr c,.no
+    jr z,.no                        ; x + 64 <= the clip's left edge
+    ld hl,(GA+2)
+    ld de,(GCY1)
+    or a
+    sbc hl,de
+    jr nc,.no
+    ld hl,(GA+2)
+    ld de,32
+    add hl,de
+    ld de,(GCY0)
+    or a
+    sbc hl,de
+    jr c,.no
+    ret nz                          ; NC: it is visible
+.no:
+    scf
     ret
 
 ; pz_tile: A = a tile 1 .. 15, PZ_I its cell: the 38 x 30 frame and its number in bold, centred.  Clobbers AF, BC, DE, HL.
@@ -431,14 +468,15 @@ pz_tile:
     ld l,a
     ld h,0
     ld (GA+6),hl
-    call G_TEXTW                    ; HL = the number's width
-    ex de,hl
-    ld hl,64
-    or a
-    sbc hl,de
-    sra h
-    rr l                            ; (64 - width) / 2
-    ld de,(GA)
+    ld a,(PZ_N)                     ; centred by the digits (about 6 pixels each): x + 32 - 3 n
+    ld c,a
+    add a,a
+    add a,c
+    neg
+    add a,32
+    ld e,a
+    ld d,0
+    ld hl,(GA)
     add hl,de
     ld (GA),hl
     ld hl,(GA+2)
