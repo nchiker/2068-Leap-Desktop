@@ -376,3 +376,15 @@ enabled. Item 1: `PN_FILL` = 1, "Filled shapes" disabled, "Hollow shapes" enable
 smaller x, w = |dx| + 1, y = the smaller y, h = |dy| + 1). The band is clipped to the picture, with the pointer shielded. On the release: the band is erased (if drawn), then **Line:** `G_LINE` in SET from the anchor to the
 release point; **Rectangle, hollow:** `G_FRAME` in SET; **Rectangle, filled** (`PN_FILL`): first `G_PATFILL` REPLACE of the inside (x + 1, y + 1, w - 2, h - 2) with the chosen pattern, then the `G_FRAME` in SET. The stroke's
 box is the two corners (anchor and release point, pad 0); the commit (undo box, copy) is as for the other tools. A press and release at one point draws a 1-pixel line / a 1 x 1 rectangle.
+
+## 18. As built: P2b-2, the rounded rectangle and the oval (2026-11-15; the reference for the tests)
+
+**`G_RRECT`** (`src/gfx6/rrect.asm`, DOCK 6, mapping R): the outline of a rectangle with quarter-ellipse corners, and optionally its inside in a pattern. Arguments: GA = x, y, w, h (w or h <= 0 draws nothing); GA+10 = rx, GA+12 = ry
+(words; each cut to w / 2 and h / 2, rx to 255 and ry to 100; 255 and 100 make an oval, 0 and 0 a plain rectangle); GA+14 = the mode (a byte: 0 the outline only, 1 the inside first by `G_PATFILL` REPLACE with the pattern at
+GA+8, then the outline); GOP = the outline's op (SET or CLR). Clipped to GCLIP. GA is clobbered, GOP, IX and IY kept; state in hot RAM `$E0D0-$E0F5`; pool bytes 0.
+The shape: K = max(ry, 1) corner rows, rr = 0 .. K - 1 from the top edge, each mirrored to the bottom row (y + h - 1 - rr), a row drawn once when the two are one row; **inset(rr) = rx - round(rx x v / (2 ry))** with
+v = isqrt(4 ry^2 - (2 (ry - rr) - 1)^2) and the rounding `(rx x v + ry) div (2 ry)`, inset 0 when ry = 0. A row's span is [x + inset, x + w - 1 - inset] (width w - 2 inset). When filled, each row's whole span is
+filled first; the outline is then, on rr = 0, the whole span, and on rr > 0 a run on each side: `run = max(1, inset(rr - 1) - inset(rr))` pixels from the span's ends inwards. The rows between the corners (h - 2 K rows from y + K,
+when positive) are the whole width in the pattern (when filled) and the two side columns (x and x + w - 1) in the op.
+**Tools:** Rounded rectangle (8): rx = 8, ry = 4 (a corner round on mode 6's 1 : 2 pixels); Oval (9): rx = 255, ry = 100 (cut to w / 2, h / 2). Both rubber-band with the bounding rectangle (XOR `G_FRAME`) as the
+Rectangle does; the release draws `G_RRECT` in SET with the mode `PN_FILL` and the chosen pattern; the stroke's box and commit as for the Rectangle. All ten tools but the Marquee (0) and the Bucket (5) now draw.

@@ -1009,12 +1009,12 @@ pn_cevent:
     jr c,.no
     cp 144
     jr nc,.no
-    ld a,(PN_TOOL)                  ; the pencil, the brush, the eraser, the spray, the line and the rectangle draw
+    ld a,(PN_TOOL)                  ; every tool but the marquee and the bucket draws
     or a
     jr z,.nyet
     cp 5
     jr z,.nyet
-    cp 8
+    cp 10
     jr c,.go
 .nyet:
     ld hl,PN_MNYET                  ; the other tools are not built yet
@@ -1088,7 +1088,7 @@ pn_org:
 
 
 ; ---------------------------------------------------------------------------------------------------------------------------
-; The shapes (PAINT 7): the line and the rectangle (the rounded rectangle and the oval: P2b-2).  A press is the anchor (PN_AX, PN_AY); while the button is
+; The shapes (PAINT 7): the line, the rectangle, the rounded rectangle and the oval (G_RRECT, PAINT 18).  A press is the anchor (PN_AX, PN_AY); while the button is
 ; held an XOR band joins the anchor and the pointer (the line: G_LINE; the others: the bounding rectangle, G_FRAME), erased and drawn again at every
 ; move; the release erases it and draws the shape: the line in SET, a rectangle hollow (G_FRAME) or, with "Filled shapes", its inside in the chosen pattern
 ; (G_PATFILL, REPLACE) and then the frame.
@@ -1205,6 +1205,30 @@ pn_shapedone:
     KFAR G_LINE
     jr .box
 .r:
+    ld a,(PN_TOOL)
+    cp 8
+    jr c,.rc
+    call pn_rectga                  ; the rounded rectangle (radii 8 x 4) and the oval (radii cut to the half sides)
+    ld hl,8
+    ld de,4
+    ld a,(PN_TOOL)
+    cp 9
+    jr nz,.rr
+    ld hl,255
+    ld de,100
+.rr:
+    ld (GA+10),hl
+    ld (GA+12),de
+    ld a,(PN_FILL)
+    ld (GA+14),a
+    ld a,(PN_PAT)
+    call pn_patptr
+    ld (GA+8),hl
+    xor a
+    ld (GOP),a
+    KFAR G_RRECT
+    jr .box
+.rc:
     ld a,(PN_FILL)
     or a
     jr z,.h
