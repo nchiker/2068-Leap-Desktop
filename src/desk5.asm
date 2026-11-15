@@ -6,7 +6,7 @@
     DEFINE K_DCLICK             ; E_DOWN's data 3 bit 2 marks a double-click (docs/WRITE.md 14.9): desk5 only
     DEFINE G_LEAN               ; G_CLS, G_VLINE and G_ROWADDR are left out (no program uses them; docs/SIZE.md 1 S3): desk5 only
     DEFINE K_NOWARP             ; K_WARP and K_POLL's warp block are left out (docs/SIZE.md 1 S4): desk5 only
-    DEFINE G_LIB6               ; G_SCROLLV, G_BLIT and G_LINE live in DOCK 6 (docs/SIZE.md 4, docs/PAINT.md 11.1): desk5 only
+    DEFINE G_LIB6               ; G_SCROLLV, G_ICON and G_LINE live in DOCK 6 (docs/SIZE.md 4, docs/PAINT.md 11.1): desk5 only
     DEFINE SOUND                ; UI sounds on the AY (docs/SOUND.md): desk5 only
     DEFINE K_BOXES              ; K_BOX: a box between the arena and cold RAM, for Paint's undo (docs/PAINT.md 6): desk5 only
     DEFINE MASKS_SHARED         ; LMASK / RMASK are the first 8 bytes of LMASKP / RMASKP (docs/SIZE.md 1 S5): desk5 only
@@ -196,13 +196,13 @@ K_PROGS:                        ; the programs (SHELL 10.3): 0 the shell, 1 Calc
     ORG $C000
 G6_START:
     INCLUDE "gfx6/s3sv.asm"     ; G_SCROLLV
-    INCLUDE "gfx6/s3bl.asm"     ; G_BLIT (uses sc_clip)
     INCLUDE "gfx6/s3ln.asm"     ; G_LINE
     INCLUDE "gfx6/patfill.asm"  ; G_PATFILL and the 16 patterns (docs/PAINT.md 7)
     INCLUDE "gfx6/rrect.asm"    ; G_RRECT: the rounded rectangle and the oval (docs/PAINT.md 7, 18)
     INCLUDE "gfx6/flood.asm"    ; G_FLOOD: the bucket (docs/PAINT.md 21)
-    INCLUDE "icons.inc"         ; the shell's icons (G_BLIT's set, 160 bytes each)
-    INCLUDE "ticons.inc"        ; Paint's tool icons (G_BLIT's set, 96 bytes each)
+    INCLUDE "gfx6/icon.asm"     ; G_ICON: the opaque bitmap copy (docs/ICON.md)
+    INCLUDE "icons.inc"         ; the shell's icons (G_ICON's rows, 64 bytes each)
+    INCLUDE "ticons.inc"        ; Paint's tool icons (G_ICON's rows, 64 bytes each)
 G6_END:
     ASSERT $ <= $E000
 

@@ -147,7 +147,7 @@ S_TWIN:                         ; the shell's window (SHELL 4, 12): an APPLIB 3 
     DW S_TITLE
 
 ; ---------------------------------------------------------------------------------------------------------------------------
-; Icon's methods (banked).  ic_draw (10.4, 10.5): paper, the bitmap (G_BLIT, copy 0: x + 16 is on the byte grid), the name centred
+; Icon's methods (banked).  ic_draw (10.4, 10.5): paper, the bitmap (G_ICON: x + 16 is on the byte grid), the name centred
 ; below, inverted when focused.
 ic_draw:
     ld l,(ix+View_x)
@@ -184,7 +184,7 @@ ic_draw:
     ld h,(hl)
     ld l,a
     ld (GA+8),hl
-    KFAR G_BLIT
+    KFAR G_ICON
     ld l,(ix+Icon_name)         ; the name
     ld h,(ix+Icon_name+1)
     ld a,(hl)
@@ -290,7 +290,7 @@ S_NCTRL:    DB 8, "Key Caps"
 S_NWRITE:   DB 7, "Notepad"
 S_NPAINT:   DB 5, "Paint"
 S_NAMES:    DW S_NCALC, S_NCTRL, S_NWRITE, S_NPAINT
-S_SETS:     DW ICON_CALC, ICON_KEYS, ICON_WRITE, ICON_PAINT   ; the bitmaps are in DOCK 6 (desk5.asm, docs/SIZE.md 4): G_BLIT runs under R
+S_SETS:     DW ICON_CALC, ICON_KEYS, ICON_WRITE, ICON_PAINT   ; the bitmaps are in DOCK 6 (desk5.asm, docs/SIZE.md 4): G_ICON runs under R
 S_MENUS:
     DB 1
     DW S_M1

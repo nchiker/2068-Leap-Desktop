@@ -248,18 +248,17 @@ pn_tdraw:
 .cell:
     ld a,(PN_T)
     call pn_cellxy
-    ld hl,(PN_CX)                   ; the icon: (x + 8, y, 16, 16), its set 96 bytes a tool
-    ld de,8
-    add hl,de
+    ld hl,(PN_CX)                   ; the icon: the whole cell (x, y, 32, 16), its rows 64 bytes a tool (G_ICON)
     ld (GA),hl
     ld hl,(PN_CY)
     ld (GA+2),hl
-    ld hl,16
+    ld hl,32
     ld (GA+4),hl
+    ld hl,16
     ld (GA+6),hl
     ld a,(PN_T)
     ld hl,TICON_MARQUEE
-    ld de,96
+    ld de,64
 .s:
     or a
     jr z,.sd
@@ -268,7 +267,7 @@ pn_tdraw:
     jr .s
 .sd:
     ld (GA+8),hl
-    KFAR G_BLIT
+    KFAR G_ICON
     xor a
     ld (GOP),a                      ; SET
     ld hl,(PN_CX)                   ; the frame (x - 1, y - 1, 33, 17)

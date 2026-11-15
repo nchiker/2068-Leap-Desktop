@@ -62,7 +62,7 @@ export const UNDO_MAX = 2048;
 export const PBM_HEADER = codesOf('P4\n320 144\n');
 export const PBM_LEN = 11 + 144 * 40;
 
-/** The ten 16 x 16 tool icons of src/apps/ticons.txt ('#' ink): an array of ten arrays of 16 strings. */
+/** The ten 32 x 16 tool icons of src/apps/ticons.txt ('#' ink): an array of ten arrays of 16 strings of 32 characters (checked on parsing). */
 export const ICONS = (() => {
   const out = {}; let cur = null;
   for (const line of readFileSync(join(ROOT, 'src/apps/ticons.txt'), 'utf8').split('\n')) {
@@ -71,7 +71,11 @@ export const ICONS = (() => {
     if (t.startsWith('icon ')) { cur = out[t.slice(5).trim()] = []; continue; }
     if (cur) cur.push(t);
   }
-  return ICONNAMES.map((n) => out[n]);
+  return ICONNAMES.map((n) => {
+    const a = out[n];
+    if (!a || a.length !== 16 || a.some((r) => !/^[#.]{32}$/.test(r))) throw new Error(`ticons.txt: icon ${n} is not 16 rows of 32 of # and .`);
+    return a;
+  });
 })();
 
 // ---------------------------------------------------------------------------------------------------------------------------
@@ -291,12 +295,12 @@ export function putBoxPixels(model, b, px) {
 
 // ---------------------------------------------------------------------------------------------------------------------------
 // The pixels
-/** The tool box: for each cell the opaque icon at (x + 8, y), the frame (x - 1, y - 1, 33, 17) in SET, the chosen cell's interior (x, y, 31, 15) inverted. */
+/** The tool box: for each cell the opaque 32 x 16 icon at (x, y) (G_ICON, the whole cell), the frame (x - 1, y - 1, 33, 17) in SET, the chosen cell's interior (x, y, 31, 15) inverted. */
 const put = (g, x, y, v) => { if (x >= 0 && x < 512 && y >= 0 && y < 192) g.set(x, y, v); };
 export function toolBoxLook(g, tool, ox = 0, oy = 0) {
   for (let t = 0; t < 10; t++) {
     const c = cellOf(t), art = ICONS[t];
-    for (let r = 0; r < 16; r++) for (let q = 0; q < 16; q++) put(g, c.x + ox + 8 + q, c.y + oy + r, art[r][q] === '#' ? 1 : 0);
+    for (let r = 0; r < 16; r++) for (let q = 0; q < 32; q++) put(g, c.x + ox + q, c.y + oy + r, art[r][q] === '#' ? 1 : 0);
     g.setOp(OP_SET); g.frame(c.x + ox - 1, c.y + oy - 1, 33, 17);
     if (t === tool) { g.setOp(OP_XOR); g.fill(c.x + ox, c.y + oy, 31, 15); }
   }
