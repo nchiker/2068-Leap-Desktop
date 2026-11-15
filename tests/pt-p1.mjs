@@ -1,21 +1,23 @@
 "use strict";
-// pt-p1.mjs -- Paint slices P1 and P2a (program 4, docs/PAINT.md 2-9 and the "As built" sections 15 and 16) on the prebuilt `desk5` cartridge (build/desk5.dck, build/desk5/out.sym; never rebuilt here).
+// pt-p1.mjs -- Paint slices P1, P2a and P2b-1 (program 4, docs/PAINT.md 2-9 and the "As built" sections 15, 16 and 17) on the prebuilt `desk5` cartridge (build/desk5.dck, build/desk5/out.sym; never rebuilt here).
 // Written from the contract; src/apps/paint.asm was used only to find symbol names.  The reference is tests/pt-model.mjs (the window, the tool box, the pencil's G_LINE segments, the eraser's stamps, the commit,
 // the undo box, Clear / New, the PBM bytes), the harness tests/pt-lib.mjs (on tests/shell-lib.mjs and tests/calc-lib.mjs).
 //   node tests/pt-p1.mjs [--seed N] [--nrand N] [--only LIST] [--verbose]
 //     --nrand N    random strokes in groups 3 and 4 (default 12 each)
 //     --only LIST  groups: 1 launch, 2 tool box, 3 pencil, 4 eraser, 5 undo (and Clear), 6 files (Save, Open, the discard question, New), 7 quit, 8 exposure (dialogs over the canvas, a dragged window), 9 bounds and report rows,
-//                  10 P2a: the pattern and brush palettes, the brush, the spray (PAINT 16), 11 the spray's frame rule (PAINT 16)
+//                  10 P2a: the pattern and brush palettes, the brush, the spray (PAINT 16), 11 the spray's frame rule (PAINT 16),
+//                  12 P2b-1 (PAINT 17): the Options menu, the Line and the Rectangle tools (the XOR band, hollow and filled)
 // Exit code 1 on any failure.  The last lines are "pt-p1: N passed, M failed" and "pt-p1: N of M groups pass".
 // Where the machine disagrees with the contract the test says so and fails: the model is not changed to match the machine.
 // PAINT 3 (corrected 2026-11-14): the copy's part 1 holds the ODD byte columns; its header is (OX >> 3, 40, OY, 144) of the last whole-picture save; the picture origin follows the Canvas view (x + 2, y + 2).
 import * as Q from './pt-lib.mjs';
 import * as T from './tk-lib.mjs';
+import { openLook } from './look-model.mjs';
 
 const { L, P, H, WM, W3, hex, rd16 } = Q;
 const { argv, argNum } = L;
 const SEED = argNum('--seed', 1), NRAND = argNum('--nrand', 12);
-const ONLY = argv.includes('--only') ? String(argv[argv.indexOf('--only') + 1]).split(',').map(Number) : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+const ONLY = argv.includes('--only') ? String(argv[argv.indexOf('--only') + 1]).split(',').map(Number) : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const VERBOSE = argv.includes('--verbose');
 const rng = L.makeRng(SEED);
 const { C, Sec, finish } = Q.makeGroups('pt-p1', VERBOSE);
@@ -193,7 +195,7 @@ function g3() {
     sec.ok(eq(Array.from(st.copyBytes()), Array.from(was.copyBytes())), `${what}: the model's picture is unchanged`);
   }
   // another tool: "Not built yet", nothing drawn, nothing committed
-  for (const t of [0, 5, 6, 7, 8, 9]) {
+  for (const t of [0, 5, 8, 9]) {
     Q.chooseTool(env, t); st.chooseTool(t);
     const dirty0 = st.dirty;
     Q.stroke(env, [[300, 100], [320, 110], [340, 100]], { settle: 12 });
@@ -740,7 +742,7 @@ function g10() {
   // a brush stamp is up to 15,000 T, a 24-pixel step 12 stamps: steps are split to 24 pixels and followed by 4 quiet frames, so that the machine finishes each step before the next (as a hand would not outrun it)
   const slow = () => (st.tool === 2 ? { gap: 4, max: 24, settle: 30 } : {});
   const go = (ctx, pts, o = {}) => { const r = doStroke(env, sec, ctx, pts, { check: { adoptStatus: true }, ...slow(), ...o });
-    if (st.tool === 4 && r.began) sec.ok(r.burstBad === 0 && r.bursts.length >= 1 && r.bursts[0].x === r.pts[0][0] && r.bursts[0].y === r.pts[0][1] && !r.bursts[0].idle, () => `${ctx}: the machine's bursts (${r.bursts.length}) must be at the pointer's positions, the first at the press: ${r.burstBad} elsewhere; first ${JSON.stringify(r.bursts[0])}, press at ${r.pts[0]}`); pads(ctx); if (st.undoOn) undoAreaOk(env, sec, ctx); return r; };
+    if (st.tool === 4 && r.began) sec.ok(r.burstBad === 0 && r.bursts.length >= 1 && r.bursts[0].x === r.pts[0][0] && r.bursts[0].y === r.pts[0][1] && !r.bursts[0].idle, () => `${ctx}: the machine's bursts (${r.bursts.length}) must be at the pointer's positions, the first at the press: ${r.burstBad} elsewhere; first ${JSON.stringify(r.bursts[0])}, press at ${r.pts[0]}`); if (st.tool === 4 && r.began) sec.ok(r.burstDup === 0, () => `${ctx}: PAINT 16: at most one burst a frame, but ${r.burstDup} burst(s) share a frame with the one before (${r.bursts.map((b) => 'f' + b.f + (b.idle ? 'i' : 'e')).join(' ')})`); pads(ctx); if (st.undoOn) undoAreaOk(env, sec, ctx); return r; };
   const pat = (p) => { Q.choosePattern(env, p); st.choosePat(p); };
   const brush = (b) => { Q.chooseBrush(env, b); st.chooseBrush(b); };
   const tool = (t) => { Q.chooseTool(env, t); st.chooseTool(t); };
@@ -884,35 +886,211 @@ function g10() {
 }
 
 // ===========================================================================================================================================
-// 11. The spray's frame rule (PAINT 16: a burst on the press, on every E_MOVE and on every frame WITHOUT an event while the button is held; the release frame has an event and no burst)
+// 11. The spray's frame rule (PAINT 16: a burst on the press, on every E_MOVE and on every frame WITHOUT an event while the button is held; AT MOST ONE burst a frame (PN_SPR); the release frame has an event and no burst)
 function g11() {
-  const sec = new Sec('11 spray frame rule (PAINT 16): bursts on the press, on every E_MOVE, and on every frame without an event while held (pn_idle); read from the entry of pn_spray');
+  const sec = new Sec('11 spray frame rule (PAINT 16): a burst on the press, on each E_MOVE frame and on each frame without an event while held (pn_idle), never two in one frame, none after the release; read from the entry of pn_spray');
   const env = newEnv(), { m, S } = env, st = env.st;
   Q.chooseTool(env, 4); st.chooseTool(4);
   const fmt = (l) => l.map((b) => `${b.idle ? 'idle' : 'event'}@(${b.x},${b.y}) f${b.f}`).join(', ');
-  // A: press at P0, then the pointer moves to P1 in the next frame, then 3 quiet frames and the release: the contract gives [press P0, E_MOVE P1, idle P1 x 3 ...]; the first two bursts must be the press at P0 and a burst at P1 from the E_MOVE
-  {
-    L.moveTo(env, 300, 100); env.frames_(2); env.bursts.length = 0;
-    m.mouse.buttons = L.MOUSE_LEFT; env.frame();
-    const f0 = env.frames; Q.stepTo(env, 310, 100); env.frames_(3);
-    m.mouse.buttons = L.MOUSE_UP; env.frames_(12);
+  /** A scripted stroke: steps 'down', ['m', x, y], 'quiet', 'up' (one frame each); each frame's bursts are matched with what the contract gives it. */
+  function run(name, p0, steps) {
+    L.moveTo(env, p0[0], p0[1]); env.frames_(2); env.bursts.length = 0;
+    const frames = []; let pos = L.pointerPos(m, S);
+    for (const s of steps) {
+      const kind = Array.isArray(s) ? 'move' : s, f = env.frames;
+      if (kind === 'down') { m.mouse.buttons = L.MOUSE_LEFT; env.frame(); }
+      else if (kind === 'up') { m.mouse.buttons = L.MOUSE_UP; env.frame(); }
+      else if (kind === 'move') pos = Q.stepTo(env, s[1], s[2]);
+      else env.frame();
+      frames.push({ kind, f, pos });
+    }
+    env.frames_(10);
     const b = env.bursts.splice(0);
-    sec.ok(b.length >= 2 && !b[0].idle && b[0].x === 300 && !b[1].idle && b[1].x === 310, () => `after the press at (300, 100) and a move to (310, 100) the first two bursts should be the press and the E_MOVE's; the machine's first bursts: ${fmt(b.slice(0, 4))}`);
+    // the rule frame by frame
+    const byF = new Map(); for (const x of b) byF.set(x.f, [...(byF.get(x.f) || []), x]);
+    sec.ok([...byF.values()].every((l) => l.length === 1), () => `${name}: two bursts in one frame (PAINT 16: at most one a frame); the machine's bursts: ${fmt(b)}`);
+    let held = false;
+    for (const fr of frames) {
+      const l = byF.get(fr.f) || [];
+      if (fr.kind === 'down') { held = true; sec.ok(l.length === 1 && !l[0].idle && l[0].x === fr.pos[0] && l[0].y === fr.pos[1], () => `${name}: the press frame f${fr.f} should have one burst from the event at (${fr.pos}); got ${fmt(l)}`); }
+      else if (fr.kind === 'move') sec.ok(l.length === 1 && !l[0].idle && l[0].x === fr.pos[0] && l[0].y === fr.pos[1], () => `${name}: the E_MOVE frame f${fr.f} should have one burst from the event at (${fr.pos}); got ${fmt(l)}`);
+      else if (fr.kind === 'quiet') sec.ok(l.length === 1 && l[0].idle && l[0].x === fr.pos[0] && l[0].y === fr.pos[1], () => `${name}: the quiet frame f${fr.f} (button held, no event) should have one idle burst at (${fr.pos}); got ${fmt(l)}`);
+      else if (fr.kind === 'up') { held = false; sec.ok(l.length === 0, () => `${name}: the release frame f${fr.f} has an event and no burst; got ${fmt(l)}`); }
+    }
+    const total = b.length, want = frames.filter((x) => x.kind !== 'up').length;
+    sec.ok(total === want, () => `${name}: ${total} bursts in all, the contract gives ${want} (one for each frame with the button held); the machine's: ${fmt(b)}`);
+    const after = frames.length ? b.filter((x) => x.f > frames[frames.length - 1].f) : [];
+    sec.ok(after.length === 0, () => `${name}: ${after.length} burst(s) after the release; ${fmt(after)}`);
+    return b;
   }
-  // B: press, 2 quiet frames, release: the contract gives 3 bursts (the press and 2 idle); the release frame has an event (E_UP) and no burst
-  {
-    L.moveTo(env, 300, 120); env.frames_(2); env.bursts.length = 0;
-    m.mouse.buttons = L.MOUSE_LEFT; env.frame(); env.frames_(2);
-    m.mouse.buttons = L.MOUSE_UP; env.frame(); env.frames_(12);
-    const b = env.bursts.splice(0);
-    sec.ok(b.length === 3, () => `a press, 2 quiet frames and the release: ${b.length} bursts, the contract gives 3 (the press and two pn_idle); the machine's: ${fmt(b)}`);
-  }
-  // C: nothing after the release (no bursts without the button)
+  // A: press at P0, a move to P1, 3 quiet frames, release
+  run('A press, move, 3 quiet, release', [300, 100], ['down', ['m', 310, 100], 'quiet', 'quiet', 'quiet', 'up']);
+  // B: press, 2 quiet frames, release
+  run('B press, 2 quiet, release', [300, 120], ['down', 'quiet', 'quiet', 'up']);
+  // C: moves on every frame (6 frames), no quiet frame
+  run('C a move every frame', [200, 60], ['down', ['m', 206, 60], ['m', 212, 62], ['m', 206, 64], ['m', 200, 66], ['m', 206, 68], ['m', 212, 70], 'up']);
+  // D: an alternating mix of moves and quiet frames, then a long hold
+  run('D moves and quiet frames mixed', [220, 90], ['down', 'quiet', ['m', 226, 90], 'quiet', 'quiet', ['m', 232, 94], ['m', 238, 94], 'quiet', 'up']);
+  run('E a hold of 30 frames', [250, 140], ['down', ...Array(30).fill('quiet'), 'up']);
+  // F: a press, a move of 0 (no change: no event) is a quiet frame; a big jump of 100 pixels is one E_MOVE
+  run('F a jump of 100 pixels', [140, 60], ['down', ['m', 240, 60], 'quiet', ['m', 140, 120], 'up']);
+  // G: nothing after the release (no bursts without the button)
   {
     env.bursts.length = 0; env.frames_(10);
     sec.ok(env.bursts.length === 0, () => `${env.bursts.length} bursts in 10 frames with the button up`);
   }
   sec.end(`PN_RND ${hex(rd16(m, S.PN_RND))}`);
+}
+
+// ===========================================================================================================================================
+// 12. P2b-1 (PAINT 17): the Options menu, the Line and the Rectangle tools
+function g12() {
+  const env = newEnv(), { m, S } = env, st = env.st;
+  const sec = new Sec('12 P2b-1 (PAINT 17): the Options menu (Filled / Hollow shapes, PN_FILL, MB_ENABLE), the Line tool (XOR band, SET line at the release, box = the two endpoints, undo, clipping), the Rectangle tool hollow and filled (normalised corners, w = |dx| + 1, the filled inside by REPLACE of the pattern, then the frame), every pattern');
+  const after = (ctx, o = {}) => { settleCheck(env, sec, ctx, o); if (st.undoOn) undoAreaOk(env, sec, ctx); };
+  const tool = (t) => { Q.chooseTool(env, t); st.chooseTool(t); };
+  const pat = (p) => { Q.choosePattern(env, p); st.choosePat(p); };
+  const optionsMenu = (ii, o) => Q.menuPick(env, 2, ii, o);
+  const lay = P.layoutOf(P.MENUS);
+  // the screen with the Options menu open (and the highlight on item hl), against the model
+  const openCheck = (ctx, hl) => {
+    const g = P.renderScreen(st, { dialog: (gg) => openLook(gg, P.MENUS, lay, P.menuEn(st.undoOn, st.fill), 2, hl) });
+    const d = H.diffDisp(H.readDisp(m), P.toDisp(g), L.pointerMask(m, S, []));
+    sec.ok(d === null, () => `${ctx}: the open Options menu (highlight ${hl}): the screen: ${d}`);
+  };
+  const setFill = (on) => {                                   // by the menu, through the open dropdown check
+    if (st.fill === !!on) return;
+    const b = lay.boxes[2], d = lay.drops[2], item = on ? 0 : 1;
+    L.moveTo(env, b.x + (b.w >> 1), 3); m.mouse.buttons = L.MOUSE_LEFT; env.frames_(3);
+    openCheck(`Options opened (${st.fill ? 'filled' : 'hollow'} mode)`, -1);
+    L.moveTo(env, d.x + 12, 9 + 10 * item + 5); env.frames_(2);
+    openCheck(`Options, the pointer on item ${item}`, item);
+    m.mouse.buttons = L.MOUSE_UP; env.frames_(10);
+    st.setFill(on);
+    settleCheck(env, sec, `Options > ${on ? 'Filled' : 'Hollow'} shapes`);
+  };
+  // -- 1. the Options menu itself
+  sec.ok(!st.fill && Q.menuWord(env, 2) === 0b10 && m.ram[S.PN_FILL] === 0, () => `at launch: PN_FILL ${m.ram[S.PN_FILL]}, the Options word ${Q.menuWord(env, 2).toString(2)} (want 0, 10: Filled shapes enabled, Hollow shapes disabled)`);
+  settleCheck(env, sec, 'the bar "File Edit Options" as launched');
+  setFill(true);
+  sec.ok(m.ram[S.PN_FILL] === 1 && (Q.menuWord(env, 2) & 3) === 0b01, () => `Filled shapes: PN_FILL ${m.ram[S.PN_FILL]}, word ${(Q.menuWord(env, 2) & 3).toString(2)}, want 1, 01`);
+  optionsMenu(0); settleCheck(env, sec, 'Options > Filled shapes again (the item is disabled): nothing changes');
+  setFill(false);
+  sec.ok(m.ram[S.PN_FILL] === 0 && (Q.menuWord(env, 2) & 3) === 0b10, () => `Hollow shapes: PN_FILL ${m.ram[S.PN_FILL]}, word ${(Q.menuWord(env, 2) & 3).toString(2)}, want 0, 10`);
+  optionsMenu(1); settleCheck(env, sec, 'Options > Hollow shapes again (the item is disabled): nothing changes');
+  setFill(true); setFill(true); setFill(false); setFill(false); setFill(true); setFill(false);
+  sec.ok(!m.ram[S.PN_DIRTY] && !m.ram[S.PN_UNDO], 'the Options menu changed neither PN_DIRTY nor PN_UNDO');
+  // -- the tools' margins and anchors
+  const shapePads = (ctx) => { const [pc, pr] = P.PADS[st.tool]; sec.ok(m.ram[S.PN_PADC] === pc && m.ram[S.PN_PADR] === pr, () => `${ctx}: PN_PADC / PN_PADR ${m.ram[S.PN_PADC]}, ${m.ram[S.PN_PADR]}; the margins of tool ${st.tool} are ${pc}, ${pr}`); };
+  // a stroke with the band checked after every pointer position (the display is the picture XOR the band, the copy still the state before the stroke), then the release: the model, the display, the copy, the box, the undo area
+  const shape = (ctx, pts, o = {}) => {
+    const before = st.clone(), t = st.tool;
+    // a band longer than about 100 pixels takes more than a frame (erase the old band, draw the new): quiet frames follow each point, so that the check sees the finished band
+    const far = Math.max(...pts.map(([x, y]) => Math.max(Math.abs(x - pts[0][0]), Math.abs(y - pts[0][1])))) > 90;
+    const r = Q.stroke(env, pts, { gap: far ? 3 : 0, ...o, mid: o.noMid ? undefined : (i, seen) => {
+      if (i === 0) { const ax = rd16(m, S.PN_AX), ay = m.ram[S.PN_AY]; sec.ok(ax === seen[0][0] && ay === seen[0][1], () => `${ctx}: the anchor PN_AX, PN_AY = (${ax}, ${ay}), the press was at (${seen[0]})`); }
+      Q.check(env, sec, `${ctx}: mid-stroke after point ${i}`, { st: st.bandModel(), copyOf: before, extra: i > 0 ? [seen[i - 1]] : [] });   // the previous pointer position is masked too (see the report: the pointer image can linger one frame outside the picture)
+    } });
+    settleCheck(env, sec, ctx, o.check || {});
+    shapePads(ctx);
+    if (st.undoOn) undoAreaOk(env, sec, ctx);
+    sec.ok(r.box === null || (r.box.nc * r.box.nr <= 2048) === st.undoOn, () => `${ctx}: box ${JSON.stringify(r.box)} (${r.box && r.box.nc * r.box.nr} bytes): the model's undo ${st.undoOn}`);
+    return r;
+  };
+  const noise2 = noise;
+  const undoRedo = (ctx) => {
+    if (!st.undoOn) return;
+    editMenu(env, 0); st.undo(); after(`Undo of ${ctx}`);
+    editMenu(env, 0); st.undo(); after(`Undo again (redo) of ${ctx}`);
+    editMenu(env, 0); st.undo(); after(`Undo, a third time, of ${ctx}`);
+    editMenu(env, 0); st.undo(); after(`Undo, a fourth time, of ${ctx}`);
+  };
+  // -- 2. the Line
+  tool(6);
+  settleCheck(env, sec, 'the Line chosen');
+  { const r = shape('a press and release at one point (200, 80)', [[200, 80]], { noMid: false }); sec.ok(r.began && st.pic.count() === 1 && st.px(72, 48) === 1, () => `the model's one-point line: ${st.pic.count()} pixels`); undoRedo('the one-point line'); }
+  const base = [300, 100];
+  const dirs = [['right', [60, 0]], ['left', [-60, 0]], ['down', [0, 50]], ['up', [0, -50]], ['down-right 45', [40, 40]], ['up-left 45', [-40, -40]], ['down-left 45', [-40, 40]], ['up-right 45', [40, -40]],
+    ['shallow 3:1 down-right', [60, 20]], ['shallow 3:1 up-left', [-60, -20]], ['steep 1:3 down-left', [-20, 60]], ['steep 1:3 up-right', [20, -60]], ['one pixel right', [1, 0]], ['one pixel down', [0, 1]], ['one pixel up-left', [-1, -1]], ['two pixels', [2, 1]]];
+  for (const [name, [dx, dy]] of dirs) { shape(`a line ${name}: the band follows, one move, then the release`, [base, [base[0] + dx, base[1] + dy]]); undoRedo(`the line ${name}`); }
+  shape('a line drawn by many moves (the band is erased and redrawn each time), ending near the anchor', [[250, 60], [270, 80], [300, 70], [320, 120], [260, 130], [255, 62]]);
+  shape('a line drawn by many moves, ending far away', [[250, 60], [252, 61], [260, 90], [255, 61], [380, 140]]);
+  shape('a line whose last move comes back to the anchor (release on the anchor: one pixel)', [[330, 90], [380, 120], [330, 90]]);
+  shape('the line is clipped: a drag that leaves the picture on the right', [[400, 100], [440, 110], [470, 120], [490, 140]]);
+  shape('a drag that leaves on the left (the tool box, the desk)', [[160, 100], [128, 100], [100, 110], [60, 130]]);
+  shape('a drag that leaves at the top (the canvas frame, the title bar, the menu bar)', [[300, 60], [300, 33], [300, 20], [310, 4]]);
+  shape('a drag that leaves at the bottom (the status line)', [[300, 150], [300, 175], [300, 184], [320, 188]]);
+  shape('a drag out of a corner of the picture', [[140, 45], [128, 32], [100, 20]]);
+  shape('a line from a picture corner to the opposite corner', [[128, 32], [447, 175]]);
+  shape('a line along the picture\'s top edge', [[128, 32], [447, 32]]);
+  shape('a line along the picture\'s bottom edge and right edge', [[128, 175], [447, 175], [447, 32]]);
+  // on a noisy picture: the XOR band must leave the picture exactly as it was (erased)
+  Q.install(env, noise2(51, 0.5));
+  settleCheck(env, sec, 'a noisy picture installed (the Line chosen)');
+  for (let i = 0; i < 6; i++) shape(`line on noise ${i + 1}`, rndWalk(rng.int(2, 6), rng.int(140, 440), rng.int(40, 170), rng.int(5, 80), [129, 33], [446, 174]), { check: {} });
+  for (let i = 0; i < NRAND; i++) { shape(`random line ${i + 1}`, rndWalk(rng.int(1, 8), rng.int(135, 440), rng.int(40, 170), rng.int(1, 120), [100, 20], [490, 186]), { noMid: i % 2 === 1 }); if (i % 3 === 0) undoRedo(`random line ${i + 1}`); }
+  // presses that start no stroke: the status line, the tool box, the desk; the drag over the picture draws nothing
+  for (const [what, [x, y]] of [['the tool box (80, 60)', [80, 60]], ['the canvas frame (126, 100)', [126, 100]], ['the desk (490, 100)', [490, 100]], ['the status line (200, 184)', [200, 184]]]) {
+    const was = st.clone(), r = Q.stroke(env, [[x, y], [200, 100], [250, 120], [300, 100]], { settle: 12 });
+    sec.ok(!r.began, `the Line: ${what}: no stroke`);
+    if (what.startsWith('the tool box')) tool(6);
+    settleCheck(env, sec, `the Line: a press on ${what}, dragged across the picture, draws nothing`);
+    sec.ok(eq(Array.from(st.copyBytes()), Array.from(was.copyBytes())), 'the picture is unchanged');
+  }
+  // -- 3. the Rectangle, hollow
+  tool(7);
+  settleCheck(env, sec, 'the Rectangle chosen (hollow)');
+  Q.install(env, noise2(52, 0.5));
+  settleCheck(env, sec, 'a noisy picture installed (the Rectangle chosen)');
+  const rb = [300, 100];
+  const sizes = [[0, 0], [1, 1], [2, 2], [3, 3], [1, 0], [0, 1], [2, 0], [0, 2], [1, 4], [4, 1], [99, 2], [2, 99], [60, 40], [7, 7], [8, 8], [9, 9], [15, 15], [16, 16]];
+  const signs = [[1, 1], [-1, 1], [1, -1], [-1, -1]];
+  for (const [w, h] of sizes) for (const [sx, sy] of signs) {
+    if ((w === 0 && sx < 0) || (h === 0 && sy < 0)) continue;
+    shape(`hollow rectangle dragged ${sx > 0 ? 'right' : 'left'} ${w} and ${sy > 0 ? 'down' : 'up'} ${h} (a ${w + 1} x ${h + 1} frame)`, [rb, [rb[0] + sx * w, rb[1] + sy * h]], { noMid: (w + h) % 3 !== 0 });
+    if (w + h <= 4) undoRedo(`the ${w + 1} x ${h + 1} rectangle`);
+  }
+  shape('a hollow rectangle with many moves (the band changes shape each time)', [[250, 60], [300, 90], [260, 120], [200, 80], [240, 100], [320, 130]]);
+  shape('a hollow rectangle whose last move comes back to the anchor (1 x 1)', [[330, 90], [380, 120], [330, 90]]);
+  shape('a hollow rectangle leaving the picture on the right', [[400, 100], [440, 110], [480, 140]]);
+  shape('a hollow rectangle leaving on the left and the top', [[160, 60], [100, 40], [90, 10]]);
+  shape('a hollow rectangle leaving at the bottom and the right (a big one)', [[200, 100], [480, 186]]);
+  shape('a hollow rectangle from outside the picture\'s corner into it', [[128, 32], [447, 175]]);
+  shape('a hollow rectangle over the picture\'s whole edge', [[128, 32], [447, 32], [447, 175]]);
+  for (let i = 0; i < NRAND; i++) { shape(`random hollow rectangle ${i + 1}`, rndWalk(rng.int(1, 6), rng.int(135, 440), rng.int(40, 170), rng.int(1, 150), [100, 20], [490, 186]), { noMid: i % 2 === 1 }); if (i % 3 === 0) undoRedo(`random hollow rectangle ${i + 1}`); }
+  // -- 4. the Rectangle, filled: the inside is the pattern (REPLACE), then the frame; every pattern
+  setFill(true);
+  tool(7);
+  for (let p = 0; p < 16; p++) {
+    pat(p);
+    shape(`filled rectangle, pattern ${p}, 25 x 13, dragged down-right`, [[150 + 20 * (p & 3), 50 + 14 * (p >> 2)], [174 + 20 * (p & 3), 62 + 14 * (p >> 2)]], { noMid: p % 4 !== 0 });
+    if (p % 5 === 0) undoRedo(`the filled rectangle, pattern ${p}`);
+  }
+  for (const p of [0, 2, 15, 6, 11]) {
+    pat(p);
+    for (const [w, h] of [[0, 0], [1, 1], [2, 2], [3, 3], [4, 4], [1, 5], [5, 1], [2, 40], [40, 2], [3, 40], [40, 3], [31, 15]]) for (const [sx, sy] of [[1, 1], [-1, -1], [1, -1], [-1, 1]]) {
+      if ((w === 0 && sx < 0) || (h === 0 && sy < 0)) continue;
+      shape(`filled rectangle, pattern ${p}, ${w + 1} x ${h + 1}, dragged ${sx > 0 ? 'right' : 'left'} ${sy > 0 ? 'down' : 'up'}`, [[300, 100], [300 + sx * w, 100 + sy * h]], { noMid: true });
+    }
+  }
+  pat(2);
+  shape('a filled rectangle with many moves (the band is the frame only)', [[250, 60], [300, 90], [260, 120], [200, 80], [240, 100], [320, 130]]);
+  shape('a filled rectangle leaving the picture on the right', [[400, 100], [440, 110], [480, 140]]);
+  shape('a filled rectangle leaving on the left and the top', [[160, 60], [100, 40], [90, 10]]);
+  shape('a filled rectangle, the whole picture', [[128, 32], [447, 175]], { check: { noBox: true } });
+  { const was = st.clone(); sec.ok(!st.undoOn && st.status === 'Too big to undo', () => `the whole-picture rectangle: Undo ${st.undoOn}, status "${st.status}"`); void was; }
+  pat(13);
+  shape('a filled rectangle 200 x 100 on the noise', [[170, 50], [369, 149]], { noMid: true, check: { noBox: true } });
+  for (let i = 0; i < NRAND; i++) { pat(rng.int(0, 15)); shape(`random filled rectangle ${i + 1} (pattern ${st.pat})`, rndWalk(rng.int(1, 6), rng.int(135, 440), rng.int(40, 170), rng.int(1, 150), [100, 20], [490, 186]), { noMid: i % 2 === 1 }); if (i % 3 === 0) undoRedo(`random filled rectangle ${i + 1}`); }
+  // the Line ignores Filled (and the pattern); the mode is kept across tool choices
+  tool(6);
+  shape('the Line with Filled shapes and a pattern chosen: a plain line', [[200, 60], [260, 100]]);
+  tool(7); setFill(false);
+  shape('back to hollow: a frame only', [[200, 60], [260, 100]]);
+  // the other tools still draw as before
+  pat(0); tool(1); shape('the pencil after the shapes', [[300, 60], [340, 90]], { noMid: true });
+  tool(3); shape('the eraser after the shapes', [[300, 70], [330, 80]], { noMid: true });
+  sec.end(`stack so far ${env.stack.depth()} bytes; image writes ${env.img.n}`);
 }
 
 // ===========================================================================================================================================
@@ -974,6 +1152,41 @@ function g9() {
     settleCheck(env, sec, 'after the spray bursts', { adoptStatus: true });
     Q.chooseTool(env, 1); st.chooseTool(1); Q.choosePattern(env, 0); st.choosePat(0); Q.chooseBrush(env, 1); st.chooseBrush(1);
     settleCheck(env, sec, 'Pencil, pattern 0 and brush 1 chosen again', { adoptStatus: true });
+  }
+  // P2b-1 (PAINT 17): a band step of the Line and of the Rectangle (the old band erased, the new one drawn in XOR), and the release of a filled 200 x 100 rectangle
+  {
+    const bandRow = (t, name, alt) => {
+      Q.chooseTool(env, t); st.chooseTool(t);
+      L.moveTo(env, 200, 80); env.frames_(2);
+      m.mouse.buttons = L.MOUSE_LEFT; env.frame(); st.press(200, 80);
+      const ts = [], pr = [];
+      for (let i = 1; i <= 8; i++) {
+        const to = alt[i % 2];
+        const per = Q.busy(env, () => { Q.stepTo(env, to[0], to[1]); env.frames_(6); });
+        ts.push(Math.max(...per.map((p) => p.t1 - p.t0)));
+        const [x, y] = L.pointerPos(m, S); st.move(x, y);
+      }
+      row(`${name}: a band step (the old band erased, the new one drawn in XOR), the E_MOVE's ISR entry to HALT`, Math.max(...ts), null, `idle frame ${base}; ${ts.join(', ')}`);
+      m.mouse.buttons = L.MOUSE_UP; env.frame(); st.release(); env.frames_(14);
+      settleCheck(env, sec, `after the ${name} band steps`, { adoptStatus: true });
+    };
+    bandRow(6, 'line band step, 60 x 30 and 90 x 45 (about 60 and 90 pixels)', [[260, 110], [290, 125]]);
+    bandRow(7, 'rectangle band step, 61 x 31 and 91 x 46 (hollow)', [[260, 110], [290, 125]]);
+    bandRow(7, 'rectangle band step, about 200 x 100 (hollow)', [[399, 179], [398, 178]]);
+    // the release of a filled 200 x 100 rectangle (pattern 2): the band erased, the inside by REPLACE, the frame, the commit
+    Q.menuPick(env, 2, 0); st.setFill(true); Q.choosePattern(env, 2); st.choosePat(2);
+    Q.chooseTool(env, 7); st.chooseTool(7);
+    L.moveTo(env, 170, 50); env.frames_(2);
+    m.mouse.buttons = L.MOUSE_LEFT; env.frame(); st.press(170, 50);
+    for (const p of Q.expand([[170, 50], [369, 149]]).slice(1)) { const [x, y] = Q.stepTo(env, p[0], p[1]); st.move(x, y); env.frames_(6); }
+    let rbox;
+    const per = Q.busy(env, () => { m.mouse.buttons = L.MOUSE_UP; env.frame(); rbox = st.release(); env.frames_(10); }, [S.pn_shapedone, S.pn_commit].filter(Boolean));
+    const sd = S.pn_shapedone ? Q.spansFrom(per.ev, S.pn_shapedone) : [], cm = Q.spansFrom(per.ev, S.pn_commit);
+    row('release of a filled 200 x 100 rectangle (pattern 2): the release frame ISR entry to HALT (band erased, inside filled, frame, commit)', Math.max(...per.map((p) => p.t1 - p.t0)), null, `idle frame ${base}; pn_shapedone entry to HALT ${sd.join(', ') || 'n/a'}; pn_commit entry to HALT ${cm.join(', ')}; box ${rbox.nc} x ${rbox.nr}; busy periods ${per.map((p) => p.t1 - p.t0).filter((d) => d > base + 200).join(', ')}`);
+    settleCheck(env, sec, 'after the filled 200 x 100 rectangle', { adoptStatus: true });
+    Q.menuPick(env, 2, 1); st.setFill(false); Q.choosePattern(env, 0); st.choosePat(0);
+    Q.chooseTool(env, 1); st.chooseTool(1);
+    settleCheck(env, sec, 'Pencil, pattern 0 and hollow shapes chosen again', { adoptStatus: true });
   }
   // the commit (release to idle): small and large box
   const commit = (pts) => {
@@ -1074,6 +1287,6 @@ function TKcalls(env) {
 }
 
 // ===========================================================================================================================================
-const run = [[1, g1], [2, g2], [3, g3], [4, g4], [5, g5], [6, g6], [7, g7], [8, g8], [9, g9], [10, g10], [11, g11]];
+const run = [[1, g1], [2, g2], [3, g3], [4, g4], [5, g5], [6, g6], [7, g7], [8, g8], [9, g9], [10, g10], [11, g11], [12, g12]];
 for (const [n, f] of run) if (has(n)) { const t0 = Date.now(); try { f(); } catch (e) { C.check(`group ${n} ran to the end`, false, e.stack.split('\n').slice(0, 3).join(' | ')); } if (VERBOSE) console.log(`  (group ${n}: ${((Date.now() - t0) / 1000).toFixed(1)} s)`); }
 finish();

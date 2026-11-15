@@ -52,8 +52,9 @@ export const RND0 = 0xACE1;
 /** `pn_rnd`: a 16-bit Galois LFSR, mask $B400, 8 shifts a byte, the byte being the low byte of the state after them; returns [state, byte]. */
 export function rndStep(st) { for (let i = 0; i < 8; i++) { const lsb = st & 1; st >>= 1; if (lsb) st ^= 0xB400; } return [st, st & 0xFF]; }
 /** The stroke box's margin (byte columns, rows) by tool (PN_PADC, PN_PADR). */
-export const PADS = { 1: [0, 0], 2: [1, 4], 3: [1, 4], 4: [2, 8] };
-export const DRAWING = [1, 2, 3, 4];
+export const PADS = { 1: [0, 0], 2: [1, 4], 3: [1, 4], 4: [2, 8], 6: [0, 0], 7: [0, 0] };
+export const SHAPES = [6, 7];                 // the Line and the Rectangle (PAINT 17): an XOR band while the button is held
+export const DRAWING = [1, 2, 3, 4, 6, 7];
 export const inPic = (x, y) => x >= PIC.x && x < PIC.x + PIC.w && y >= PIC.y && y < PIC.y + PIC.h;
 export const UNDO_MAX = 2048;
 export const PBM_HEADER = codesOf('P4\n320 144\n');
@@ -75,23 +76,26 @@ export const ICONS = (() => {
 // The menus (PAINT 8): File (id 1) New, Open..., Save..., separator, Quit; Edit (id 2) Undo, Clear.  The bar of a running program has no "Leap" menu.
 export const FILE_MENU = menuSpec(1, 'File', [[1, 0, 'New'], [2, 0, 'Open...'], [3, 0, 'Save...'], [0, 2, ''], [4, 0, 'Quit']]);
 export const EDIT_MENU = menuSpec(2, 'Edit', [[1, 1, 'Undo'], [2, 0, 'Clear']]);
-export const MENUS = [FILE_MENU, EDIT_MENU];
-export const MENU_ITEM = { NEW: 0, OPEN: 1, SAVE: 2, QUIT: 4, UNDO: 0, CLEAR: 1 };
-/** The kernel's enable words (bit n - 1 - k for item k of n; a separator is never enabled): File 5 items, Edit 2 items. */
-export const menuWords = (undoOn) => [0b11101, undoOn ? 0b11 : 0b01];
+export const OPTIONS_MENU = menuSpec(3, 'Options', [[1, 0, 'Filled shapes'], [2, 0, 'Hollow shapes']]);   // PAINT 17: the chosen mode's item is disabled
+export const MENUS = [FILE_MENU, EDIT_MENU, OPTIONS_MENU];
+export const MENU_ITEM = { NEW: 0, OPEN: 1, SAVE: 2, QUIT: 4, UNDO: 0, CLEAR: 1, FILLED: 0, HOLLOW: 1 };
+/** The kernel's enable words (bit n - 1 - k for item k of n; a separator is never enabled): File 5 items, Edit 2 items, Options 2 items (PAINT 17: the chosen mode's item is disabled; hollow at the start). */
+export const menuWords = (undoOn, fill = false) => [0b11101, undoOn ? 0b11 : 0b01, fill ? 0b01 : 0b10];
+/** The enable matrix the dropdown drawing wants: en[menu][item]. */
+export const menuEn = (undoOn, fill = false) => [[true, true, true, false, true], [undoOn, true], [!fill, fill]];
 
 // ---------------------------------------------------------------------------------------------------------------------------
 // The picture
 export class PaintModel {
   constructor() { this.reset(); }
   reset() {
-    this.tool = 1; this.status = 'Pencil'; this.pat = 0; this.brush = 1; this.rnd = RND0; this.pic = new Gfx6Model(); this.pic.setClip(PIC.x, PIC.y, PIC.w, PIC.h);
+    this.tool = 1; this.status = 'Pencil'; this.fill = false; this.pat = 0; this.brush = 1; this.rnd = RND0; this.pic = new Gfx6Model(); this.pic.setClip(PIC.x, PIC.y, PIC.w, PIC.h);
     this.undoOn = false; this.undoBox = null; this.dirty = false; this.name = ''; this.stroke = null;
     this.hox = 0; this.hoy = 0;               // the picture origin's offset when the copy was last saved (its header)
     this.ox = 0; this.oy = 0;                 // the window's offset from (48, 16) after a drag (the views move with it)
   }
   clone() {
-    const c = new PaintModel(); c.tool = this.tool; c.pat = this.pat; c.brush = this.brush; c.rnd = this.rnd; c.status = this.status; c.pic.px.set(this.pic.px); c.undoOn = this.undoOn;
+    const c = new PaintModel(); c.tool = this.tool; c.fill = this.fill; c.pat = this.pat; c.brush = this.brush; c.rnd = this.rnd; c.status = this.status; c.pic.px.set(this.pic.px); c.undoOn = this.undoOn;
     c.undoBox = this.undoBox && { ...this.undoBox, px: this.undoBox.px.slice() }; c.dirty = this.dirty; c.name = this.name; c.ox = this.ox; c.oy = this.oy; c.hox = this.hox; c.hoy = this.hoy; return c;
   }
   get title() { return 'Paint: ' + (this.name === '' ? 'Untitled' : this.name); }
@@ -99,6 +103,8 @@ export class PaintModel {
   px(x, y) { return this.pic.get(PIC.x + x, PIC.y + y); }
   chooseTool(t) { this.tool = t; this.status = TOOLNAMES[t]; }
   choosePat(p) { this.pat = p; }
+  /** Options > Filled shapes (item 0) / Hollow shapes (item 1): PN_FILL (PAINT 17). */
+  setFill(on) { this.fill = !!on; }
   chooseBrush(b) { this.brush = b; }
 
   // ---- strokes (PAINT 15) -------------------------------------------------------------------------------------------
@@ -107,15 +113,31 @@ export class PaintModel {
     x -= this.ox; y -= this.oy;               // screen to the window's home position: the picture's pixels are kept at (128, 32)
     if (!inPic(x, y)) return false;
     if (!DRAWING.includes(this.tool)) { this.status = 'Not built yet'; return false; }
-    this.stroke = { last: [x, y], pts: [[x, y]], before: this.clone() };
-    this.segment(x, y, x, y);
+    this.stroke = { last: [x, y], pts: [[x, y]], anchor: [x, y], before: this.clone() };
+    if (!SHAPES.includes(this.tool)) this.segment(x, y, x, y);     // a shape's press draws nothing (PAINT 17)
     return true;
   }
   /** An E_MOVE to (x, y) while the stroke is held. */
   move(x, y) {
     x -= this.ox; y -= this.oy;
     const s = this.stroke; if (!s) return;
+    if (SHAPES.includes(this.tool)) { s.last = [x, y]; return; }     // the band follows the pointer (bandModel)
     this.segment(s.last[0], s.last[1], x, y); s.last = [x, y]; s.pts.push([x, y]);
+  }
+  /** A shape stroke in progress: the rectangle's corners (the Rectangle) or the line's ends, anchor and the pointer. */
+  shapeRect(ax, ay, bx, by) { return { x: Math.min(ax, bx), y: Math.min(ay, by), w: Math.abs(bx - ax) + 1, h: Math.abs(by - ay) + 1 }; }
+  /** The shape of the tool from the anchor to (x, y) drawn on `g` in the op `op` (the band: XOR; the final: SET, the filled inside first). */
+  drawShape(g, op, ax, ay, x, y, fillFirst = false) {
+    if (this.tool === 6) { g.setOp(op); g.line(ax, ay, x, y); return; }
+    const r = this.shapeRect(ax, ay, x, y);
+    if (fillFirst) g.patFill(r.x + 1, r.y + 1, r.w - 2, r.h - 2, PATS[this.pat], 3);
+    g.setOp(op); g.frame(r.x, r.y, r.w, r.h);
+  }
+  /** A copy of the model whose picture has the XOR band of the stroke in progress drawn on it (what the display shows mid-stroke); the copy (the machine's) is still the model itself. */
+  bandModel() {
+    const c = this.clone(), s = this.stroke;
+    if (s && SHAPES.includes(this.tool)) this.drawShape(c.pic, OP_XOR, s.anchor[0], s.anchor[1], s.last[0], s.last[1]);
+    return c;
   }
   /**
    * (kept for the drivers: the spray's bursts are no longer predicted frame by frame.)  PAINT 16 says the spray bursts at the last point on every frame WITHOUT an event; the machine's loop
@@ -128,7 +150,9 @@ export class PaintModel {
   release() {
     const s = this.stroke; if (!s) return null;
     this.stroke = null;
-    const box = strokeBox(s.pts, ...PADS[this.tool]);
+    let pts = s.pts;
+    if (SHAPES.includes(this.tool)) { this.drawShape(this.pic, OP_SET, s.anchor[0], s.anchor[1], s.last[0], s.last[1], this.fill); pts = [s.anchor, s.last]; }   // the band was erased (the model draws only the final shape)
+    const box = strokeBox(pts, ...PADS[this.tool]);
     this.commit(box, s.before);
     return box;
   }

@@ -15,7 +15,7 @@ export const { L, readDisp, diffDisp } = H;
 export const { hex, rd16 } = L;
 export const PIC_ADDR_NOTE = 'PN_PIC holds the address of the copy';
 export const NEEDED = ['PN_START', 'PN_END', 'PN_IMG', 'PN_IMG_LEN', 'PN_VARS', 'PN_VARS_END', 'PN_PIC', 'PN_BAND', 'PN_TOOL', 'PN_DIRTY', 'PN_UNDO', 'PN_UB0', 'PN_UBN', 'PN_UR0', 'PN_URN', 'PN_LBL', 'PN_STAT', 'PN_MENUS', 'PN_NAME', 'PN_TITLE',
-  'PN_WIN', 'PN_PAT', 'PN_BRUSH', 'PN_RND', 'PN_PADC', 'PN_PADR', 'PN_NX', 'PN_NY', 'pn_spray', 'pn_idle', 'G_PATFILL', 'PATTAB', 'AL_RAM', 'MB_ENT', 'ME_SIZE', 'ME_EN', 'Label_text', 'Window_title', 'K_FOCUS', 'K_PROG', 'CL_Dialog', 'CL_Button', 'CL_Field', 'CL_CWindow', 'Dialog_default', 'Dialog_cancel', 'Field_buf', 'V_FRAMES', 'W_MODAL'];
+  'PN_WIN', 'PN_FILL', 'PN_AX', 'PN_AY', 'PN_SPR', 'PN_PAT', 'PN_BRUSH', 'PN_RND', 'PN_PADC', 'PN_PADR', 'PN_NX', 'PN_NY', 'pn_spray', 'pn_idle', 'G_PATFILL', 'PATTAB', 'AL_RAM', 'MB_ENT', 'ME_SIZE', 'ME_EN', 'Label_text', 'Window_title', 'K_FOCUS', 'K_PROG', 'CL_Dialog', 'CL_Button', 'CL_Field', 'CL_CWindow', 'Dialog_default', 'Dialog_cancel', 'Field_buf', 'V_FRAMES', 'W_MODAL'];
 export function needPaint(S) { const miss = NEEDED.filter((n) => S[n] === undefined); if (miss.length) throw new Error(`desk5 does not define: ${miss.join(', ')}`); }
 
 /** PAINT 3 (as corrected 2026-11-14): the copy's part 1 holds the ODD byte columns, part 2 the EVEN ones; the header is (OX >> 3, 40, OY, 144) of the last whole-picture save. */
@@ -185,8 +185,9 @@ export function check(env, sec, ctx, o = {}) {
     const b = st.undoBox, got = [m.ram[S.PN_UB0], m.ram[S.PN_UBN], m.ram[S.PN_UR0], m.ram[S.PN_URN]];
     t(got.join() === [b.c0, b.nc, b.r0, b.nr].join(), () => `${ctx}: box (PN_UB0, PN_UBN, PN_UR0, PN_URN) ${got}, model (c0 ${b.c0}, nc ${b.nc}, r0 ${b.r0}, nr ${b.nr})`);
   }
-  const mw = [menuWord(env, 0) & 0x1F, menuWord(env, 1) & 3], want = P.menuWords(st.undoOn);
-  t(mw[0] === want[0] && mw[1] === want[1], () => `${ctx}: menu enable words File ${mw[0].toString(2)}, Edit ${mw[1].toString(2)}; model ${want[0].toString(2)}, ${want[1].toString(2)}`);
+  const mw = [menuWord(env, 0) & 0x1F, menuWord(env, 1) & 3, menuWord(env, 2) & 3], want = P.menuWords(st.undoOn, st.fill);
+  t(mw[0] === want[0] && mw[1] === want[1] && mw[2] === want[2], () => `${ctx}: menu enable words File ${mw[0].toString(2)}, Edit ${mw[1].toString(2)}, Options ${mw[2].toString(2)}; model ${want[0].toString(2)}, ${want[1].toString(2)}, ${want[2].toString(2)}`);
+  t(m.ram[S.PN_FILL] === (st.fill ? 1 : 0), () => `${ctx}: PN_FILL ${m.ram[S.PN_FILL]}, model ${st.fill ? 1 : 0}`);
   const stat = statusOf(env);
   if (o.adoptStatus) { if (stat !== st.status) sec.note?.(`${ctx}: status after this step is "${stat}", not "${st.status}" (the contract does not say)`); st.status = stat; }
   const wantStat = o.status ?? st.status;
@@ -262,22 +263,22 @@ export function stroke(env, pts, o = {}) {
     if (o.gap) { env.frames_(o.gap); if (began) for (let k = 0; k < o.gap; k++) st.held('still'); }
     if (o.mid) o.mid(i, seen);
   }
-  let box = null, bursts = [], burstBad = 0;
+  let box = null, bursts = [], burstBad = 0, burstDup = 0;
   if (!o.noRelease) {
     m.mouse.buttons = L.MOUSE_UP; env.frame();
     if (began) st.held('up');
     box = began ? st.release() : null;
     env.frames_(o.settle ?? 14);
-    if (began) { const bl = env.bursts.splice(0); burstBad = bl.filter((b) => !seen.some(([x, y]) => x === b.x && y === b.y)).length; bursts = bl; st.applyBursts(bl); }
+    if (began) { const bl = env.bursts.splice(0); burstBad = bl.filter((b) => !seen.some(([x, y]) => x === b.x && y === b.y)).length; burstDup = bl.filter((b, i) => i > 0 && bl[i - 1].f === b.f).length; bursts = bl; st.applyBursts(bl); }
   }
-  return { pts: seen, box, before, began, bursts, burstBad };
+  return { pts: seen, box, before, began, bursts, burstBad, burstDup };
 }
 /** A click (press and release in place) on the tool box cell of tool t. */
 export function chooseTool(env, t) { const c = P.cellOf(t); L.click(env, c.x + env.st.ox + 16, c.y + env.st.oy + 8, 3, 6); park(env, 3); }
 /** A click on pattern swatch p (the model is not changed here: the caller calls st.choosePat) / on brush cell b. */
 export function choosePattern(env, p) { const c = P.swatchOf(p); L.click(env, c.x + env.st.ox + 8, c.y + env.st.oy + 6, 3, 6); park(env, 3); }
 export function chooseBrush(env, b) { const c = P.brushCell(b); L.click(env, c.x + env.st.ox + 8, c.y + env.st.oy + 8, 3, 6); park(env, 3); }
-/** The menu bar by the pointer: press on the title of menu `mi` (0 File, 1 Edit), move to item `ii`, release.  Returns nothing; the caller settles. */
+/** The menu bar by the pointer: press on the title of menu `mi` (0 File, 1 Edit, 2 Options), move to item `ii`, release.  Returns nothing; the caller settles. */
 export function menuPick(env, mi, ii, { settle = 10 } = {}) {
   const { m } = env, lay = P.layoutOf(P.MENUS), b = lay.boxes[mi], d = lay.drops[mi];
   L.moveTo(env, b.x + (b.w >> 1), 3); m.mouse.buttons = L.MOUSE_LEFT; env.frames_(3);
