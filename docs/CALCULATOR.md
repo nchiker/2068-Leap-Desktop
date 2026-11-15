@@ -220,3 +220,7 @@ against 120,000 (about 3 frames).
 **Not yet done:**
 - **The owner's review of the look and the rules** on screen (`web/?cart=desk5`).
 - **The owner's review on screen:** `web/?cart=desk5`, with the Mouse switch on.
+
+## 10. BCD arithmetic (2026-11-15; owner chose option A: "a", the BCD rewrite first, to free DOCK 2-3 for the marquee)
+**What changed (the behaviour is exactly section 6; the 20,000-operation model is the proof):** the 8-byte buffers hold **packed BCD** (a byte is two digits, the lowest digits first), so `q_add` / `q_sub` use `DAA`, `q_mul10` and `q_div10` are digit shifts by `RLD` / `RRD` (8-10 bytes each, no binary conversion), the display digits come straight from the nibbles, and `c_mul` adds the multiplicand once per digit of the multiplier. **Division** is long division in decimal: the integer part digit by digit (ERR when it is 10^8 or more), then 8 more digits, and `c_scale` (shared with + - *) rounds: only the first digit it drops decides (half away from zero), so `c_round` and the binary `q_divmod` are gone. The records (X, Y: sign, d, M in 4 packed bytes) are as before.
+**Measured:** the Calculator is **2,089 bytes** (2,382 before the trim; the BCD part saved 175, `A` 127); a division 161,071 T (was 174,661; bound 175,000), `+` 26,449, `-` 22,177, `*` 58,693. `calc-c1` 5 of 5 (311,904 checks), `calc-perf`: every row passes except the pool-bytes row reported with sound. DOCK 2-3 free: **674 bytes**.

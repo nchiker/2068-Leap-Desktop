@@ -32,7 +32,7 @@ export function bootShell(opts = {}) {
   return env;
 }
 
-export const readStrText = (m, a) => (a ? String.fromCharCode(...m.ram.subarray(a + 1, a + 1 + m.ram[a])) : '');
+export const readStrText = (m, a) => (a ? String.fromCharCode(...L.readStr(m, a)) : '');
 export const treeOf = (env) => L.allViews(env.m, env.S);
 /** The icons of the shell (valid while the shell runs): their addresses in tree order. */
 export const iconAddrs = (env) => treeOf(env).filter((v) => v.cls === env.S.CL_Icon).map((v) => v.a);
@@ -85,7 +85,9 @@ export function compareStates(env, base, cur, what, allowModal = false) {
   if (cur.modal !== (allowModal ? base.modal : 0)) out.push(`W_MODAL ${hex(cur.modal)}, want ${allowModal ? hex(base.modal) : 0}`);
   if (JSON.stringify(cur.posted) !== JSON.stringify(base.posted)) out.push(`posted queue ${JSON.stringify(cur.posted)}, a fresh launch ${JSON.stringify(base.posted)}`);
   if (cur.sp !== base.sp) out.push(`stack at the event loop: SP ${cur.sp === undefined ? 'no K_GETEV seen' : hex(cur.sp)}, a fresh launch ${base.sp === undefined ? 'none' : hex(base.sp)}`);
-  const d = diffDisp(cur.screen, base.screen, L.pointerMask(m, S, [base.ptr, cur.ptr]));
+  const mask = L.pointerMask(m, S, [base.ptr, cur.ptr]);
+  if (cur.prog === 5 || base.prog === 5) for (let y = 48; y < 176; y++) for (let bc = 10; bc < 42; bc++) mask[y * 64 + bc] = 0;   // the Puzzle's board (80, 48, 256, 128) is dealt at random: its own suite (pz-p1) judges it
+  const d = diffDisp(cur.screen, base.screen, mask);
   if (d) out.push(`screen differs from a fresh launch's: ${d}`);
   return out.map((s) => `${what}: ${s}`);
 }
@@ -120,7 +122,7 @@ export function programDiff(env, p = env.m.ram[env.S.K_PROG], extra = [], dstr =
 // Drivers
 /** A single click on the icon of program p: the pointer there, press `hold` frames, release, wait `rel` frames. */
 export const clickIcon = (env, p, hold = 3, rel = 6) => { const [x, y] = L.iconCentre(p); return L.click(env, x, y, hold, rel); };
-/** The "Leap" menu by the pointer (WINDOWS 18.4): press on the title, move to item `item` (1-based, the separator counts: items 1 About, 2 separator, 3 Calculator, 4 Key Caps, 5 Notepad, 6 Paint, 7 Show Desktop, 8 Sound Off / Sound On), release. */
+/** The "Leap" menu by the pointer (WINDOWS 18.4): press on the title, move to item `item` (1-based, the separator counts: items 1 About, 2 separator, 3 Calculator, 4 Key Caps, 5 Notepad, 6 Paint, 7 Puzzle, 8 Show Desktop, 9 Sound Off / Sound On), release. */
 export function leapMenu(env, item) {
   const { m } = env;
   L.moveTo(env, 20, 4); m.mouse.buttons = L.MOUSE_LEFT; env.frames_(3);

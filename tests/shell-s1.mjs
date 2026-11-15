@@ -57,11 +57,14 @@ function dirty(env, p) {
   } else if (p === 3) {
     // Write: caret moves and clicks in the text view only (a changed document would ask before it quits, WRITE 11.6): nothing of it may survive the quit
     for (let i = rng.int(1, 4); i > 0; i--) { if (rng.chance(0.5)) L.typeCode(env, rng.pick([8, 9, 10, 11])); else L.click(env, rng.int(30, 460), rng.int(34, 170), 3, 4); }
+  } else if (p === 5) {
+    // Puzzle: arrow keys and a click on the board (the deal is random anyway; nothing of it may survive the quit)
+    for (let i = rng.int(1, 4); i > 0; i--) { if (rng.chance(0.5)) L.typeCode(env, rng.pick([8, 9, 10, 11])); else L.click(env, rng.int(90, 330), rng.int(56, 170), 3, 4); }
   } else if (p === 4) {
     // Paint: nothing is drawn (a changed picture would ask before it quits); no Paint-specific checks here (another suite's)
   } else {
     // the shell: one single click on an icon, then at least 25 frames so that no second click can make a double (SHELL 4: <= 20 frames)
-    if (rng.chance(0.6)) { H.clickIcon(env, rng.pick([1, 2, 3, 4]), 3, 4); env.frames_(25); }
+    if (rng.chance(0.6)) { H.clickIcon(env, rng.pick([1, 2, 3, 4, 5]), 3, 4); env.frames_(25); }
     if (rng.chance(0.4)) L.typeCode(env, rng.pick([14, 15, 10, 11]));
     if (rng.chance(0.2)) { H.leapMenu(env, 1); L.typeCode(env, rng.pick([13, 27, 3])); env.frames_(6); }
   }
@@ -71,9 +74,9 @@ function dirty(env, p) {
 // ===========================================================================================================================
 // 1. The launcher
 function launcherGroup() {
-  const sec = new Sec('1 launcher: random launches (icon double click, ENTER on the focused icon, the Leap menu items 3 to 6) and quits (close box, SYMBOL SHIFT + Q); after each K_PROG, the windows, the app arena top, K_FOCUS / K_CAPTURE / W_MODAL / the posted queue, the stack at the event loop and the screen as after a fresh launch');
+  const sec = new Sec('1 launcher: random launches (icon double click, ENTER on the focused icon, the Leap menu items 3 to 7) and quits (close box, SYMBOL SHIFT + Q); after each K_PROG, the windows, the app arena top, K_FOCUS / K_CAPTURE / W_MODAL / the posted queue, the stack at the event loop and the screen as after a fresh launch');
   const env = mkShell(), { m, S } = env;
-  const base = {}, stat = { launches: 0, quits: 0, byMethod: {}, maxLaunch: 0, maxQuit: 0, perProg: { 1: 0, 2: 0, 3: 0, 4: 0 }, shells: 0 };
+  const base = {}, stat = { launches: 0, quits: 0, byMethod: {}, maxLaunch: 0, maxQuit: 0, perProg: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }, shells: 0 };
   base[0] = H.captureState(env);
   sec.ok(base[0].prog === 0 && base[0].wins.length === 1 && base[0].wins[0].title === 'Leap Desktop' && base[0].focus === H.iconAddrs(env)[0], () => `boot state: ${JSON.stringify({ prog: base[0].prog, wins: base[0].wins, focus: hex(base[0].focus) })} (the shell, K_FOCUS on the first icon)`);
   sec.ok(base[0].sp !== undefined, 'the shell\'s event loop was seen (K_GETEV)');
@@ -86,7 +89,7 @@ function launcherGroup() {
     if (!base[p]) {
       base[p] = cur;                                    // the first arrival: the reference for "as after a fresh launch"
       // independent of the baseline: the screen is what the models draw for a fresh program
-      if (p !== 4) {                                    // Paint has no screen model in this suite (its own tests judge its screen)
+      if (p !== 4 && p !== 5) {                         // Paint and the Puzzle have no screen model in this suite (their own tests judge their screens; the Puzzle's board is dealt at random)
         const d = H.programDiff(env, p, [], '0');
         sec.ok(d === null, () => `${what}: the fresh program ${p}'s screen against the model: ${d}`);
       }
@@ -107,7 +110,7 @@ function launcherGroup() {
     if (method === 'dbl') { L.launchByDoubleClick(env, p); }
     else if (method === 'enter') {
       const icons = H.iconAddrs(env);
-      for (let i = 0; i < 4 && rd16(m, S.K_FOCUS) !== icons[p - 1]; i++) L.typeCode(env, 14);
+      for (let i = 0; i < 5 && rd16(m, S.K_FOCUS) !== icons[p - 1]; i++) L.typeCode(env, 14);
       sec.ok(rd16(m, S.K_FOCUS) === icons[p - 1], () => `TAB did not bring K_FOCUS to icon ${p} (K_FOCUS ${hex(rd16(m, S.K_FOCUS))}, icons ${icons.map((a) => hex(a))})`);
       L.typeCode(env, 13, 3, 1);
     } else H.leapMenu(env, p + 2);
@@ -126,7 +129,7 @@ function launcherGroup() {
   let cur = 0, step = 0;
   const methods = ['dbl', 'enter', 'menu'];
   // a clean prelude gives the baselines: nothing was done in the shell or the programs before their first launch
-  for (const p of [1, 2, 3, 4]) {
+  for (const p of [1, 2, 3, 4, 5]) {
     note(`first launch of ${p} by dbl`);
     if (!launch(p, 'dbl')) return sec.end('stopped');
     judge(p, `the first launch of program ${p}`); stat.launches++; stat.perProg[p]++;
@@ -136,7 +139,7 @@ function launcherGroup() {
   }
   for (let i = 0; i < NLAUNCH && sec.nf < 10; i++) {
     if (cur === 0) {
-      const p = rng.pick([1, 2, 3, 4]), method = rng.pick(methods);
+      const p = rng.pick([1, 2, 3, 4, 5]), method = rng.pick(methods);
       if (rng.chance(0.5)) dirty(env, 0);
       note(`launch ${p} by ${method}`);
       if (!launch(p, method)) break;
@@ -166,7 +169,7 @@ function cyclesGroup() {
   const base = { 0: H.captureState(env) };
   let diffsN = 0;
   for (let i = 0; i < NCYCLES && sec.nf < 6; i++) {
-    const p = 1 + (i % 4), how = i & 2 ? 'ssq' : 'close';
+    const p = 1 + (i % 5), how = i & 2 ? 'ssq' : 'close';
     if (!L.launchByDoubleClick(env, p)) { sec.ok(false, `cycle ${i}: launch ${p} failed (K_PROG ${m.ram[S.K_PROG]})`); break; }
     env.frames_(12);
     const c1 = H.captureState(env);
@@ -198,11 +201,11 @@ function shellGroup() {
   {
     const sec = new Sec('2a the shell\'s look against shell-model\'s rendering of SHELL 10.4: the window, the icon bitmaps (icons.txt), the names centred, the selected name inverted');
     const views = H.treeOf(env), win = views.find((v) => v.cls === S.CL_CWindow);
-    sec.ok(!!win && win.id === 255 && [win.x, win.y, win.w, win.h].join() === '32,24,320,80' && H.readStrText(m, rd16(m, win.a + S.Window_title)) === 'Leap Desktop', () => `the window ${win && [win.x, win.y, win.w, win.h]}, title "${win && H.readStrText(m, rd16(m, win.a + S.Window_title))}"`);
+    sec.ok(!!win && win.id === 255 && [win.x, win.y, win.w, win.h].join() === '32,24,384,80' && H.readStrText(m, rd16(m, win.a + S.Window_title)) === 'Leap Desktop', () => `the window ${win && [win.x, win.y, win.w, win.h]}, title "${win && H.readStrText(m, rd16(m, win.a + S.Window_title))}"`);
     const ics = views.filter((v) => v.cls === S.CL_Icon);
-    sec.ok(ics.length === 4 && ics[0].x === 48 && ics[0].y === 40 && ics[1].x === 112 && ics[1].y === 40 && ics[2].x === 176 && ics[2].y === 40 && ics[3].x === 240 && ics[3].y === 40 && ics.every((v) => v.w === 64 && v.h === 26 && (v.flags & 1) === 1), () => `icons ${JSON.stringify(ics.map((v) => [v.x, v.y, v.w, v.h, v.flags]))}, want (48, 40), (112, 40), (176, 40) (WRITE 11.2) and (240, 40) (PAINT 10), 64 x 26 (SHELL 10.5), focusable`);
-    sec.ok(ics.length === 4 && m.ram[ics[0].a + S.Icon_prog] === 1 && m.ram[ics[1].a + S.Icon_prog] === 2 && m.ram[ics[2].a + S.Icon_prog] === 3 && m.ram[ics[3].a + S.Icon_prog] === 4, () => `Icon prog fields ${ics.map((v) => m.ram[v.a + S.Icon_prog])}, want 1, 2, 3 and 4 (SHELL 10.4: prog 1 byte)`);
-    sec.ok(ics.length === 4 && H.readStrText(m, rd16(m, ics[3].a + S.Icon_name)) === 'Paint' && H.readStrText(m, rd16(m, ics[0].a + S.Icon_name)) === 'Calculator' && H.readStrText(m, rd16(m, ics[1].a + S.Icon_name)) === 'Key Caps' && H.readStrText(m, rd16(m, ics[2].a + S.Icon_name)) === 'Notepad', () => `Icon names ${ics.map((v) => H.readStrText(m, rd16(m, v.a + S.Icon_name)))}`);
+    sec.ok(ics.length === 5 && ics[0].x === 48 && ics[0].y === 40 && ics[1].x === 112 && ics[1].y === 40 && ics[2].x === 176 && ics[2].y === 40 && ics[3].x === 240 && ics[3].y === 40 && ics[4].x === 304 && ics[4].y === 40 && ics.every((v) => v.w === 64 && v.h === 26 && (v.flags & 1) === 1), () => `icons ${JSON.stringify(ics.map((v) => [v.x, v.y, v.w, v.h, v.flags]))}, want (48, 40), (112, 40), (176, 40) (WRITE 11.2) (240, 40) (PAINT 10) and (304, 40) (PUZZLE), 64 x 26 (SHELL 10.5), focusable`);
+    sec.ok(ics.length === 5 && m.ram[ics[0].a + S.Icon_prog] === 1 && m.ram[ics[1].a + S.Icon_prog] === 2 && m.ram[ics[2].a + S.Icon_prog] === 3 && m.ram[ics[3].a + S.Icon_prog] === 4 && m.ram[ics[4].a + S.Icon_prog] === 5, () => `Icon prog fields ${ics.map((v) => m.ram[v.a + S.Icon_prog])}, want 1, 2, 3, 4 and 5 (SHELL 10.4: prog 1 byte)`);
+    sec.ok(ics.length === 5 && H.readStrText(m, rd16(m, ics[4].a + S.Icon_name)) === 'Puzzle' && H.readStrText(m, rd16(m, ics[3].a + S.Icon_name)) === 'Paint' && H.readStrText(m, rd16(m, ics[0].a + S.Icon_name)) === 'Calculator' && H.readStrText(m, rd16(m, ics[1].a + S.Icon_name)) === 'Key Caps' && H.readStrText(m, rd16(m, ics[2].a + S.Icon_name)) === 'Notepad', () => `Icon names ${ics.map((v) => H.readStrText(m, rd16(m, v.a + S.Icon_name)))}`);
     const d0 = H.shellDiff(env);
     sec.ok(d0 === null, () => `boot screen: ${d0}`);
     sec.ok(rd16(m, S.K_FOCUS) === icons[0], () => `K_FOCUS after boot ${hex(rd16(m, S.K_FOCUS))}, the first icon is ${hex(icons[0])}`);
@@ -212,7 +215,7 @@ function shellGroup() {
     sec.ok(d1 === null, () => `pointer parked at (500, 180): ${d1}`);
     // the TABs below start from the first icon (the focus is there after the boot)
     // the selected look on each icon (set the focus by TAB, as a user does) and with none: K_FOCUS cleared by the harness is not a user state, so only 0 / 1
-    for (const k of [1, 2, 3, 0, 1]) {
+    for (const k of [1, 2, 3, 4, 0, 1]) {
       L.typeCode(env, 14); env.frames_(6);
       sec.ok(rd16(m, S.K_FOCUS) === icons[k], () => `TAB: K_FOCUS ${hex(rd16(m, S.K_FOCUS))}, want icon ${k} ${hex(icons[k])}`);
       const d = H.shellDiff(env);
@@ -220,17 +223,17 @@ function shellGroup() {
     }
     // the window is a CWindow (SHELL 12): the close box (x + 8, y + 1, 15, 7) is drawn while it is in front: its pixels are the model's and not all paper
     const g = SM.renderShell({ sel: icons.indexOf(rd16(m, S.K_FOCUS)) });
-    const sh = H.readDisp(m), want = SM.toDisp(g), bx = SM.boxRect(32, 24, 320);
+    const sh = H.readDisp(m), want = SM.toDisp(g), bx = SM.boxRect(32, 24, 384);
     let boxDiff = 0; for (let y = bx.y; y < bx.y + bx.h; y++) for (let x = bx.x; x < bx.x + bx.w; x++) { const bit = (a, X, Y) => (a[Y * 64 + (X >> 3)] >> (7 - (X & 7))) & 1; if (bit(sh, x, y) !== bit(want, x, y)) boxDiff++; }
     sec.ok(boxDiff === 0, () => `${boxDiff} pixels differ in the close box's place (SHELL 12: the window is a CWindow)`);
     { const bit = (X, Y) => (sh[Y * 64 + (X >> 3)] >> (7 - (X & 7))) & 1; let ink = 0; for (let y = bx.y; y < bx.y + bx.h; y++) for (let x = bx.x; x < bx.x + bx.w; x++) ink += bit(x, y);
-      sec.ok(ink > 0 && SM.boxRect(32, 24, 320).x === 40, () => `the close box area (${bx.x}, ${bx.y}, ${bx.w}, ${bx.h}) has ${ink} ink pixels, want some (a frame)`); }
-    sec.end('window, 4 icons (bitmaps from icons.txt, names, selection) in 10 screens');
+      sec.ok(ink > 0 && SM.boxRect(32, 24, 384).x === 40, () => `the close box area (${bx.x}, ${bx.y}, ${bx.w}, ${bx.h}) has ${ink} ink pixels, want some (a frame)`); }
+    sec.end('window, 5 icons (bitmaps from icons.txt, names, selection) in 10 screens');
   }
   // ---- LOOK 7: the open "Leap" menu under the bar's line (LOOK 3.1) and the Mac arrow (LOOK 3.6), against look-model
   {
     const sec = new Sec('2e the open "Leap" menu (LOOK 3.1): the title box XORed in rows 0-6 only (the bar\'s line stays), the drop-down with no top line of its own, its sides from row 8, the shadow 2 columns right and 1 row under, the highlight on the item under the pointer; the whole screen against look-model; released away from the items the shell comes back unchanged (save-under)');
-    const LM = LMOD, lay = layoutOf([SM.LEAP_MENU]), en = [[true, true, true, true, true, true, true, true]];
+    const LM = LMOD, lay = layoutOf([SM.LEAP_MENU]), en = [[true, true, true, true, true, true, true, true, true]];
     const mask = () => L.pointerMask(m, S);
     const screenWith = (h) => { const icons2 = H.iconAddrs(env), g = SM.renderShell({ sel: icons2.indexOf(rd16(m, S.K_FOCUS)) }); LM.openLook(g, [SM.LEAP_MENU], lay, en, 0, h); return g; };
     L.moveTo(env, 500, 180); env.frames_(4);
@@ -252,7 +255,7 @@ function shellGroup() {
       sec.ok(side === sideT, () => `the drop-down's sides from row 8: ${side} of ${sideT} visible pixels ink`);
       const [sh, shT] = tally([...col(dr.x + dr.w, 10, 8 + dr.h), ...col(dr.x + dr.w + 1, 10, 8 + dr.h), ...row(dr.x + 2, dr.x + dr.w + 2, 8 + dr.h)]);
       sec.ok(sh === shT, () => `the shadow (2 columns right, 1 row under): ${sh} of ${shT} visible pixels ink`); }
-    for (const k of [0, 2, 3, 4, 5, 6, 7]) {
+    for (const k of [0, 2, 3, 4, 5, 6, 7, 8]) {
       L.moveTo(env, 30, 9 + 10 * k + 5); env.frames_(3);
       const d = H.diffDisp(H.readDisp(m), SM.toDisp(screenWith(k)), mask()); sec.ok(d === null, () => `the menu open, item ${k} highlighted: ${d}`);
     }
@@ -266,7 +269,7 @@ function shellGroup() {
       const d = H.diffDisp(H.readDisp(m), SM.toDisp(g));
       sec.ok(d === null, () => `the pointer at (${px}, ${py}) over ${what}: the whole screen with the Mac arrow drawn there: ${d}`);
     }
-    sec.end('open menu (plain and 6 highlights), the bar line / title box / sides / shadow statements, the close, the Mac arrow at 4 places');
+    sec.end('open menu (plain and 7 highlights), the bar line / title box / sides / shadow statements, the close, the Mac arrow at 4 places');
   }
   // ---- clicks, double clicks, TAB, arrows, ENTER against ShellSim, random
   {
@@ -282,7 +285,7 @@ function shellGroup() {
       sec.ok(n >= 0, () => `${why}: program ${p} did not come up (K_PROG ${m.ram[S.K_PROG]}) [${hist.join('; ')}]`);
       if (n < 0) return false;
       env.frames_(p === 2 ? 36 : 12);                   // Key Caps draws its 40 caps over about 25 frames after its window is up
-      const d = p === 4 ? null : H.programDiff(env, p, [], '0');   // no screen model for Paint here
+      const d = p === 4 || p === 5 ? null : H.programDiff(env, p, [], '0');   // no screen model for Paint (its own suite) or the Puzzle (a random deal) here
       sec.ok(d === null, () => `${why}: the program ${p} screen: ${d}`);
       const ok = (p === 4 || rd16(m, S.K_FOCUS) !== 0) && L.progUp(env, p);   // Paint's views take no focus (K_FOCUS 0)
       sec.ok(ok, () => `${why}: program ${p} state`);
@@ -358,7 +361,7 @@ function shellGroup() {
         if (prog) afterLaunch(prog, 'ENTER'); else verifyShell('ENTER');
       } else if (r < 0.96) {
         // a press on the window's blank part and on the desk: no icon sees it (reading R3 of shell-model.mjs: it does not disturb the double click)
-        const [x, y] = rng.pick([[250, 90], [330, 56], [400, 150], [60, 160]]);
+        const [x, y] = rng.pick([[250, 90], [392, 56], [400, 150], [60, 160]]);
         L.click(env, x, y, 3, 4); lastPressFrame = env.frames - 4; sim.blank(); stat.blanks++; rec(`click blank (${x}, ${y})`);
         verifyShell(`click at (${x}, ${y})`);
       } else { const [x, y] = [rng.int(0, 511), rng.int(10, 190)]; L.moveTo(env, x, y); env.frames_(1); stat.moves++; rec(`move (${x}, ${y})`); verifyShell('move'); }
@@ -387,10 +390,10 @@ function shellGroup() {
       sec.ok(r.flag2 === wantFlag2, () => `${what}: the second press' flag ${r.flag2 ? 1 : 0}, want ${wantFlag2 ? 1 : 0} (the kernel's rule: 20 frames, 8 across, 4 down)`);
       return finishTrial(what, p, wantOpen, r);
     };
-    for (const p of [1, 2, 3, 4]) for (const gap of gaps) trial(`icon ${p}, gap ${gap}`, p, gap, {}, gap <= 20);
+    for (const p of [1, 2, 3, 4, 5]) for (const gap of gaps) trial(`icon ${p}, gap ${gap}`, p, gap, {}, gap <= 20);
     // the distance (a gap of 6): inside the 64 x 26 icon, centre (x + 32, y + 13)
     for (const [dx, dy, want] of [[8, 0, true], [-8, 0, true], [0, 4, true], [0, -4, true], [8, 4, true], [-8, -4, true], [9, 0, false], [-9, 0, false], [0, 5, false], [0, -5, false], [9, 5, false], [12, 0, false], [0, 9, false]]) {
-      const p = rng.pick([1, 2, 3, 4]);
+      const p = rng.pick([1, 2, 3, 4, 5]);
       trial(`icon ${p}, gap 6, second press at (${dx >= 0 ? '+' : ''}${dx}, ${dy >= 0 ? '+' : ''}${dy}) from the first`, p, 6, { off: [dx, dy] }, want);
     }
     // a press elsewhere between the two: the kernel's flag is about the previous press anywhere, so the second press on the icon is not a double
@@ -423,11 +426,11 @@ function shellGroup() {
       finishTrial('neighbouring icons: the fourth press (flagged against the third, on the icon of the last press)', 2, true, null);
       sec.ok(d.flag === true, () => `the fourth press: flag ${d.flag}, want true`);
     }
-    sec.end(`${stat.opened + stat.kept} trials (${stat.opened} opened, ${stat.kept} refused): gaps 2-100 on 4 icons, 13 offsets, presses elsewhere between, neighbouring icons`);
+    sec.end(`${stat.opened + stat.kept} trials (${stat.opened} opened, ${stat.kept} refused): gaps 2-100 on 5 icons, 13 offsets, presses elsewhere between, neighbouring icons`);
   }
   // ---- ENTER and TAB / arrows from the user's side (the keys are checked again in 2b)
   {
-    const sec = new Sec('2d ENTER opens the focused icon: straight after the start the first one; after TAB / DOWN / RIGHT once the second, twice the third, the fourth (Paint) three times, the first again four times; after BACKTAB / UP / LEFT from the first the fourth (wrapping), then the third, the second, the first');
+    const sec = new Sec('2d ENTER opens the focused icon: straight after the start the first one; after TAB / DOWN / RIGHT once the second, twice the third, the fourth (Paint) three times, the fifth (Puzzle) four times, the first again five times; after BACKTAB / UP / LEFT from the first the fifth (wrapping), then the fourth, the third, the second, the first');
     const trial = (keys, wantProg, what) => {
       freshShell(env, sec);
       for (const k of keys) { L.typeCode(env, k); env.frames_(2); }
@@ -437,9 +440,9 @@ function shellGroup() {
       if (n >= 0) sec.ok(L.quitBySSQ(env), `${what}: the shell did not come back by SS+Q`);
     };
     trial([], 1, 'at the start');
-    for (const k of [14, 10, 9]) { trial([k], 2, `key ${k} once`); trial([k, k], 3, `key ${k} twice`); trial([k, k, k], 4, `key ${k} three times`); trial([k, k, k, k], 1, `key ${k} four times`); }
-    for (const k of [15, 11, 8]) { trial([k], 4, `key ${k} once`); trial([k, k], 3, `key ${k} twice`); trial([k, k, k], 2, `key ${k} three times`); trial([k, k, k, k], 1, `key ${k} four times`); }
-    sec.end('25 trials');
+    for (const k of [14, 10, 9]) { trial([k], 2, `key ${k} once`); trial([k, k], 3, `key ${k} twice`); trial([k, k, k], 4, `key ${k} three times`); trial([k, k, k, k], 5, `key ${k} four times`); trial([k, k, k, k, k], 1, `key ${k} five times`); }
+    for (const k of [15, 11, 8]) { trial([k], 5, `key ${k} once`); trial([k, k], 4, `key ${k} twice`); trial([k, k, k], 3, `key ${k} three times`); trial([k, k, k, k], 2, `key ${k} four times`); trial([k, k, k, k, k], 1, `key ${k} five times`); }
+    sec.end('31 trials');
   }
 }
 
@@ -921,13 +924,13 @@ function shell12Group() {
   const bx = L.closeBoxOf(32, 24, 320), bxc = [bx.x + (bx.w >> 1), bx.y + (bx.h >> 1)];
   const trail = [];
   const note = (t) => { trail.push(t); if (trail.length > 6) trail.shift(); };
-  const LM = LMOD, lay = layoutOf([SM.LEAP_MENU]), en = [[true, true, true, true, true, true, true, true]];
+  const LM = LMOD, lay = layoutOf([SM.LEAP_MENU]), en = [[true, true, true, true, true, true, true, true, true]];
   // the machine against the model (ShellSim): K_PROG, the windows, K_FOCUS, K_CAPTURE, W_MODAL, the posted queue, S_OPEN, the window object, the screen
   const verify = (what) => {
     env.frames_(2);
     const ws = L.openWindows(m, S), open = sim.open, ctx = `[${trail.join('; ')}]`;
     sec.ok(m.ram[S.K_PROG] === 0, () => `${what}: K_PROG ${m.ram[S.K_PROG]} ${ctx}`);
-    sec.ok(ws.length === (open ? 1 : 0) && (!open || (ws[0].title === 'Leap Desktop' && ws[0].cls === S.CL_CWindow && ws[0].id === 255 && [ws[0].x, ws[0].y, ws[0].w, ws[0].h].join() === '32,24,320,80')),
+    sec.ok(ws.length === (open ? 1 : 0) && (!open || (ws[0].title === 'Leap Desktop' && ws[0].cls === S.CL_CWindow && ws[0].id === 255 && [ws[0].x, ws[0].y, ws[0].w, ws[0].h].join() === '32,24,384,80')),
       () => `${what}: windows ${JSON.stringify(ws.map((w) => [hex(w.cls), w.title, w.id, w.x, w.y, w.w, w.h]))}, want ${open ? 'the shell CWindow (32, 24, 320, 80) id 255' : 'none'} ${ctx}`);
     const want = open ? icons[sim.focus] : 0, got = rd16(m, S.K_FOCUS);
     sec.ok(got === want, () => `${what}: K_FOCUS ${hex(got)}, the model has ${open ? 'icon ' + sim.focus + ' ' + hex(want) : '0 (no window)'} ${ctx}`);
@@ -965,14 +968,14 @@ function shell12Group() {
   verify('other keys with no window'); cmp(closed1, 'other keys with no window');
   { const [cx, cy] = L.iconCentre(1); L.click(env, cx, cy, 3, 4); L.click(env, cx, cy, 3, 4); L.click(env, 300, 150, 3, 4); L.click(env, bxc[0], bxc[1], 3, 4); env.frames_(25); note('clicks where the window was'); }
   verify('clicks on the bare desk where the window was'); cmp(closed1, 'clicks on the bare desk');
-  // ---- 3. the Leap menu with the window closed: the open dropdown (8 items) and its highlights
+  // ---- 3. the Leap menu with the window closed: the open dropdown (9 items) and its highlights
   {
     const mask = () => L.pointerMask(m, S);
     const screenWith = (h) => { const g = SM.renderShell({ sel: -1, open: false }); LM.openLook(g, [SM.LEAP_MENU], lay, en, 0, h); return g; };
     L.moveTo(env, 500, 180); env.frames_(3);
     L.moveTo(env, 20, 4); m.mouse.buttons = L.MOUSE_LEFT; env.frames_(4);
     { const d = H.diffDisp(H.readDisp(m), SM.toDisp(screenWith(-1)), mask()); sec.ok(d === null, () => `the menu open over the empty desk, no highlight: ${d}`); }
-    for (const k of [0, 2, 3, 4, 5, 6, 7]) { L.moveTo(env, 30, 9 + 10 * k + 5); env.frames_(3); const d = H.diffDisp(H.readDisp(m), SM.toDisp(screenWith(k)), mask()); sec.ok(d === null, () => `the menu open over the empty desk, item ${k} highlighted: ${d}`); }
+    for (const k of [0, 2, 3, 4, 5, 6, 7, 8]) { L.moveTo(env, 30, 9 + 10 * k + 5); env.frames_(3); const d = H.diffDisp(H.readDisp(m), SM.toDisp(screenWith(k)), mask()); sec.ok(d === null, () => `the menu open over the empty desk, item ${k} highlighted: ${d}`); }
     L.moveTo(env, 400, 150); env.frames_(3); m.mouse.buttons = L.MOUSE_UP; env.frames_(8); note('menu opened and closed with no window');
     verify('the menu released away from the items'); cmp(closed1, 'the menu released away from the items');
   }
@@ -983,7 +986,7 @@ function shell12Group() {
     sec.ok(ws.length === 1 && !!dlg && [dlg.x, dlg.y, dlg.w, dlg.h].join() === '128,64,256,64' && rd16(m, S.W_MODAL) === dlg.a, () => `About with no window (${how}): windows ${JSON.stringify(ws.map((w) => [hex(w.cls), w.title]))}, W_MODAL ${hex(rd16(m, S.W_MODAL))}`);
     { const d = H.shellDiff(env); sec.ok(d === null, () => `About over the empty desk: ${d}`); }
     // modal: SS+Q, the Leap menu (Show Desktop) and a click where the shell's window was change nothing
-    L.typeCode(env, 17, 3, 3); H.leapMenu(env, 7); L.click(env, bxc[0], bxc[1], 3, 4); env.frames_(4);
+    L.typeCode(env, 17, 3, 3); H.leapMenu(env, 8); L.click(env, bxc[0], bxc[1], 3, 4); env.frames_(4);
     sec.ok(L.openWindows(m, S).length === 1 && rd16(m, S.W_MODAL) === dlg.a && m.ram[S.S_OPEN] === 0, () => `About with no window (${how}): under the modal dialog SS+Q, Show Desktop and a click did something: windows ${L.openWindows(m, S).length}, S_OPEN ${m.ram[S.S_OPEN]}`);
     { const d = H.shellDiff(env); sec.ok(d === null, () => `About over the empty desk after the modal-rule presses: ${d}`); }
     if (how === 'ok') L.click(env, 336, 108, 3, 6); else L.typeCode(env, how === 'esc' ? 27 : how === 'enter' ? 13 : 3);
@@ -991,20 +994,20 @@ function shell12Group() {
     verify(`About closed by ${how}, no window`); cmp(closed1, `About closed by ${how}, no window`, 0x50);
   }
   // ---- 5. Show Desktop with the window closed: the shell exactly as at start
-  menuItem(7); sim.show(); verify('Show Desktop, window closed');
+  menuItem(8); sim.show(); verify('Show Desktop, window closed');
   cmp(base0, 'Show Desktop with the window closed: the shell as at start', 0x50);
   // ---- 6. Show Desktop with it open: raised, nothing else changes (the focus stays)
-  tab(1); verify('TAB'); { const before = H.captureState(env); menuItem(7); sim.show(); verify('Show Desktop, window open'); cmp(before, 'Show Desktop with the window open: nothing changes'); }
+  tab(1); verify('TAB'); { const before = H.captureState(env); menuItem(8); sim.show(); verify('Show Desktop, window open'); cmp(before, 'Show Desktop with the window open: nothing changes'); }
   // ---- 7. close by SS+Q; the same state as by the box (the focus was on another icon)
   closeSSQ(); verify('closed by SS+Q'); cmp(closed1, 'closed by SS+Q, the closed state as by the box', 0x50);
   // ---- 8. a program launched from the Leap menu with the window closed: it starts, and quits back to an OPEN shell, as at start
-  for (const p of [1, 2, 3, 4]) {
+  for (const p of [1, 2, 3, 4, 5]) {
     menuItem(p + 2);
     const n = L.waitProgram(env, p, 120);
     sec.ok(n >= 0, () => `program ${p} from the Leap menu with the shell's window closed: it did not come up (K_PROG ${m.ram[S.K_PROG]}, windows ${JSON.stringify(L.openWindows(m, S).map((w) => w.title))})`);
     if (n < 0) { break; }
     env.frames_(p === 2 ? 36 : 12);
-    if (p !== 4) { const d = H.programDiff(env, p, [], '0'); sec.ok(d === null, () => `program ${p} from the closed shell: its screen: ${d}`); }
+    if (p !== 4 && p !== 5) { const d = H.programDiff(env, p, [], '0'); sec.ok(d === null, () => `program ${p} from the closed shell: its screen: ${d}`); }
     const q = p % 2 ? L.quitByCloseBox(env, p) : L.quitBySSQ(env);
     sec.ok(q, () => `program ${p}: the shell did not come back (open) after ${p % 2 ? 'the close box' : 'SS+Q'}`);
     if (!q) break;
@@ -1016,7 +1019,7 @@ function shell12Group() {
   for (let i = 0; i < 8 && sec.nf < 8; i++) {
     if (i % 2) closeSSQ(); else closeBox();
     verify(`cycle ${i}: closed`);
-    menuItem(7); sim.show(); verify(`cycle ${i}: shown`); cmp(base0, `cycle ${i}: Show Desktop`);
+    menuItem(8); sim.show(); verify(`cycle ${i}: shown`); cmp(base0, `cycle ${i}: Show Desktop`);
   }
   // ---- 10. the modal rule: the close box of the shell's window (now inactive, under the About dialog) does nothing; nor does a press on its title bar (no raise, no drag)
   {
@@ -1034,11 +1037,11 @@ function shell12Group() {
     L.typeCode(env, 27); env.frames_(6); note('About closed');
     verify('About closed after the modal-rule presses');
     // the window is front and active again: its close box works
-    closeBox(); verify('closed by the box after the dialog'); menuItem(7); sim.show(); verify('shown again'); cmp(base0, 'shown again after the dialog', 0x50);
+    closeBox(); verify('closed by the box after the dialog'); menuItem(8); sim.show(); verify('shown again'); cmp(base0, 'shown again after the dialog', 0x50);
   }
   // ---- 11. a double click launches from the reopened window and the shell comes back (open, fresh)
   { const ok = L.launchByDoubleClick(env, 2); sec.ok(ok, 'double click on an icon of the reopened window'); if (ok) { env.frames_(30); sec.ok(L.quitByCloseBox(env, 2), 'and the shell comes back'); env.frames_(12); sim.reset(); verify('after launching from the reopened window'); cmp(base0, 'after launching from the reopened window'); } }
-  sec.end(`${trail.length ? 'the shell closed by the box and by SS+Q, ' : ''}Show Desktop closed / open, About and the Leap menu with no window, 4 programs launched with the window closed, 8 cycles, the modal rule`);
+  sec.end(`${trail.length ? 'the shell closed by the box and by SS+Q, ' : ''}Show Desktop closed / open, About and the Leap menu with no window, 5 programs launched with the window closed, 8 cycles, the modal rule`);
 }
 
 // ===========================================================================================================================

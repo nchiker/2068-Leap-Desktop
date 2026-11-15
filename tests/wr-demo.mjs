@@ -2,7 +2,7 @@
 // wr-demo.mjs -- Write W1 over real frames, from the shell (docs/WRITE.md 8 items 3-5 and 11; SHELL 4, 10.4) on the prebuilt `desk5` cartridge (never rebuilt here), driven with TSRun's keyboard (the
 // key map src/kernel/keymap.txt: CAPS SHIFT / SYMBOL SHIFT combinations) and Kempston mouse.  Written from the contract only; src/apps/write.asm and src/apps/shell.asm were never read.
 //   node tests/wr-demo.mjs [--seed N] [--only LIST] [--verbose]
-//     --only LIST  groups: 1 the shell's four icons and the launch by a double click (<= 30 frames), 2 SS+Q and the launch by the "Leap" menu item "Write", 3 a paragraph typed (SYMBOL SHIFT
+//     --only LIST  groups: 1 the shell's five icons and the launch by a double click (<= 30 frames), 2 SS+Q and the launch by the "Leap" menu item "Write", 3 a paragraph typed (SYMBOL SHIFT
 //                  characters included) that wraps and scrolls, 4 arrows, DELETE, a click, the bar by the mouse, 5 "New" from the "File" menu with the dialog, 6 SS+Q with the dialog, 7 frames / watch
 // After each step the machine's whole screen (the pointer left out) is compared with wr-model's rendering of the model's document, and the document, the line table and the bar are read back.
 // The last line is "wr-demo: N of M groups pass"; exit code 1 on any failure.
@@ -58,12 +58,12 @@ function launchFrames(p) {
 
 // ===========================================================================================================================
 if (ONLY.includes(1)) {
-  const sec = cur = new Sec('1 the shell has four icons (Calculator, Key Caps, Notepad at (176, 40), Paint at (240, 40)); a double click on "Write" opens it: a CWindow "Write" (16, 16, 480, 168), the empty document drawn, the caret in the text view, within 30 frames');
+  const sec = cur = new Sec('1 the shell has five icons (Calculator, Key Caps, Notepad at (176, 40), Paint at (240, 40), Puzzle at (304, 40)); a double click on "Write" opens it: a CWindow "Write" (16, 16, 480, 168), the empty document drawn, the caret in the text view, within 30 frames');
   env.frames_(12);
   const d0 = H.shellDiff(env);
-  sec.ok(d0 === null, () => `the shell's screen with four icons (the icon bitmaps are read from icons.txt): ${d0}`);
+  sec.ok(d0 === null, () => `the shell's screen with five icons (the icon bitmaps are read from icons.txt): ${d0}`);
   const ics = H.treeOf(env).filter((v) => v.cls === S.CL_Icon);
-  sec.ok(ics.length === 4 && ics[3].x === 240 && ics[3].y === 40 && m.ram[ics[3].a + S.Icon_prog] === 4 && H.readStrText(m, rd16(m, ics[3].a + S.Icon_name)) === 'Paint' && ics[2].x === 176 && ics[2].y === 40 && m.ram[ics[2].a + S.Icon_prog] === 3 && H.readStrText(m, rd16(m, ics[2].a + S.Icon_name)) === 'Notepad', () => `icons ${JSON.stringify(ics.map((v) => [v.x, v.y]))}`);
+  sec.ok(ics.length === 5 && ics[4].x === 304 && ics[4].y === 40 && m.ram[ics[4].a + S.Icon_prog] === 5 && H.readStrText(m, rd16(m, ics[4].a + S.Icon_name)) === 'Puzzle' && ics[3].x === 240 && ics[3].y === 40 && m.ram[ics[3].a + S.Icon_prog] === 4 && H.readStrText(m, rd16(m, ics[3].a + S.Icon_name)) === 'Paint' && ics[2].x === 176 && ics[2].y === 40 && m.ram[ics[2].a + S.Icon_prog] === 3 && H.readStrText(m, rd16(m, ics[2].a + S.Icon_name)) === 'Notepad', () => `icons ${JSON.stringify(ics.map((v) => [v.x, v.y]))}`);
   env.frames_(30);
   const n = launchFrames(3);
   sec.ok(n <= 30, () => `Write's window was drawn after ${n} frames (bound 30)`);

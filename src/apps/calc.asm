@@ -735,48 +735,49 @@ c_arith:
     ld a,(C_X+ND)
     ld hl,C_D
     call q_p10                  ; D = M2 10^d1
-    jp c_round
+    jp c_divide
 
-; c_round: X = round(N / D) with sign C_S (section 6), or ERR.
-c_round:
-    call q_divmod               ; N = q0, R = the remainder
+; c_divide (section 6): X = N / D rounded, sign C_S, or ERR.  N, D are packed BCD (BCD helpers below).  The integer part q0 by long division digit by digit (16 digits), ERR when q0 >= 10^8; then 8 more digits
+; (N = q0 x 10^8 + the fraction, exact to 8 digits), and c_scale rounds: only the first digit it drops decides (half away from zero), so 8 fractional digits are always enough.
+c_divide:
+    ld hl,C_R
+    call q_zero
+    ld a,16
+    ld (C_CNT),a
+.p1:
+    ld hl,C_N
+    call q_mul10                ; A = N's top digit
+    push af
+    ld hl,C_R
+    call q_mul10
+    pop af
+    ld hl,C_R
+    call q_addb                 ; R = 10 R + that digit
+    call q_dig
+    ld hl,C_CNT
+    dec (hl)
+    jr nz,.p1
     ld de,C_N
     ld hl,C_P8
     call q_cmp
-    jr c,.ok
-    jp c_err
-.ok:
-    ld hl,C_P                   ; k = q0's digits
-    call q_one
-    xor a
-    ld (C_K),a
-.k:
-    ld de,C_N
-    ld hl,C_P
-    call q_cmp
-    jr c,.kd
-    ld hl,C_K
-    inc (hl)
-    ld hl,C_P
-    call q_mul10
-    jr .k
-.kd:
-    ld a,(C_K)                  ; f = 7 when q0 = 0, else 8 - k
-    or a
-    ld a,7
-    jr z,.f
-    ld a,(C_K)
-    ld b,a
+    jp nc,c_err                 ; q0 >= 10^8
     ld a,8
-    sub b
-.f:
-    ld (C_FD),a
-    or a
-    jr z,.rnd
-    ld (C_CNT2),a
-.g:                             ; the next digit: R = 10 R, digit = R / D
+    ld (C_CNT),a
+.p2:
     ld hl,C_R
     call q_mul10
+    ld hl,C_N
+    call q_mul10
+    call q_dig
+    ld hl,C_CNT
+    dec (hl)
+    jr nz,.p2
+    ld a,8
+    ld (C_FD),a
+    jp c_scale
+
+; q_dig: N's low digit (0 after its shift) = the digit D goes into R (R -= that many D).  Clobbers AF, BC, DE, HL.
+q_dig:
     ld c,0
 .s:
     push bc
@@ -784,7 +785,7 @@ c_round:
     ld hl,C_D
     call q_cmp
     pop bc
-    jr c,.sd
+    jr c,.d
     push bc
     ld de,C_R
     ld hl,C_D
@@ -792,43 +793,11 @@ c_round:
     pop bc
     inc c
     jr .s
-.sd:
-    push bc
-    ld hl,C_N
-    call q_mul10
-    pop bc
-    ld a,c
-    ld hl,C_N
-    call q_addb
-    ld hl,C_CNT2
-    dec (hl)
-    jr nz,.g
-.rnd:                           ; 2 R >= D: round up
-    ld hl,C_R
-    call q_shl
-    ld de,C_R
-    ld hl,C_D
-    call q_cmp
-    jr c,.nr
-    ld a,1
-    ld hl,C_N
-    call q_addb
-.nr:
-    ld de,C_N                   ; M = 10^8: one digit fewer, or ERR
-    ld hl,C_P8
-    call q_cmp
-    jr nz,.store
-    ld a,(C_FD)
-    or a
-    jp z,c_err
-    dec a
-    ld (C_FD),a
-    ld hl,C_N
-    call q_div10
-.store:
-    call c_norm
-    ld de,C_X
-    jp c_store
+.d:
+    ld a,(C_N)
+    or c
+    ld (C_N),a
+    ret
 
 ; c_scale: X = the exact N / 10^C_FD (C_FD <= 14) rounded (section 6), sign C_S, or ERR.  Digits are dropped from the right
 ; until d <= 7 and N < 10^8; the last digit dropped (the most significant one) rounds half away from zero.
@@ -856,11 +825,25 @@ c_scale:
 .fit:
     ld a,(C_K)
     cp 5
-    jp c,c_round.store
+    jr c,.store
     ld a,1
     ld hl,C_N
     call q_addb
-    jp c_round.nr
+    ld de,C_N                   ; M = 10^8: one digit fewer, or ERR
+    ld hl,C_P8
+    call q_cmp
+    jr nz,.store
+    ld a,(C_FD)
+    or a
+    jr z,c_err
+    dec a
+    ld (C_FD),a
+    ld hl,C_N
+    call q_div10
+.store:
+    call c_norm
+    ld de,C_X
+    jp c_store
 
 c_err:                          ; ERR set
     ld a,1
@@ -920,7 +903,7 @@ c_ldm:
     djnz .z
     ret
 
-; c_mul: N = X's M times Y's M (shift and add; A = the multiplicand, W = the multiplier).
+; c_mul: N = X's M times Y's M: for each digit of the multiplier (W, lowest first) that many additions of the multiplicand (A), A shifted a digit after each.
 c_mul:
     ld hl,C_X
     ld de,C_A
@@ -935,20 +918,22 @@ c_mul:
     ld hl,C_W                   ; done when W is 0
     call c_isz32
     ret z
-    ld hl,C_W+3                 ; W >>= 1, carry = the bit
+    ld hl,C_W+3
     ld b,4
+    call q_div10t               ; A = W's lowest digit, W /= 10
+    ld b,a
     or a
-.r:
-    rr (hl)
-    dec hl
-    djnz .r
-    jr nc,.n
+    jr z,.n
+.a:
+    push bc
     ld de,C_N
     ld hl,C_A
     call q_add
+    pop bc
+    djnz .a
 .n:
     ld hl,C_A
-    call q_shl
+    call q_mul10
     jr .l
 
 ; c_fmt: C_DSTR = the format of X (section 6).
@@ -1043,22 +1028,17 @@ q_zero:                         ; (HL) = 0
     inc hl
     djnz .l
     ret
-q_one:                          ; (HL) = 1
-    push hl
-    call q_zero
-    pop hl
-    ld (hl),1
-    ret
 q_copy:                         ; (DE) = (HL)
     ld bc,8
     ldir
     ret
-q_add:                          ; (DE) += (HL)
+q_add:                          ; (DE) += (HL) (packed BCD)
     ld b,8
     or a
 .l:
     ld a,(de)
     adc a,(hl)
+    daa
     ld (de),a
     inc de
     inc hl
@@ -1070,6 +1050,7 @@ q_sub:                          ; (DE) -= (HL), carry = borrow
 .l:
     ld a,(de)
     sbc a,(hl)
+    daa
     ld (de),a
     inc de
     inc hl
@@ -1090,24 +1071,19 @@ q_cmp:                          ; (DE) - (HL): carry when (DE) < (HL), Z when eq
     dec hl
     djnz .l
     ret
-q_shl:                          ; (HL) <<= 1, carry = the bit out
-    or a
-q_rl:                           ; the same, carry in at bit 0
-    ld b,8
-.l:
-    rl (hl)
-    inc hl
-    djnz .l
-    ret
-q_addb:                         ; (HL) += A
+q_addb:                         ; (HL) += A (a digit), BCD
     add a,(hl)
+    daa
     ld (hl),a
     ret nc
     ld b,7
 .l:
     inc hl
-    inc (hl)
-    ret nz
+    ld a,(hl)
+    add a,1
+    daa
+    ld (hl),a
+    ret nc
     djnz .l
     ret
 q_isz:                          ; Z when (HL) = 0
@@ -1118,23 +1094,14 @@ q_isz:                          ; Z when (HL) = 0
     inc hl
     djnz .l
     ret
-q_mul10:                        ; (HL) *= 10 (C_T is scratch)
-    push hl
-    ld de,C_T
-    call q_copy
-    pop hl
-    push hl
-    call q_shl
-    pop hl
-    push hl
-    call q_shl
-    pop hl
-    push hl
-    ex de,hl
-    ld hl,C_T
-    call q_add
-    pop hl
-    jp q_shl
+q_mul10:                        ; (HL) *= 10: a digit left through RLD; A = the digit that leaves
+    xor a
+    ld b,8
+.l:
+    rld
+    inc hl
+    djnz .l
+    ret
 q_p10:                          ; (HL) *= 10^A
     or a
     ret z
@@ -1151,75 +1118,16 @@ q_div10:                        ; (HL) /= 10, A = the remainder.  Clobbers F, BC
     ld bc,7
     add hl,bc
     ld b,8
-q_div10t:                       ; HL -> the top byte, B = the bytes
+q_div10t:                       ; HL -> the top byte, B = the bytes: a digit right through RRD
     xor a
-.byte:
-    ld c,(hl)
-    or a
-    jr nz,.go
-    or c                        ; remainder 0 and byte 0: the quotient byte is 0
-    jr z,.next
-    xor a
-.go:
-    push bc
-    ld b,8
-.bit:
-    sla c
-    rla
-    cp 10
-    jr c,.n
-    sub 10
-    inc c
-.n:
-    djnz .bit
-    ld (hl),c
-    pop bc
-.next:
-    dec hl
-    djnz .byte
-    ret
-q_divmod:                       ; N = N / D, R = the remainder (D != 0)
-    ld hl,C_R
-    call q_zero
-    ld a,64
-    ld (C_CNT),a
-.skip:                          ; whole zero bytes at N's top: a byte shift each, 8 bits fewer
-    ld a,(C_N+7)
-    or a
-    jr nz,.l
-    ld hl,C_N+6
-    ld de,C_N+7
-    ld bc,7
-    lddr
-    xor a
-    ld (C_N),a
-    ld a,(C_CNT)
-    sub 8
-    ld (C_CNT),a
-    ret z                       ; N was 0
-    jr .skip
 .l:
-    ld hl,C_N
-    call q_shl
-    ld hl,C_R
-    call q_rl
-    ld de,C_R
-    ld hl,C_D
-    call q_cmp
-    jr c,.n
-    ld de,C_R
-    ld hl,C_D
-    call q_sub
-    ld hl,C_N
-    set 0,(hl)
-.n:
-    ld hl,C_CNT
-    dec (hl)
-    jr nz,.l
+    rrd
+    dec hl
+    djnz .l
     ret
 
-C_P8:                           ; 10^8
-    DD 100000000, 0
+C_P8:                           ; 10^8 (packed BCD)
+    DB 0, 0, 0, 0, 1, 0, 0, 0
 
 ; ---------------------------------------------------------------------------------------------------------------------------
 ; The RAM image (section 2), assembled for C_IMG_ADDR.
@@ -1281,10 +1189,8 @@ C_N         EQU C_W + 4
 C_D         EQU C_N + 8
 C_R         EQU C_D + 8
 C_B         EQU C_R + 8
-C_T         EQU C_B + 8
-C_Q         EQU C_T + 8
-C_P         EQU C_Q + 8
-C_A         EQU C_P + 8
+C_Q         EQU C_B + 8
+C_A         EQU C_Q + 8
 C_VEND      EQU C_A + 8
     ASSERT C_VEND - C_IMG_ADDR <= 512 && (CL_CDisp >> 8) == ((CL_CDisp + 11) >> 8)
 C_END:

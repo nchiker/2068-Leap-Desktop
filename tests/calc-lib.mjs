@@ -107,12 +107,12 @@ export function bootDesk5(opts = {}) {
 
 // ---------------------------------------------------------------------------------------------------------------------------
 // The shell and the launcher, driven from outside (SHELL.md 4, 9, 10).
-/** SHELL 10.4 / WRITE 11.2: the window "Leap Desktop" (32, 24, 320, 80) and its four icons, K_PROG = 0. */
+/** SHELL 10.4 / WRITE 11.2: the window "Leap Desktop" (32, 24, 384, 80) and its five icons, K_PROG = 0. */
 export function shellUp(env) {
   const { m, S } = env;
   if (m.ram[S.K_PROG] !== 0) return false;
-  const v = allViews(m, S), win = v.find((x) => (x.cls === S.CL_Window || x.cls === S.CL_CWindow) && x.x === 32 && x.y === 24 && x.w === 320 && x.h === 80);
-  return !!win && v.filter((x) => x.cls === S.CL_Icon && x.depth === win.depth + 1).length === 4;
+  const v = allViews(m, S), win = v.find((x) => (x.cls === S.CL_Window || x.cls === S.CL_CWindow) && x.x === 32 && x.y === 24 && x.w === 384 && x.h === 80);
+  return !!win && v.filter((x) => x.cls === S.CL_Icon && x.depth === win.depth + 1).length === 5;
 }
 /** The program's windows on the desk (W_SLOTS, slots 1..14): [{ a, cls, x, y, w, h, title }]. */
 export function openWindows(m, S) {
@@ -125,10 +125,11 @@ export function openWindows(m, S) {
   return out;
 }
 /** Where each program's first window is, after its launch (SHELL 4, 5, 10.4; CALCULATOR 4). */
-export const PROG_WIN = { 0: { x: 32, y: 24, w: 320, h: 80, title: 'Leap Desktop' /* SHELL 12: a CWindow */ }, 1: { x: 160, y: 24, w: 176, h: 144, title: 'Calculator' },
+export const PROG_WIN = { 0: { x: 32, y: 24, w: 384, h: 80, title: 'Leap Desktop' /* SHELL 12: a CWindow */ }, 1: { x: 160, y: 24, w: 176, h: 144, title: 'Calculator' },
   2: { x: 32, y: 24, w: 448, h: 160, title: 'Key Caps' },   // KEYCAPS 7
   3: { x: 16, y: 16, w: 480, h: 168, title: 'Notepad: Untitled' },    // WRITE 11.3
-  4: { x: 48, y: 16, w: 416, h: 176, title: 'Paint: Untitled' } };    // PAINT 15: Paint's CWindow
+  4: { x: 48, y: 16, w: 416, h: 176, title: 'Paint: Untitled' },    // PAINT 15: Paint's CWindow
+  5: { x: 64, y: 24, w: 400, h: 160, title: 'Puzzle' } };           // PUZZLE 1: the K-resident program's CWindow
 /** Program p is running: K_PROG = p and its window (class, rectangle, title) is on the desk, as the only one. */
 export function progUp(env, p) {
   const { m, S } = env;
@@ -141,8 +142,8 @@ export function waitProgram(env, p, max = 120) {
   for (let i = 0; i <= max; i++) { if (progUp(env, p)) return i; if (i < max) env.frame(); }
   return -1;
 }
-/** The icons of the shell (SHELL 10.4, 10.5, WRITE 11.2): "Calculator" at (48, 40), "Key Caps" at (112, 40), "Notepad" at (176, 40), "Paint" at (240, 40); 64 x 26. */
-export const ICON_RECT = { 1: { x: 48, y: 40, w: 64, h: 26 }, 2: { x: 112, y: 40, w: 64, h: 26 }, 3: { x: 176, y: 40, w: 64, h: 26 }, 4: { x: 240, y: 40, w: 64, h: 26 } };
+/** The icons of the shell (SHELL 10.4, 10.5, WRITE 11.2): "Calculator" at (48, 40), "Key Caps" at (112, 40), "Notepad" at (176, 40), "Paint" at (240, 40), "Puzzle" at (304, 40); 64 x 26. */
+export const ICON_RECT = { 1: { x: 48, y: 40, w: 64, h: 26 }, 2: { x: 112, y: 40, w: 64, h: 26 }, 3: { x: 176, y: 40, w: 64, h: 26 }, 4: { x: 240, y: 40, w: 64, h: 26 }, 5: { x: 304, y: 40, w: 64, h: 26 } };
 export const iconCentre = (p) => [ICON_RECT[p].x + 32, ICON_RECT[p].y + 13];
 /** CWindow's close box hit rectangle (LOOK 3.3, on the left): (x + 8, y + 1, 15, 7) of a window at (x, y); `ww` is unused. */
 export const closeBoxOf = (wx, wy, ww) => macBoxRect(wx, wy);
@@ -266,7 +267,9 @@ export function click(env, tx, ty, hold = 3, rel = 6) {
 
 // ---------------------------------------------------------------------------------------------------------------------------
 // The view tree read from RAM (class word at +0, parent +2, child +4, next +6, x +8 (word), y +10, w +11 (word), h +13, flags +14, id +15).
-export function readStr(m, a) { if (!a) return null; const n = m.ram[a]; return Array.from(m.ram.subarray(a + 1, a + 1 + n)); }
+/** One byte as the CPU sees it under mapping K: the cartridge's chunks 0, 1, 4 and 5 (the pool and the kernel's tables: a K-resident program's strings) at $0000-$3FFF and $8000-$BFFF, RAM elsewhere. */
+export function peekK(m, a) { const c = a < 0x4000 || (a >= 0x8000 && a < 0xC000) ? m.dock[a >> 13] : null; return c ? c[a & 0x1FFF] : m.ram[a]; }
+export function readStr(m, a) { if (!a) return null; const n = peekK(m, a); return Array.from({ length: n }, (_, i) => peekK(m, a + 1 + i)); }
 export function readView(m, S, a) {
   return { a, cls: rd16(m, a), x: rd16(m, a + S.View_x), y: m.ram[a + S.View_y], w: rd16(m, a + S.View_w), h: m.ram[a + S.View_h],
     flags: m.ram[a + S.View_flags], id: m.ram[a + S.View_id], child: rd16(m, a + S.View_child), next: rd16(m, a + S.View_next) };

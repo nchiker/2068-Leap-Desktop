@@ -162,6 +162,7 @@ ISR_BODY:
 
     INCLUDE "kernel/kernel1.asm"
     INCLUDE "kernel/tk2.asm"    ; the toolkit's List and Field (docs/TOOLKIT.md 10.1: chunk 5 is full)
+    INCLUDE "apps/puzzle.asm"   ; program 5, the Puzzle: a K-resident program (docs/PUZZLE.md, docs/SPACE_PLAN.md)
     ASSERT $ <= $4000           ; chunks 0-1 only
 
     ORG $8000                   ; DOCK chunk 4: page-aligned tables
@@ -178,7 +179,7 @@ ISR_BODY:
     INCLUDE "kernel/launch.asm" ; the launcher (docs/SHELL.md 3)
     INCLUDE "kernel/sound.asm"  ; UI sounds (docs/SOUND.md)
 K_PROGS:                        ; the programs (SHELL 10.3): 0 the shell, 1 Calculator, 2 Key Caps (docs/KEYCAPS.md), 3 Write (docs/WRITE.md), 4 Paint (docs/PAINT.md)
-    DW S_START, C_START, KC_START, WR_START, PN_START
+    DW S_START, C_START, KC_START, WR_START, PN_START, PZ_START
     ASSERT $ <= $C000           ; chunk 5 only
 
     INCLUDE "apps/calc.asm"     ; DOCK chunks 2-3
