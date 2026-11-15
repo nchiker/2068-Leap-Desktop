@@ -10,3 +10,4 @@ node_modules/
 
 # agent worktrees (git worktree add .claude/worktrees/<name>; see CLAUDE.md)
 .claude/worktrees/
+_site/
