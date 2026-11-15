@@ -2,7 +2,7 @@ name: Pages
 on:
   push:
     branches: [main]
-    paths: ['pages/**', 'web/**', 'tsrun', 'tools/pages-prep.mjs', '.github/workflows/pages.yml']
+    paths: ['pages/**', 'web/**', 'tsrun', 'tools/pages-prep.mjs', 'docs/TECHNICAL.md', 'docs/screens/**', 'package.json', 'package-lock.json', '.github/workflows/pages.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -24,6 +24,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - run: npm ci
       - run: node tools/pages-prep.mjs _site
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

@@ -1,0 +1,8 @@
+{
+  "name": "leap-desktop",
+  "private": true,
+  "description": "Leap Desktop: only the site generator's dependency (tools/pages-prep.mjs); the emulator tests have none",
+  "devDependencies": {
+    "marked": "15.0.12"
+  }
+}

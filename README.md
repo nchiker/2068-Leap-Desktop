@@ -3,10 +3,16 @@
 A GEOS-style graphical desktop for the **Timex Sinclair 2068**, built from Leap technology (Leap V2 and Leap Arcade). It runs from a
 DOCK cartridge, uses the 512x192 64-column video mode, and is tested on emulators.
 
-**Status:** the graphics spike (slices S1-S5, `docs/GRAPHICS_SPIKE.md`) is done on emulators: TSRun, ZEsarUX 13.0 and Fuse 1.9.1.
-The mode decision (keep mode 6) and what the spike changes are in `docs/FEASIBILITY.md` section 5a; next is the code-size decision, then roadmap step 3. The design and the plan are in [`docs/FEASIBILITY.md`](docs/FEASIBILITY.md).
+**Status:** `desk5`, a 56 KB DOCK cartridge, boots into a desktop with overlapping windows, menus, a Kempston mouse and sound, and six programs: the shell, Calculator, Key Caps, Notepad, Paint and a 15-tile Puzzle. It is tested on TSRun (headless and in the browser), ZEsarUX 13.0 and Fuse 1.9.1; the design and the plan are in [`docs/FEASIBILITY.md`](docs/FEASIBILITY.md), and `CLAUDE.md` holds the working notes.
 
-**Try it in a browser:** https://nchiker.github.io/2068-Leap-Desktop/ (TSRun running `desk5.dck`; click the screen to give it the keyboard). How it works: [`docs/TECHNICAL.md`](docs/TECHNICAL.md). The page serves the prebuilt `pages/desk5.dck`; refresh it with `node tools/build.mjs desk5 && cp build/desk5.dck pages/desk5.dck`.
+| ▶ [**Try it in your browser**](https://nchiker.github.io/2068-Leap-Desktop/web/?cart=desk5) | 📖 [**Technical document**](https://nchiker.github.io/2068-Leap-Desktop/) | ⬇ [**desk5.dck**](pages/desk5.dck) | 🗂 [**Design docs**](docs/) |
+|:---:|:---:|:---:|:---:|
+
+![The Leap Desktop window with five program icons](docs/screens/desktop.png)
+
+The live page runs the cartridge on [TSRun](https://github.com/nchiker/TSRun), a TS2068 emulator in the browser; click the screen to give it the keyboard.
+[`docs/TECHNICAL.md`](docs/TECHNICAL.md) explains how it works (the same text is the front page of the live site). The page serves the prebuilt
+`pages/desk5.dck`; refresh it with `node tools/build.mjs desk5 && cp build/desk5.dck pages/desk5.dck`. Emulator-qualified, not yet tried on a real TS2068.
 
 ## Layout
 

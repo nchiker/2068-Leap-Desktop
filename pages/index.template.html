@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Leap Desktop</title>
+<meta name="description" content="A graphical desktop for the Timex Sinclair TS2068 in Z80 assembly: windows, menus, mouse, Calculator, Paint, Notepad and a puzzle. Run it in your browser; the technical document explains how it works.">
+<style>
+:root{--bg:#fafaf7;--fg:#1b1b1b;--mut:#5c5c58;--line:#d8d8d0;--card:#fff;--acc:#0b57d0;--accfg:#fff;--code:#f0f0ea}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#161614;--fg:#ececE6;--mut:#a3a39b;--line:#34342f;--card:#1f1f1c;--acc:#7aa7ff;--accfg:#101010;--code:#262622}}
+:root[data-theme="dark"]{--bg:#161614;--fg:#ececE6;--mut:#a3a39b;--line:#34342f;--card:#1f1f1c;--acc:#7aa7ff;--accfg:#101010;--code:#262622}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:16px}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--acc)}
+header.hero{border-bottom:1px solid var(--line);padding:28px 16px 24px}
+.wrap{max-width:1180px;margin:0 auto}
+h1.title{margin:0 0 4px;font-size:2rem;letter-spacing:-.01em}
+.sub{margin:0 0 16px;color:var(--mut);max-width:62ch}
+.actions{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 18px}
+.btn{display:inline-block;padding:9px 16px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg);text-decoration:none;font-weight:600}
+.btn.run{background:var(--acc);color:var(--accfg);border-color:var(--acc)}
+.shots{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.shots figure{margin:0}
+.shots img{width:100%;height:auto;display:block;border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;background:#fff}
+.shots figcaption{font-size:.8rem;color:var(--mut);margin-top:4px}
+.layout{display:grid;grid-template-columns:260px minmax(0,1fr);gap:32px;padding:24px 16px 64px}
+nav.toc{position:sticky;top:16px;align-self:start;max-height:calc(100vh - 32px);overflow:auto;font-size:.88rem;border-right:1px solid var(--line);padding-right:12px}
+nav.toc strong{display:block;margin-bottom:6px}
+nav.toc ul{list-style:none;margin:0;padding:0}
+nav.toc li.h3{padding-left:14px}
+nav.toc a{display:block;padding:2px 0;color:var(--mut);text-decoration:none}
+nav.toc a:hover{color:var(--acc)}
+article{min-width:0}
+article h1{font-size:1.8rem;margin-top:0}
+article h2{margin-top:2.2em;padding-top:.6em;border-top:1px solid var(--line);font-size:1.45rem}
+article h3{margin-top:1.8em;font-size:1.15rem}
+article code{background:var(--code);padding:.08em .35em;border-radius:4px;font:.88em ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+article pre{background:var(--code);padding:12px 14px;border-radius:8px;overflow:auto;line-height:1.45}
+article pre code{background:none;padding:0}
+article table{border-collapse:collapse;display:block;overflow:auto;max-width:100%;font-size:.92rem}
+article th,article td{border:1px solid var(--line);padding:5px 10px;vertical-align:top}
+article th{background:var(--code);text-align:left}
+article blockquote{margin:1em 0;padding:.1em 1em;border-left:3px solid var(--line);color:var(--mut)}
+article hr{border:0;border-top:1px solid var(--line)}
+footer{border-top:1px solid var(--line);padding:18px 16px;color:var(--mut);font-size:.85rem}
+@media (max-width:820px){.layout{grid-template-columns:1fr}nav.toc{position:static;max-height:none;border-right:0;border-bottom:1px solid var(--line);padding:0 0 12px}}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+  <h1 class="title">Leap Desktop</h1>
+  <p class="sub">A graphical desktop for the Timex Sinclair TS2068, in Z80 assembly: overlapping windows, menus, a mouse, Calculator, Key Caps, Notepad, Paint and a sliding-tile puzzle, on a 56 KB DOCK cartridge. Emulator-qualified; not yet tried on hardware.</p>
+  <div class="actions">
+    <a class="btn run" href="web/?cart=desk5">▶ Run it in your browser</a>
+    <a class="btn" href="#top-of-doc">📖 Technical document</a>
+    <a class="btn" href="build/desk5.dck">⬇ desk5.dck</a>
+    <a class="btn" href="https://github.com/nchiker/2068-Leap-Desktop">Source on GitHub</a>
+  </div>
+  <div class="shots">
+    <figure><img src="docs/screens/desktop.png" alt="The Leap Desktop window with five program icons" width="1024" height="768"><figcaption>The desktop</figcaption></figure>
+    <figure><img src="docs/screens/paint.png" alt="Paint with its tool box and pattern palette" width="1024" height="768"><figcaption>Paint</figcaption></figure>
+    <figure><img src="docs/screens/puzzle.png" alt="The 15-tile puzzle" width="1024" height="768"><figcaption>Puzzle</figcaption></figure>
+    <figure><img src="docs/screens/keycaps.png" alt="Key Caps showing the TS2068 keyboard" width="1024" height="768"><figcaption>Key Caps</figcaption></figure>
+  </div>
+</div></header>
+<div class="wrap layout">
+  <nav class="toc" aria-label="Contents"><strong>Technical document</strong>
+{{TOC}}
+  </nav>
+  <article id="top-of-doc">
+{{DOC}}
+  </article>
+</div>
+<footer><div class="wrap">Runs on <a href="https://github.com/nchiker/TSRun">TSRun</a>, a TS2068 emulator in the browser. An independent community project, not affiliated with Timex, Sinclair or Amstrad. Source and the other documents: <a href="https://github.com/nchiker/2068-Leap-Desktop">github.com/nchiker/2068-Leap-Desktop</a>.</div></footer>
+</body>
+</html>
