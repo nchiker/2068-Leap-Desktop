@@ -16,6 +16,9 @@ C_START:
     ld de,C_IMG_ADDR
     ld bc,C_IMG_LEN
     ldir
+    ld de,C_VARS                    ; the variables are not in the image (SIZE 9)
+    ld hl,C_VEND
+    call k_zero
     call c_build
     ld ix,(C_WIN)
     KFAR W_OPEN
@@ -1249,38 +1252,40 @@ C_S6:       DB 1, "6"
 C_S7:       DB 1, "7"
 C_S8:       DB 1, "8"
 C_S9:       DB 1, "9"
-; Variables (C_KEY "C" sets the state; the rest is scratch).
-C_WIN:      DW 0                ; the window
-C_DISP:     DW 0                ; the display view
-C_X:        DS 6                ; X: sign, d, M
-C_Y:        DS 6                ; Y, the operand
-C_OP:       DB 0                ; 0 or '+', '-', '*', '/'
-C_ENT:      DB 0
-C_ERR:      DB 0
-C_KC:       DB 0                ; the key being handled
-C_E:        DS 11               ; E: length, then up to 10 characters
-C_DSTR:     DS 11               ; the display: length, then up to 10 characters
-C_S:        DB 0                ; the result's sign
-C_SY:       DB 0                ; Y's sign as added (flipped for -)
-C_FD:       DB 0                ; the result's d
-C_DM:       DB 0
-C_PT:       DB 0
-C_K:        DB 0
-C_I:        DB 0
-C_CNT:      DB 0
-C_CNT2:     DB 0
-C_DIG:      DS 8
-C_W:        DS 4
-C_N:        DS 8
-C_D:        DS 8
-C_R:        DS 8
-C_B:        DS 8
-C_T:        DS 8
-C_Q:        DS 8
-C_P:        DS 8
-C_A:        DS 8
     ENT
 C_IMG_LEN   EQU $ - C_IMG
-    ASSERT C_IMG_LEN <= 512 && (CL_CDisp >> 8) == ((CL_CDisp + 11) >> 8)
+; Variables (C_KEY "C" sets the state; the rest is scratch): not in the image (SIZE 9), cleared at start.
+C_VARS      EQU C_IMG_ADDR + C_IMG_LEN
+C_WIN       EQU C_VARS   ; the window
+C_DISP      EQU C_WIN + 2   ; the display view
+C_X         EQU C_DISP + 2   ; X: sign, d, M
+C_Y         EQU C_X + 6   ; Y, the operand
+C_OP        EQU C_Y + 6   ; 0 or '+', '-', '*', '/'
+C_ENT       EQU C_OP + 1
+C_ERR       EQU C_ENT + 1
+C_KC        EQU C_ERR + 1   ; the key being handled
+C_E         EQU C_KC + 1   ; E: length, then up to 10 characters
+C_DSTR      EQU C_E + 11   ; the display: length, then up to 10 characters
+C_S         EQU C_DSTR + 11   ; the result's sign
+C_SY        EQU C_S + 1   ; Y's sign as added (flipped for -)
+C_FD        EQU C_SY + 1   ; the result's d
+C_DM        EQU C_FD + 1
+C_PT        EQU C_DM + 1
+C_K         EQU C_PT + 1
+C_I         EQU C_K + 1
+C_CNT       EQU C_I + 1
+C_CNT2      EQU C_CNT + 1
+C_DIG       EQU C_CNT2 + 1
+C_W         EQU C_DIG + 8
+C_N         EQU C_W + 4
+C_D         EQU C_N + 8
+C_R         EQU C_D + 8
+C_B         EQU C_R + 8
+C_T         EQU C_B + 8
+C_Q         EQU C_T + 8
+C_P         EQU C_Q + 8
+C_A         EQU C_P + 8
+C_VEND      EQU C_A + 8
+    ASSERT C_VEND - C_IMG_ADDR <= 512 && (CL_CDisp >> 8) == ((CL_CDisp + 11) >> 8)
 C_END:
     ASSERT $ <= $8000           ; chunks 2-3

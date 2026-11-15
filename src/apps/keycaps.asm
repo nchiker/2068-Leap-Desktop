@@ -11,6 +11,9 @@ KC_START:
     ld de,PROG_IMG
     ld bc,KC_IMG_LEN
     ldir
+    ld de,KC_VARS                   ; the variables are not in the image (SIZE 9)
+    ld hl,KC_VEND
+    call k_zero
     ld hl,KC_TWIN
     call AL_NEW                 ; the window
     ld (KC_WIN),ix
@@ -520,28 +523,29 @@ KC_NAMES:                       ; code, n, the name (KEYCAPS 2)
     DB $81, 2, "SS"
     DB 0
 KC_STAT:    DB 12, "Press a key."
-            DS 26 - 12
-KC_CH:      DB 0
-KC_WIN:     DW 0
-KC_KB:      DW 0
-KC_LBL:     DW 0
-KC_SEL:     DB 0                ; the checked radio's plane
-KC_P:       DB 0                ; the plane and the keys down the keyboard is drawn with
-KC_DOWN:    DS 8, 0
-KC_OLD:     DS 8, 0             ; the keys down before (kc_poll, KC_MODE 1)
-KC_CHG:     DS 8, 0             ; the keys that changed (KC_OLD xor KC_DOWN, made by kc_poll)
-KC_MODE:    DB 0
-KC_RP:      DW 0
-KC_X:       DW 0
-KC_Y:       DB 0
-KC_W:       DB 0                ; the cap being drawn: its width, its row's height (KC_H follows KC_W)
-KC_H:       DB 0
-KC_K:       DB 0
-KC_DX:      DW 0                ; the keyboard's offset from its first position (x, y)
-KC_DY:      DB 0
-KC_MV:      DB 0
     ENT
 KC_IMG_LEN  EQU $ - KC_IMG
-    ASSERT PROG_IMG + KC_IMG_LEN <= AL_RAM && (CL_KeyCaps >> 8) == ((CL_KeyCaps + 11) >> 8)
+KC_VARS     EQU PROG_IMG + KC_IMG_LEN    ; the variables are not in the image (SIZE 9): cleared at start; the first 14 bytes are KC_STAT's buffer after its text
+KC_CH       EQU KC_VARS + 14
+KC_WIN      EQU KC_CH + 1
+KC_KB       EQU KC_WIN + 2
+KC_LBL      EQU KC_KB + 2
+KC_SEL      EQU KC_LBL + 2   ; the checked radio's plane
+KC_P        EQU KC_SEL + 1   ; the plane and the keys down the keyboard is drawn with
+KC_DOWN     EQU KC_P + 1
+KC_OLD      EQU KC_DOWN + 8   ; the keys down before (kc_poll, KC_MODE 1)
+KC_CHG      EQU KC_OLD + 8   ; the keys that changed (KC_OLD xor KC_DOWN, made by kc_poll)
+KC_MODE     EQU KC_CHG + 8
+KC_RP       EQU KC_MODE + 1
+KC_X        EQU KC_RP + 2
+KC_Y        EQU KC_X + 2
+KC_W        EQU KC_Y + 1   ; the cap being drawn: its width, its row's height (KC_H follows KC_W)
+KC_H        EQU KC_W + 1
+KC_K        EQU KC_H + 1
+KC_DX       EQU KC_K + 1   ; the keyboard's offset from its first position (x, y)
+KC_DY       EQU KC_DX + 2
+KC_MV       EQU KC_DY + 1
+KC_VEND     EQU KC_MV + 1
+    ASSERT KC_VEND <= AL_RAM && (CL_KeyCaps >> 8) == ((CL_KeyCaps + 11) >> 8)
     ASSERT (KC_STAT >> 8) == ((KC_STAT + 26) >> 8) && KC_H == KC_W + 1 && KC_CHG == KC_OLD + 8
 KC_END:

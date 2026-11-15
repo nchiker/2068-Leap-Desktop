@@ -31,6 +31,9 @@ WR_START:
     ld de,PROG_IMG
     ld bc,WR_IMG_LEN
     ldir
+    ld de,WR_VARS                   ; the zero-filled variables are not in the image (SIZE 9)
+    ld hl,WR_FN + 1
+    call k_zero
     call AL_INIT
     ld hl,WR_MENUS
     KFAR MB_SET
@@ -3576,110 +3579,113 @@ WR_M2:                          ; 12.4: Cut, Copy, Paste disabled at the start; 
     DB 0, 2, 0
     DB 5, 0, 7, "Find..."
     DB 6, 1, 10, "Find again"
-WR_BUF:     DW 0
-WR_GS:      DW 0
-WR_GE:      DW 0
-WR_LT:      DW 0
-WR_NL:      DW 0
-WR_TOP:     DW 0
-WR_CHG:     DB 0
-WR_GA:      DW 0                ; BUF + GS
-WR_GB:      DW 0                ; BUF + GE
-WR_EA:      DW 0                ; BUF + CAP
-WR_TS:      DW 0                ; top's start
-WR_CL:      DW 0                ; the caret's line
-WR_CLS:     DW 0                ; its start
-WR_TX:      DW 0                ; UP / DOWN: the target x
-WR_RUN:     DB 0
-WR_WIN:     DW 0
-WR_TV:      DW 0
-WR_BAR:     DW 0
-WR_DLG:     DW 0
-WR_PEND:    DB 0                ; 1 quit, 2 New, 3 Open, waiting for the dialog
-WR_SDLG:    DW 0                ; W3 (13): the Save dialog, the alert, the Field, the dialog being made
-WR_ADLG:    DW 0
-WR_SFLD:    DW 0                ; the Field of the dialog opened last (Save or Find)
-WR_DK:      DB 0                ; the dialog open: 0 none (or the discard dialog), 1 Save, 2 the alert, 3 Find
 WR_LCK:     DW $FFFF            ; W4 (14.2): the clicked code of the text view's last press ($FFFF: none)
-WR_MODE:    DB 0
-WR_MJ:      DB 0
-WR_MJ2:     DB 0
-WR_MD:      DB 0
-WR_MX:      DW 0
-WR_MO:      DW 0
-WR_OCX:     DW 0                ; the caret drawn: x, y, shown
-WR_OCY:     DB 0
-WR_OCV:     DB 0
-WR_NCX:     DW 0                ; the caret to draw
-WR_NCY:     DB 0
-WR_NCV:     DB 0
-WR_CLR:     DB 0
-WR_C:       DB 0
-WR_P:       DW 0
-WR_KP:      DW 0
-WR_K:       DW 0
-WR_KS:      DW 0
-WR_OM:      DW 0
-WR_DW:      DW 0
-WR_OLDK:    DB 0
-WR_ONL0:    DW 0
-WR_ONL:     DW 0
-WR_W:       DW 0
-WR_R:       DW 0
-WR_OS:      DW 0
-WR_NS:      DW 0
-WR_WE:      DW 0
-WR_F:       DW 0
-WR_DRAWN:   DB 0
 WR_BNL:     DW $FFFF            ; the line count and top the bar was last set from
-WR_BTOP:    DW 0
-WR_PS:      DW 0
-WR_PE:      DW 0
-WR_AN:      DW 0                ; W2 (12): the anchor
-WR_MK:      DB 0                ; the mark
-WR_CLN:     DW 0                ; the clipboard's length
-WR_EN:      DB 0                ; the "Edit" bits set: bit 0 Cut and Copy, bit 1 Paste
-WR_SA:      DW 0                ; the selection drawn (empty when SA = SB)
-WR_SB:      DW 0
-WR_XA:      DW 0                ; the selection a fill is for
-WR_XB:      DW 0
-WR_D1A:     DW 0                ; the ranges whose lines a change of the selection redraws
-WR_D1B:     DW 0
-WR_D2A:     DW 0
-WR_D2B:     DW 0
-WR_SM:      DW 0                ; their lines shown, bit j = line top + j
-WR_BIT:     DW 0
-WR_RT:      DW 0                ; a line: its index, start, end, band's y; its selected part [RA, RB)
-WR_RS:      DW 0
-WR_RE:      DW 0
-WR_RY:      DB 0
-WR_RA:      DW 0
-WR_RB:      DW 0
-WR_OX0:     DW 0                ; a line's old part's x0, x1
-WR_OX1:     DW 0
 WR_TWC:     DS 24, $FF          ; 4 widths kept: offset, the line's start, tw (wr_twput)
-WR_TWI:     DB 0
-WR_TWQ:     DW 0
-WR_PN:      DB 0                ; wr_pos: the positions to step over, r
-WR_PR0:     DW 0
-WR_XE:      DW 0
-WR_XS:      DW 0
-WR_FT:      DW 0                ; the first line the change meets, its start
-WR_FS:      DW 0
-WR_RCK:     DB 0                ; wr_replace: count the lines; the source, n, S, lo, hi, the caret, GE, the codes kept
-WR_RSRC:    DW 0
-WR_RC:      DW 0
-WR_RSN:     DW 0
-WR_LO:      DW 0
-WR_HI:      DW 0
-WR_RCAR:    DW 0
-WR_RGE:     DW 0
-WR_RSV:     DW 0
-WR_FN:      DB 0                ; W4 (14.5): F's length; its codes follow the image (WR_FN, then them: F as a length-prefixed text)
     ENT
 WR_IMG_LEN  EQU $ - WR_IMG
+
+; The variables that start at zero are not in the image (SIZE 9): cleared at start; the three that do not start at zero (WR_LCK, WR_BNL, WR_TWC) are in the image.
+WR_VARS     EQU PROG_IMG + WR_IMG_LEN
+WR_BUF      EQU WR_VARS
+WR_GS       EQU WR_BUF + 2
+WR_GE       EQU WR_GS + 2
+WR_LT       EQU WR_GE + 2
+WR_NL       EQU WR_LT + 2
+WR_TOP      EQU WR_NL + 2
+WR_CHG      EQU WR_TOP + 2
+WR_GA       EQU WR_CHG + 1   ; BUF + GS
+WR_GB       EQU WR_GA + 2   ; BUF + GE
+WR_EA       EQU WR_GB + 2   ; BUF + CAP
+WR_TS       EQU WR_EA + 2   ; top's start
+WR_CL       EQU WR_TS + 2   ; the caret's line
+WR_CLS      EQU WR_CL + 2   ; its start
+WR_TX       EQU WR_CLS + 2   ; UP / DOWN: the target x
+WR_RUN      EQU WR_TX + 2
+WR_WIN      EQU WR_RUN + 1
+WR_TV       EQU WR_WIN + 2
+WR_BAR      EQU WR_TV + 2
+WR_DLG      EQU WR_BAR + 2
+WR_PEND     EQU WR_DLG + 2   ; 1 quit, 2 New, 3 Open, waiting for the dialog
+WR_SDLG     EQU WR_PEND + 1   ; W3 (13): the Save dialog, the alert, the Field, the dialog being made
+WR_ADLG     EQU WR_SDLG + 2
+WR_SFLD     EQU WR_ADLG + 2   ; the Field of the dialog opened last (Save or Find)
+WR_DK       EQU WR_SFLD + 2   ; the dialog open: 0 none (or the discard dialog), 1 Save, 2 the alert, 3 Find
+WR_MODE     EQU WR_DK + 1
+WR_MJ       EQU WR_MODE + 1
+WR_MJ2      EQU WR_MJ + 1
+WR_MD       EQU WR_MJ2 + 1
+WR_MX       EQU WR_MD + 1
+WR_MO       EQU WR_MX + 2
+WR_OCX      EQU WR_MO + 2   ; the caret drawn: x, y, shown
+WR_OCY      EQU WR_OCX + 2
+WR_OCV      EQU WR_OCY + 1
+WR_NCX      EQU WR_OCV + 1   ; the caret to draw
+WR_NCY      EQU WR_NCX + 2
+WR_NCV      EQU WR_NCY + 1
+WR_CLR      EQU WR_NCV + 1
+WR_C        EQU WR_CLR + 1
+WR_P        EQU WR_C + 1
+WR_KP       EQU WR_P + 2
+WR_K        EQU WR_KP + 2
+WR_KS       EQU WR_K + 2
+WR_OM       EQU WR_KS + 2
+WR_DW       EQU WR_OM + 2
+WR_OLDK     EQU WR_DW + 2
+WR_ONL0     EQU WR_OLDK + 1
+WR_ONL      EQU WR_ONL0 + 2
+WR_W        EQU WR_ONL + 2
+WR_R        EQU WR_W + 2
+WR_OS       EQU WR_R + 2
+WR_NS       EQU WR_OS + 2
+WR_WE       EQU WR_NS + 2
+WR_F        EQU WR_WE + 2
+WR_DRAWN    EQU WR_F + 2
+WR_BTOP     EQU WR_DRAWN + 1
+WR_PS       EQU WR_BTOP + 2
+WR_PE       EQU WR_PS + 2
+WR_AN       EQU WR_PE + 2   ; W2 (12): the anchor
+WR_MK       EQU WR_AN + 2   ; the mark
+WR_CLN      EQU WR_MK + 1   ; the clipboard's length
+WR_EN       EQU WR_CLN + 2   ; the "Edit" bits set: bit 0 Cut and Copy, bit 1 Paste
+WR_SA       EQU WR_EN + 1   ; the selection drawn (empty when SA = SB)
+WR_SB       EQU WR_SA + 2
+WR_XA       EQU WR_SB + 2   ; the selection a fill is for
+WR_XB       EQU WR_XA + 2
+WR_D1A      EQU WR_XB + 2   ; the ranges whose lines a change of the selection redraws
+WR_D1B      EQU WR_D1A + 2
+WR_D2A      EQU WR_D1B + 2
+WR_D2B      EQU WR_D2A + 2
+WR_SM       EQU WR_D2B + 2   ; their lines shown, bit j = line top + j
+WR_BIT      EQU WR_SM + 2
+WR_RT       EQU WR_BIT + 2   ; a line: its index, start, end, band's y; its selected part [RA, RB)
+WR_RS       EQU WR_RT + 2
+WR_RE       EQU WR_RS + 2
+WR_RY       EQU WR_RE + 2
+WR_RA       EQU WR_RY + 1
+WR_RB       EQU WR_RA + 2
+WR_OX0      EQU WR_RB + 2   ; a line's old part's x0, x1
+WR_OX1      EQU WR_OX0 + 2
+WR_TWI      EQU WR_OX1 + 2
+WR_TWQ      EQU WR_TWI + 1
+WR_PN       EQU WR_TWQ + 2   ; wr_pos: the positions to step over, r
+WR_PR0      EQU WR_PN + 1
+WR_XE       EQU WR_PR0 + 2
+WR_XS       EQU WR_XE + 2
+WR_FT       EQU WR_XS + 2   ; the first line the change meets, its start
+WR_FS       EQU WR_FT + 2
+WR_RCK      EQU WR_FS + 2   ; wr_replace: count the lines; the source, n, S, lo, hi, the caret, GE, the codes kept
+WR_RSRC     EQU WR_RCK + 1
+WR_RC       EQU WR_RSRC + 2
+WR_RSN      EQU WR_RC + 2
+WR_LO       EQU WR_RSN + 2
+WR_HI       EQU WR_LO + 2
+WR_RCAR     EQU WR_HI + 2
+WR_RGE      EQU WR_RCAR + 2
+WR_RSV      EQU WR_RGE + 2
+WR_FN       EQU WR_RSV + 2   ; W4 (14.5): F's length; its codes follow the image (WR_FN, then them: F as a length-prefixed text)
 ; RAM after the image (below the arena, not copied: each is written before it is read).
-WR_FCODES   EQU PROG_IMG + WR_IMG_LEN   ; F's codes, after WR_FN (14.6)
+WR_FCODES   EQU WR_FN + 1               ; F's codes, after WR_FN (14.6)
 WR_TITLE    EQU WR_FCODES + 30          ; "Notepad: " and the name: a length byte and up to 39 codes (13.1, 13.10)
 WR_NAME     EQU WR_TITLE + 40           ; the document's name: a length byte and up to 30 codes
 WR_FBUF     EQU WR_NAME + 31            ; the Save dialog's Field
