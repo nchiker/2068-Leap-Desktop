@@ -53,11 +53,12 @@ export function bootW3(opts = {}) {
   env.st = new W3.W3();
   // W3 memory watch (13.7: $C000-$C3FF, Write's image and the RAM after it, below the arena): writes are allowed only into Write's variables: from WR_BUF to the end of WR_PNAME's 32 bytes
   const { m, S } = env, lo = S.WR_BUF, hi = Math.max(S.WR_PNAME + 32, S.WR_FFB !== undefined ? S.WR_FFB + 32 : 0, S.WR_XEND !== undefined ? S.WR_XEND + 2 : 0);   // W4: WR_FN, F's codes (WR_FCODES) and the Find Field's buffer WR_FFB (31 bytes) are in this range too
+  // SIZE 9 trim: the three variables that do not start at zero (WR_LCK, WR_BNL, WR_TWC: 28 bytes) stay inside the image, contiguous at its end; their writes are allowed too
   env.imgw = { n: 0, first: [], armed: true, lo, hi, log: new Map() };
   const wr0 = m.bus.write;
   m.bus.write = function (addr, v) {
     const a = addr & 0xFFFF;
-    if (env.imgw.armed && a >= 0xC000 && a < 0xC400 && (a < lo || a >= hi) && !(a >= (S.AL_RAM ?? 0xC3C0))) {   // AL_RAM ($C3C0-$C3FF) belongs to the app library (APPLIB 1): AL_INIT, AL_NAMEDLG's AL_FLD
+    if (env.imgw.armed && a >= 0xC000 && a < 0xC400 && (a < lo || a >= hi) && !(S.WR_LCK !== undefined && S.WR_TWC !== undefined && a >= S.WR_LCK && a < S.WR_TWC + 24) && !(a >= (S.AL_RAM ?? 0xC3C0))) {   // AL_RAM ($C3C0-$C3FF) belongs to the app library (APPLIB 1): AL_INIT, AL_NAMEDLG's AL_FLD
       env.imgw.n++; if (env.imgw.first.length < 8) env.imgw.first.push(`${hex(a)} <- ${hex(v, 2)}, PC ${hex(m.cpu.pc)}`);
     }
     wr0(addr, v);
