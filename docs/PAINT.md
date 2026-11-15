@@ -402,3 +402,11 @@ All 24 suites pass (`build/test-logs/2026-11-15_02-03-40`), Fuse 6 of 6, ZEsarUX
   variables end at `$C281`, 319 bytes below `AL_RAM`.
 - **Open for the owner:** the filled whole-picture oval (28 frames) and the exposure redraw are slow; options are accepting them (they are rare), or speeding `G_RRECT`'s fill (draw whole bands instead of one
   `G_PATFILL` a row) and a `G_PUTRECT` for the exposure.
+
+
+## 20. Owner's decisions (2026-11-15: "I'll take your suggestions on all items")
+
+- **The missed bounds are accepted at the measured figures** (section 19): Undo of a 2,016-byte box 265,442 T; a fully exposed canvas 725,000 T; a whole-picture filled oval 1.66 M T is reported, not bounded. The bounds
+  in section 12 for these rows are reset to those figures.
+- **The bucket (P3): "Fill too complex" on overflow** (the picture is restored from the copy; a fill that completes is undoable); **the marquee is its own slice (P3b) after the bucket.**
+- **Order:** the window-drag fix for Key Caps and Notepad, then the closable shell window, then P3 (`CLAUDE.md`).
