@@ -154,6 +154,8 @@ al_rect:
 ; AL_ALERT: HL -> the program's alert word, DE -> a message (in RAM; a 13 breaks it into two lines): the alert (APPLIB 4), made
 ; the first time, its Label holding the message, opened.  Clobbers AF, BC, DE, HL, IX.
 AL_ALERT:
+    ld a,3                      ; the alert sound (docs/SOUND.md)
+    KFAR K_BEEP
     push de
     ld de,AL_TALR
     call AL_DIALOG
@@ -170,6 +172,8 @@ AL_ALERT:
 ; AL_ASK: HL -> the program's ask word: "Discard the document?" (APPLIB 4), made the first time, opened.  Clobbers AF, BC, DE,
 ; HL, IX.
 AL_ASK:
+    ld a,3
+    KFAR K_BEEP
     ld de,AL_TASK
     call AL_DIALOG
 al_open:

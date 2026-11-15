@@ -7,6 +7,7 @@
     DEFINE G_LEAN               ; G_CLS, G_VLINE and G_ROWADDR are left out (no program uses them; docs/SIZE.md 1 S3): desk5 only
     DEFINE K_NOWARP             ; K_WARP and K_POLL's warp block are left out (docs/SIZE.md 1 S4): desk5 only
     DEFINE G_LIB6               ; G_SCROLLV, G_BLIT and G_LINE live in DOCK 6 (docs/SIZE.md 4, docs/PAINT.md 11.1): desk5 only
+    DEFINE SOUND                ; UI sounds on the AY (docs/SOUND.md): desk5 only
     DEFINE K_BOXES              ; K_BOX: a box between the arena and cold RAM, for Paint's undo (docs/PAINT.md 6): desk5 only
     DEFINE MASKS_SHARED         ; LMASK / RMASK are the first 8 bytes of LMASKP / RMASKP (docs/SIZE.md 1 S5): desk5 only
 
@@ -87,6 +88,8 @@ ENTRY:
     ld (V_SHADOW_F4),a
     ld a,$C3
     ld (K_FJP),a                ; JP: K_FAR's indirect call
+    ld a,1
+    ld (K_SOUND),a              ; sound on (docs/SOUND.md)
     call G_INIT
     ld hl,K_KARENA
     ld de,KARENA_BASE
@@ -140,6 +143,7 @@ ISR_BODY:
     out (PORT_HSR),a
     call P_ISR
     call K_POLL
+    call K_SNDTICK
     ld a,(V_SHADOW_F4)
     out (PORT_HSR),a
     ld a,(K_AYREG)
@@ -172,6 +176,7 @@ ISR_BODY:
     INCLUDE "kernel/tk.asm"     ; the toolkit (docs/TOOLKIT.md)
     INCLUDE "tk-classes.inc"
     INCLUDE "kernel/launch.asm" ; the launcher (docs/SHELL.md 3)
+    INCLUDE "kernel/sound.asm"  ; UI sounds (docs/SOUND.md)
 K_PROGS:                        ; the programs (SHELL 10.3): 0 the shell, 1 Calculator, 2 Key Caps (docs/KEYCAPS.md), 3 Write (docs/WRITE.md), 4 Paint (docs/PAINT.md)
     DW S_START, C_START, KC_START, WR_START, PN_START
     ASSERT $ <= $C000           ; chunk 5 only

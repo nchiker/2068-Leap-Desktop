@@ -205,6 +205,8 @@ pn_status:
     jr .f
 ; pn_msg: pn_say, remembered as a message (pn_status shows the tool's name again).
 pn_msg:
+    ld a,4                      ; the error sound (docs/SOUND.md)
+    KFAR K_BEEP
     ld a,1
     ld (PN_MSG),a
 pn_say:

@@ -197,6 +197,10 @@ button_event:
 ; b_click: IX = a button: pressed and drawn, four frames, released and drawn, E_CMD posted (17.3).  Interrupts must be on.
 ; Carry set.  Preserves IX.  Clobbers AF, BC, DE, HL.
 b_click:
+    IFDEF SOUND
+    ld a,1                      ; the click (docs/SOUND.md)
+    call K_BEEP
+    ENDIF
     set BTN_PRESSED,(ix+View_flags)
     call W_DRAWVIEW
     ld b,4

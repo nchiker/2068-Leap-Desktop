@@ -792,6 +792,10 @@ mb_loop:
     cp $FF
     ret z
     call mb_item                        ; HL -> the item's id
+    IFDEF SOUND
+    ld a,2                              ; the select sound (docs/SOUND.md; K_BEEP keeps HL)
+    call K_BEEP
+    ENDIF
     ld e,(hl)
     ld hl,(MC_REC)
     ld c,(hl)

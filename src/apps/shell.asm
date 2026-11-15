@@ -4,6 +4,8 @@
 ICON_X0     EQU 48
 ICON_DX     EQU 64
 S_WINID     EQU 255
+S_SOFF:     DB "Sound Off"     ; the menu item's text while sound is on / off (the item shows the action)
+S_SON:      DB "Sound On "
 
 ; S_START: the image, the menu, the window and its icons, then the event loop.  Never returns.
 S_START:
@@ -82,6 +84,8 @@ s_loop:
     jr z,.about
     cp 7
     jr z,.show                  ; Show Desktop (SHELL 12)
+    cp 8
+    jr z,.snd                   ; Sound Off / Sound On (docs/SOUND.md 5)
     sub 2
     jr c,s_loop
     jr z,s_loop
@@ -115,11 +119,25 @@ s_loop:
 .raise:
     KFAR W_RAISE
     jr s_loop
+.snd:                           ; the sound toggled; the item shows the other state
+    ld a,(K_SOUND)
+    xor 1
+    KFAR K_SNDSET
+    ld hl,S_SOFF
+    ld a,(K_SOUND)
+    or a
+    jr nz,.st
+    ld hl,S_SON
+.st:
+    ld de,S_SNDTXT
+    ld bc,9
+    ldir
+    jp s_loop
 .about:                         ; the library's alert (APPLIB 5)
     ld hl,S_ABOUT
     ld de,S_ABOUTT
     call AL_ALERT
-    jr s_loop
+    jp s_loop
 
 S_TWIN:                         ; the shell's window (SHELL 4, 12): an APPLIB 3 entry; a CWindow: its close box and SS+Q post E_CMD S_WINID
     DW CL_CWindow, 32
@@ -277,7 +295,7 @@ S_MENUS:
     DB 1
     DW S_M1
 S_M1:
-    DB 1, 4, "Leap", 7
+    DB 1, 4, "Leap", 8
     DB 1, 0, 21, "About Leap Desktop..."
     DB 2, 2, 0                  ; a separator
     DB 3, 0, 10, "Calculator"
@@ -285,6 +303,8 @@ S_M1:
     DB 5, 0, 7, "Notepad"
     DB 6, 0, 5, "Paint"
     DB 7, 0, 12, "Show Desktop"
+    DB 8, 0, 9
+S_SNDTXT:   DB "Sound Off"
 S_WIN:      DW 0
 S_OPEN:     DB 0                ; 1 while the shell's window is open
 S_ABOUT:    DW 0
