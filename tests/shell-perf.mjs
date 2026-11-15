@@ -35,7 +35,7 @@ H.needSyms(S, H.SHELL_NEEDED);
   const nprog = 6, table = 2 * nprog;                                   // a word per program: the shell, Calculator, Key Caps, Notepad, Paint, Puzzle
   row('the launcher\'s bytes in the pool (K_PROGS - K_LAUNCH, or K_BEEP - K_LAUNCH when sound.asm sits between: K_LAUNCH and K_QUIT; EST 90)', code, 150, `K_LAUNCH ${hex(S.K_LAUNCH)}, K_QUIT ${hex(S.K_QUIT)}, end ${hex(kEnd)}, K_PROGS ${hex(S.K_PROGS)}; with the ${nprog}-word program table ${code + table}`);
   // SIZE 2: the pool's FREE bytes (the always-mapped chunks), read from the build, replace step 5's growth bound (BANKING 6.1: 3,400). The reserve is for step 6.
-  const c01 = 0x4000 - S.TK2_END;                                       // chunks 0-1: from TK2_END to $4000
+  const c01 = 0x4000 - (S.PZ_END ?? S.TK2_END);                                       // chunks 0-1: from PZ_END (the Puzzle after the toolkit) to $4000
   let t = S.K_CODE; while (t > 0x8000 && load.mem[t - 1] === 0) t--;
   const c4 = S.K_CODE - t;                                              // chunk 4: the zero run below the kernel (the kernel starts at $9E00 since SIZE 1 S1)
   const c5 = 0xC000 - (S.K_PROGS + table);                              // chunk 5: from the end of the K_PROGS table to $C000
