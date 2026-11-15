@@ -398,12 +398,12 @@ function notepadEvents() {
 function paintEvents() {
   const log = S.makeAyLog();
   const env = Q.bootPaint({ setup: log.setup }); log.attach(env); const { m, S: Sy } = env;
-  const sec = new Sec('8 Paint\'s messages (id 4 once each, by pn_msg): "Not built yet" (a press with the Marquee), "Too big to undo" (a Bucket fill of the whole picture), "Fill too complex" (205 spans with a pattern); choosing a tool is silent');
+  const sec = new Sec('8 Paint\'s messages (id 4 once each, by pn_msg): "Selection too big" (a Marquee drag over 2,048 bytes), "Too big to undo" (a Bucket fill of the whole picture), "Fill too complex" (205 spans with a pattern); choosing a tool is silent');
   const P = Q.P, picAt = (px, py) => [P.PIC.x + env.st.ox + px, P.PIC.y + env.st.oy + py];
   const RECT = (x, y) => ((x >= 100 && x < 200 && y >= 40 && y < 100 && (x === 100 || x === 199 || y === 40 || y === 99)) ? 1 : 0), speck = (x, y) => (x === 20 && y === 10 ? 1 : 0);
   scen(env, log, sec, 'choosing the Marquee: silent', [], () => { Q.chooseTool(env, 0); env.st.chooseTool(0); });
-  scen(env, log, sec, 'a press in the picture with the Marquee: "Not built yet"', [4], () => { Q.stroke(env, [picAt(150, 70)], { settle: 12 }); });
-  sec.ok(Q.statusOf(env) === 'Not built yet', () => `status "${Q.statusOf(env)}"`);
+  scen(env, log, sec, 'a Marquee drag over most of the picture (more than 2,048 bytes): "Selection too big"', [4], () => { Q.stroke(env, [picAt(10, 5), picAt(300, 130)], { settle: 12 }); });
+  sec.ok(Q.statusOf(env) === 'Selection too big', () => `status "${Q.statusOf(env)}"`);
   scen(env, log, sec, 'choosing the Bucket and the Pencil: silent', [], () => { Q.chooseTool(env, 5); env.st.chooseTool(5); });
   scen(env, log, sec, 'a Bucket click on the empty picture (solid): the whole picture, "Too big to undo"', [4], () => { Q.stroke(env, [picAt(150, 70)], { settle: 0 }); Q.idle(env, 1500); }, { settleN: 30 });
   sec.ok(Q.statusOf(env) === 'Too big to undo', () => `status "${Q.statusOf(env)}"`);

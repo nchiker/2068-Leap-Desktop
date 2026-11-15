@@ -54,7 +54,8 @@ export function rndStep(st) { for (let i = 0; i < 8; i++) { const lsb = st & 1; 
 /** The stroke box's margin (byte columns, rows) by tool (PN_PADC, PN_PADR). */
 export const PADS = { 1: [0, 0], 2: [1, 4], 3: [1, 4], 4: [2, 8], 6: [0, 0], 7: [0, 0], 8: [0, 0], 9: [0, 0] };
 export const SHAPES = [6, 7, 8, 9];             // the Line, the Rectangle, the Rounded rectangle and the Oval (PAINT 17, 18): an XOR band while the button is held (a line, or the bounding rectangle)
-export const DRAWING = [1, 2, 3, 4, 6, 7, 8, 9];   // the tools that take a capture and draw a stroke: all but the Marquee (0, not built) and the Bucket (5, a click: PAINT 21)
+export const DRAWING = [1, 2, 3, 4, 6, 7, 8, 9];   // the tools that take a capture and draw a stroke: all but the Marquee (0: PAINT 22.2, its own press / move / release below) and the Bucket (5, a click: PAINT 21)
+export const MESSAGES = ['Too big to undo', 'Fill too complex', 'Selection too big'];   // the status messages: each gives way to the tool's name at the next fitting commit / tool choice / fitting selection
 /** G_RRECT's radii by tool (PAINT 18): the Rounded rectangle 8 x 4, the Oval 255 x 100 (cut to w / 2, h / 2). */
 export const RADII = { 8: [8, 4], 9: [255, 100] };
 export const inPic = (x, y) => x >= PIC.x && x < PIC.x + PIC.w && y >= PIC.y && y < PIC.y + PIC.h;
@@ -99,27 +100,32 @@ export class PaintModel {
     this.undoOn = false; this.undoBox = null; this.dirty = false; this.name = ''; this.stroke = null;
     this.hox = 0; this.hoy = 0;               // the picture origin's offset when the copy was last saved (its header)
     this.ox = 0; this.oy = 0;                 // the window's offset from (48, 16) after a drag (the views move with it)
+    this.sel = null;                          // the Marquee's selection (PAINT 22.2): { c, n, y, h } = first byte column, byte columns, first row, rows (picture coordinates)
+    this.cs = false;                          // CAPS SHIFT held at the release of a move (K_MODS bit 0): a copy
   }
   clone() {
     const c = new PaintModel(); c.tool = this.tool; c.fill = this.fill; c.pat = this.pat; c.brush = this.brush; c.rnd = this.rnd; c.status = this.status; c.pic.px.set(this.pic.px); c.undoOn = this.undoOn;
-    c.undoBox = this.undoBox && { ...this.undoBox, px: this.undoBox.px.slice() }; c.dirty = this.dirty; c.name = this.name; c.ox = this.ox; c.oy = this.oy; c.hox = this.hox; c.hoy = this.hoy; return c;
+    c.undoBox = this.undoBox && { ...this.undoBox, px: this.undoBox.px.slice() }; c.dirty = this.dirty; c.name = this.name; c.ox = this.ox; c.oy = this.oy; c.hox = this.hox; c.hoy = this.hoy; c.sel = this.sel && { ...this.sel }; c.cs = this.cs; return c;
   }
   get title() { return 'Paint: ' + (this.name === '' ? 'Untitled' : this.name); }
   /** The picture's pixel (x, y) in picture coordinates (0..319, 0..143). */
   px(x, y) { return this.pic.get(PIC.x + x, PIC.y + y); }
-  chooseTool(t) { this.tool = t; this.status = TOOLNAMES[t]; }
+  /** Choosing another tool drops the Marquee's selection (the outline erased, the picture unchanged); the same tool again keeps it (PAINT 22.2). */
+  chooseTool(t) { if (t !== this.tool) this.sel = null; this.tool = t; this.status = TOOLNAMES[t]; }
+  /** Every menu command drops the selection first (PAINT 22.2). */
+  dropSel() { this.sel = null; }
   choosePat(p) { this.pat = p; }
   /** Options > Filled shapes (item 0) / Hollow shapes (item 1): PN_FILL (PAINT 17). */
   setFill(on) { this.fill = !!on; }
   chooseBrush(b) { this.brush = b; }
 
   // ---- strokes (PAINT 15) -------------------------------------------------------------------------------------------
-  /** A press at screen (x, y): returns true when it starts a stroke (inside the picture, Pencil or Eraser); else the status "Not built yet" for another tool (a press in the picture only). */
+  /** A press at screen (x, y): returns true when it starts a stroke (inside the picture; every tool but the Bucket, which fills at once). */
   press(x, y) {
     x -= this.ox; y -= this.oy;               // screen to the window's home position: the picture's pixels are kept at (128, 32)
     if (!inPic(x, y)) return false;
     if (this.tool === 5) { this.bucket(x, y); return false; }       // PAINT 21: a click fills; no capture, so no stroke (the caller's moves and release are ignored)
-    if (!DRAWING.includes(this.tool)) { this.status = 'Not built yet'; return false; }
+    if (this.tool === 0) return this.mqPress(x, y);
     this.stroke = { last: [x, y], pts: [[x, y]], anchor: [x, y], before: this.clone() };
     if (!SHAPES.includes(this.tool)) this.segment(x, y, x, y);     // a shape's press draws nothing (PAINT 17)
     return true;
@@ -145,6 +151,7 @@ export class PaintModel {
   move(x, y) {
     x -= this.ox; y -= this.oy;
     const s = this.stroke; if (!s) return;
+    if (s.mq) { s.lx = x; s.ly = y; s.on = true; return; }          // the Marquee: the band (a selection's rectangle, or the moving box) follows the pointer
     if (SHAPES.includes(this.tool)) { s.last = [x, y]; return; }     // the band follows the pointer (bandModel)
     this.segment(s.last[0], s.last[1], x, y); s.last = [x, y]; s.pts.push([x, y]);
   }
@@ -177,6 +184,7 @@ export class PaintModel {
   release() {
     const s = this.stroke; if (!s) return null;
     this.stroke = null;
+    if (s.mq) return this.mqRelease(s);
     let pts = s.pts;
     if (SHAPES.includes(this.tool)) { this.drawShape(this.pic, OP_SET, s.anchor[0], s.anchor[1], s.last[0], s.last[1], this.fill); pts = [s.anchor, s.last]; }   // the band was erased (the model draws only the final shape)
     const box = strokeBox(pts, ...PADS[this.tool]);
@@ -189,7 +197,7 @@ export class PaintModel {
     if (box.nc * box.nr <= UNDO_MAX) {
       // the undo area holds the box's pixels from BEFORE the stroke (the copy still held that state)
       this.undoBox = { ...box, px: boxPixels(before, box) }; this.undoOn = true;
-      if (this.status === 'Too big to undo' || this.status === 'Not built yet' || this.status === 'Fill too complex') this.status = TOOLNAMES[this.tool];   // PAINT 15: a message gives way to the tool's name at the next fitting commit
+      if (MESSAGES.includes(this.status)) this.status = TOOLNAMES[this.tool];   // PAINT 15: a message gives way to the tool's name at the next fitting commit
     } else { this.undoBox = null; this.undoOn = false; this.status = 'Too big to undo'; }
   }
   segment(lx, ly, nx, ny) {
@@ -227,16 +235,94 @@ export class PaintModel {
     stamp(nx, ny);
   }
 
+
+  // ---- the Marquee (PAINT 22.2, tool 0) -----------------------------------------------------------------------------
+  // The selection is a box of whole byte columns and exact rows, at most 2,048 bytes; its outline is an XOR frame that is in neither the picture nor its copy (`displayModel` adds it).  A press inside it starts a
+  // move (the outline is erased, an XOR frame of the box displaced by the pointer follows: 8-pixel steps across, 1 row down, the box kept inside the picture); outside it, a new selection (the old one is dropped).
+  /** A Marquee press at the picture-home screen point (x, y), inside the picture: always begins a stroke. */
+  mqPress(x, y) {
+    const c = (x - PIC.x) >> 3, r = y - PIC.y, s = this.sel;
+    const inside = !!s && c >= s.c && c < s.c + s.n && r >= s.y && r < s.y + s.h;
+    if (!inside) this.sel = null;
+    this.stroke = { mq: true, mode: inside ? 'move' : 'select', ax: x, ay: y, lx: x, ly: y, on: false, before: this.clone() };
+    return true;
+  }
+  /** A pointer position -> the byte column (0..39) / the picture row (0..143) it is over, clamped (the pointer may be anywhere on the screen). */
+  static colOf(x) { return Math.max(0, Math.min(39, Math.floor((x - PIC.x) / 8))); }
+  static rowOf(y) { return Math.max(0, Math.min(143, y - PIC.y)); }
+  /** A move's destination for the stroke s: the selection displaced by floor((LX - AX) / 8) byte columns and LY - AY rows, kept inside the picture: { c, y }. */
+  moveDest(s) {
+    const q = this.sel, cl = (v, hi) => Math.max(0, Math.min(hi, v));
+    return { c: cl(q.c + Math.floor((s.lx - s.ax) / 8), 40 - q.n), y: cl(q.y + (s.ly - s.ay), 144 - q.h) };
+  }
+  /** The selection the drag s from its anchor to its last point makes: { c, n, y, h }, or null (a click); `big` when it would be more than 2,048 bytes. */
+  dragBox(s) {
+    if (s.ax === s.lx && s.ay === s.ly) return { box: null };
+    const c0 = PaintModel.colOf(s.ax), c1 = PaintModel.colOf(s.lx), r0 = PaintModel.rowOf(s.ay), r1 = PaintModel.rowOf(s.ly);
+    const box = { c: Math.min(c0, c1), n: Math.abs(c1 - c0) + 1, y: Math.min(r0, r1), h: Math.abs(r1 - r0) + 1 };
+    return { box, big: box.n * box.h > UNDO_MAX };
+  }
+  /** The release of a Marquee stroke: a selection made (or "Selection too big"), or the box moved / copied (committed), or nothing (a click; a move onto itself). Returns the commit's box or null. */
+  mqRelease(s) {
+    if (s.mode === 'select') {
+      const d = this.dragBox(s);
+      if (!d.box) return null;
+      if (d.big) { this.status = 'Selection too big'; return null; }
+      if (MESSAGES.includes(this.status)) this.status = TOOLNAMES[this.tool];
+      this.sel = d.box; return null;
+    }
+    const q = this.sel, d = this.moveDest(s);
+    if (d.c === q.c && d.y === q.y) return null;                      // no change: the outline is drawn again, nothing committed
+    const src = { c0: q.c, nc: q.n, r0: q.y, nr: q.h }, dst = { c0: d.c, nc: q.n, r0: d.y, nr: q.h };
+    const lifted = boxPixels(this, src);
+    let cols = [d.c, d.c + q.n - 1], rows = [d.y, d.y + q.h - 1];
+    if (!this.cs) {                                                    // a move: the source to paper, and the undo box is the union of source and destination (a copy: the destination only)
+      for (let r = 0; r < q.h; r++) for (let j = 0; j < 8 * q.n; j++) this.pic.set(PIC.x + 8 * q.c + j, PIC.y + q.y + r, 0);
+      cols = [Math.min(cols[0], q.c), Math.max(cols[1], q.c + q.n - 1)]; rows = [Math.min(rows[0], q.y), Math.max(rows[1], q.y + q.h - 1)];
+    }
+    putBoxPixels(this, dst, lifted);
+    this.sel = { c: d.c, n: q.n, y: d.y, h: q.h };
+    const box = widenBox(cols[0], cols[1], rows[0], rows[1]);
+    this.commit(box, s.before);
+    return box;
+  }
+  /** DELETE (E_KEY 12) with a selection: its box cleared to paper, committed (undo box = the box widened), the selection kept.  Returns false without a selection. */
+  mqDelete() {
+    const q = this.sel; if (!q) return false;
+    const before = this.clone();
+    for (let r = 0; r < q.h; r++) for (let j = 0; j < 8 * q.n; j++) this.pic.set(PIC.x + 8 * q.c + j, PIC.y + q.y + r, 0);
+    this.commit(widenBox(q.c, q.c + q.n - 1, q.y, q.y + q.h - 1), before);
+    return true;
+  }
+  /** ESC (E_KEY 27) with a selection: dropped, the picture unchanged. */
+  mqEsc() { this.sel = null; }
+  /**
+   * A copy of the model with what the DISPLAY shows over the picture (the copy PN_PIC never has it): the selection's outline (an XOR frame of its box), or, while a Marquee stroke is held and the pointer has moved,
+   * the band (a selecting drag: the rectangle from the anchor to the pointer; a move: the frame of the displaced box) with the selection's own outline erased.  Clipped to the picture.
+   */
+  displayModel() {
+    const c = this.clone(), s = this.stroke, g = c.pic;
+    const frame = (x, y, w, h) => { g.setOp(OP_XOR); g.frame(x, y, w, h); };
+    if (s && s.mq) {
+      if (s.on) {
+        if (s.mode === 'select') { const r = this.shapeRect(s.ax, s.ay, s.lx, s.ly); frame(r.x, r.y, r.w, r.h); }
+        else { const d = this.moveDest(s); frame(PIC.x + 8 * d.c, PIC.y + d.y, 8 * this.sel.n, this.sel.h); }
+      }
+    } else if (this.sel) frame(PIC.x + 8 * this.sel.c, PIC.y + this.sel.y, 8 * this.sel.n, this.sel.h);
+    return c;
+  }
+
   // ---- Undo, Clear, New ---------------------------------------------------------------------------------------------
   /** Undo: swap the box's pixels between the picture and the undo area; stays enabled. */
   undo() {
+    this.sel = null;
     const b = this.undoBox; if (!this.undoOn || !b) return false;
     const cur = boxPixels(this, b);
     putBoxPixels(this, b, b.px);
     b.px = cur;
     return true;
   }
-  clear() { this.pic.setOp(OP_CLR); this.pic.fill(PIC.x, PIC.y, PIC.w, PIC.h); this.undoOn = false; this.undoBox = null; this.dirty = true; this.saveHdr(); }
+  clear() { this.sel = null; this.pic.setOp(OP_CLR); this.pic.fill(PIC.x, PIC.y, PIC.w, PIC.h); this.undoOn = false; this.undoBox = null; this.dirty = true; this.saveHdr(); }
   newDoc() { this.clear(); this.dirty = false; this.name = ''; }
 
   // ---- files (PAINT 9) ----------------------------------------------------------------------------------------------
@@ -248,6 +334,7 @@ export class PaintModel {
   }
   /** Replace the picture by a PBM file's bytes when they are exactly the 5,771 bytes with the exact header; returns true on success (the contract's Open: dirty 0, Undo off). */
   loadPbm(bytes) {
+    this.sel = null;
     if (bytes.length !== PBM_LEN) return false;
     for (let i = 0; i < 11; i++) if (bytes[i] !== PBM_HEADER[i]) return false;
     for (let r = 0; r < 144; r++) for (let k = 0; k < 40; k++) { const v = bytes[11 + 40 * r + k]; for (let j = 0; j < 8; j++) this.pic.set(PIC.x + 8 * k + j, PIC.y + r, (v >> (7 - j)) & 1); }
@@ -280,6 +367,11 @@ export function strokeBox(pts, padc = 1, padr = 4) {
   const clampc = (v) => Math.max(0, Math.min(39, v)), clampr = (v) => Math.max(0, Math.min(143, v));
   let c0 = clampc(Math.min(...cols) - padc), c1 = clampc(Math.max(...cols) + padc);
   const r0 = clampr(Math.min(...rows) - padr), r1 = clampr(Math.max(...rows) + padr);
+  c0 -= c0 & 1; if ((c1 - c0 + 1) & 1) c1++;
+  return { c0, nc: c1 - c0 + 1, r0, nr: r1 - r0 + 1 };
+}
+/** The undo box (PAINT 15) of a change over the byte columns c0 .. c1 and the rows r0 .. r1: widened to an even first column and an even column count. */
+export function widenBox(c0, c1, r0, r1) {
   c0 -= c0 & 1; if ((c1 - c0 + 1) & 1) c1++;
   return { c0, nc: c1 - c0 + 1, r0, nr: r1 - r0 + 1 };
 }

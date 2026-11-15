@@ -15,7 +15,7 @@ export const { L, readDisp, diffDisp } = H;
 export const { hex, rd16 } = L;
 export const PIC_ADDR_NOTE = 'PN_PIC holds the address of the copy';
 export const NEEDED = ['PN_START', 'PN_END', 'PN_IMG', 'PN_IMG_LEN', 'PN_VARS', 'PN_VARS_END', 'PN_PIC', 'PN_BAND', 'PN_TOOL', 'PN_DIRTY', 'PN_UNDO', 'PN_UB0', 'PN_UBN', 'PN_UR0', 'PN_URN', 'PN_LBL', 'PN_STAT', 'PN_MENUS', 'PN_NAME', 'PN_TITLE',
-  'PN_WIN', 'PN_FILL', 'PN_AX', 'PN_AY', 'PN_SPR', 'PN_PAT', 'PN_BRUSH', 'PN_RND', 'PN_PADC', 'PN_PADR', 'PN_NX', 'PN_NY', 'pn_spray', 'pn_idle', 'G_PATFILL', 'PATTAB', 'AL_RAM', 'MB_ENT', 'ME_SIZE', 'ME_EN', 'Label_text', 'Window_title', 'K_FOCUS', 'K_PROG', 'CL_Dialog', 'CL_Button', 'CL_Field', 'CL_CWindow', 'Dialog_default', 'Dialog_cancel', 'Field_buf', 'V_FRAMES', 'W_MODAL'];
+  'PN_WIN', 'PN_FILL', 'PN_AX', 'PN_AY', 'PN_SPR', 'PN_PAT', 'PN_BRUSH', 'PN_RND', 'PN_PADC', 'PN_PADR', 'PN_NX', 'PN_NY', 'PN_SELON', 'PN_SC', 'PN_SN', 'PN_SY', 'PN_SH', 'PN_MD', 'pn_mqup', 'pn_key', 'G_LIFT', 'K_MODS', 'pn_spray', 'pn_idle', 'G_PATFILL', 'PATTAB', 'AL_RAM', 'MB_ENT', 'ME_SIZE', 'ME_EN', 'Label_text', 'Window_title', 'K_FOCUS', 'K_PROG', 'CL_Dialog', 'CL_Button', 'CL_Field', 'CL_CWindow', 'Dialog_default', 'Dialog_cancel', 'Field_buf', 'V_FRAMES', 'W_MODAL'];
 export function needPaint(S) { const miss = NEEDED.filter((n) => S[n] === undefined); if (miss.length) throw new Error(`desk5 does not define: ${miss.join(', ')}`); }
 
 /** PAINT 3 (as corrected 2026-11-14): the copy's part 1 holds the ODD byte columns, part 2 the EVEN ones; the header is (OX >> 3, 40, OY, 144) of the last whole-picture save. */
@@ -179,6 +179,8 @@ export function check(env, sec, ctx, o = {}) {
   t(m.ram[S.PN_PAT] === st.pat, () => `${ctx}: PN_PAT ${m.ram[S.PN_PAT]}, model ${st.pat}`);
   t(m.ram[S.PN_BRUSH] === st.brush, () => `${ctx}: PN_BRUSH ${m.ram[S.PN_BRUSH]}, model ${st.brush}`);
   { const rn = rd16(m, S.PN_RND); t(rn === st.rnd, () => `${ctx}: PN_RND ${hex(rn)}, model ${hex(st.rnd)} (the spray's LFSR: the machine drew a different number of random bytes than the model's bursts)`); }
+  t(m.ram[S.PN_SELON] === (st.sel ? 1 : 0), () => `${ctx}: PN_SELON ${m.ram[S.PN_SELON]}, model ${st.sel ? 1 : 0} (a selection ${st.sel ? JSON.stringify(st.sel) : 'none'})`);
+  if (st.sel) { const got = [m.ram[S.PN_SC], m.ram[S.PN_SN], m.ram[S.PN_SY], m.ram[S.PN_SH]]; t(got.join() === [st.sel.c, st.sel.n, st.sel.y, st.sel.h].join(), () => `${ctx}: the selection (PN_SC, PN_SN, PN_SY, PN_SH) ${got}, model (c ${st.sel.c}, n ${st.sel.n}, y ${st.sel.y}, h ${st.sel.h})`); }
   t(m.ram[S.PN_DIRTY] === (st.dirty ? 1 : 0), () => `${ctx}: PN_DIRTY ${m.ram[S.PN_DIRTY]}, model ${st.dirty ? 1 : 0}`);
   t(m.ram[S.PN_UNDO] === (st.undoOn ? 1 : 0), () => `${ctx}: PN_UNDO ${m.ram[S.PN_UNDO]}, model ${st.undoOn ? 1 : 0}`);
   if (st.undoOn && st.undoBox && !o.noBox) {

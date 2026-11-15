@@ -8,7 +8,8 @@
 //                  10 P2a: the pattern and brush palettes, the brush, the spray (PAINT 16), 11 the spray's frame rule (PAINT 16),
 //                  12 P2b-1 (PAINT 17): the Options menu, the Line and the Rectangle tools (the XOR band, hollow and filled),
 //                  13 P2b-2 (PAINT 18): the Rounded rectangle (8) and the Oval (9): the XOR band is the bounding rectangle, the release draws G_RRECT,
-//                  14 P3a (PAINT 21): the Bucket (5): a click fills with G_FLOOD, committed as a stroke whose box is the region's; "Fill too complex" on an overflow; Undo; a moved window
+//                  14 P3a (PAINT 21): the Bucket (5): a click fills with G_FLOOD, committed as a stroke whose box is the region's; "Fill too complex" on an overflow; Undo; a moved window,
+//                  15 P3b (PAINT 22.2): the Marquee (0): select, move, copy (CAPS SHIFT at the release), DELETE, ESC, the outline (an XOR frame in neither the picture nor its copy), the limits, the status messages, exposure
 // Exit code 1 on any failure.  The last lines are "pt-p1: N passed, M failed" and "pt-p1: N of M groups pass".
 // Where the machine disagrees with the contract the test says so and fails: the model is not changed to match the machine.
 // PAINT 3 (corrected 2026-11-14): the copy's part 1 holds the ODD byte columns; its header is (OX >> 3, 40, OY, 144) of the last whole-picture save; the picture origin follows the Canvas view (x + 2, y + 2).
@@ -19,7 +20,7 @@ import { openLook } from './look-model.mjs';
 const { L, P, H, WM, W3, hex, rd16 } = Q;
 const { argv, argNum } = L;
 const SEED = argNum('--seed', 1), NRAND = argNum('--nrand', 12);
-const ONLY = argv.includes('--only') ? String(argv[argv.indexOf('--only') + 1]).split(',').map(Number) : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
+const ONLY = argv.includes('--only') ? String(argv[argv.indexOf('--only') + 1]).split(',').map(Number) : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 const VERBOSE = argv.includes('--verbose');
 const rng = L.makeRng(SEED);
 const { C, Sec, finish } = Q.makeGroups('pt-p1', VERBOSE);
@@ -44,6 +45,20 @@ function settleCheck(env, sec, ctx, o = {}) {
   Q.park(env, 3);
   const ok = Q.check(env, sec, ctx, o);
   if (!o.noCopy && !o.copyOf && !o.dialog) Q.copyIsDisplay(env, sec, ctx);
+  return ok;
+}
+/**
+ * After a Marquee action: the pointer parked, the machine against the model's DISPLAY (the picture with the selection's outline, or the held stroke's band, XORed on: `displayModel`), every state variable (including PN_SELON
+ * and the box), the copy against the model's picture WITHOUT the outline (PN_PIC never holds it), and the display's picture rectangle against the copy plus the outline.
+ */
+function settleMq(env, sec, ctx, o = {}) {
+  Q.park(env, 3);
+  const dm = env.st.displayModel();
+  const ok = Q.check(env, sec, ctx, { st: dm, copyOf: env.st, ...o });
+  if (!o.noCopy && !o.dialog) {
+    const dp = Q.displayPlanar(env), cp = dm.copyBytes(Q.SWAP), i = Q.firstDiffBytes(dp, cp);
+    sec.ok(i < 0, () => `${ctx}: the display's picture differs from the model's picture plus outline at ${Q.describeIdx(i)} (display ${dp[i]}, model ${cp[i]})`);
+  }
   return ok;
 }
 const noise = (seed, density = 0.5) => { const r = L.makeRng(seed); const t = new Uint8Array(320 * 144); for (let i = 0; i < t.length; i++) t[i] = r.next() < density ? 1 : 0; return (x, y) => t[y * 320 + x]; };
@@ -150,7 +165,7 @@ function g2() {
 // 3. The pencil
 function g3() {
   const env = newEnv(), { m, S } = env, st = env.st;
-  const sec = new Sec('3 pencil: G_LINE segments between successive pointer positions; a single click is one pixel; the copy is the state before the stroke until the release; clipping; presses off the picture; the Marquee says "Not built yet" (PAINT 15, 21)');
+  const sec = new Sec('3 pencil: G_LINE segments between successive pointer positions; a single click is one pixel; the copy is the state before the stroke until the release; clipping; presses off the picture; a Marquee drag selects without changing the picture (PAINT 15, 22.2)');
   // a single click
   doStroke(env, sec, 'a single click at (200, 80)', [[200, 80]]);
   sec.ok(st.px(72, 48) === 1 && st.pic.count() === 1, () => `the model's single click: pixel ${st.px(72, 48)}, count ${st.pic.count()}`);
@@ -196,16 +211,16 @@ function g3() {
     settleCheck(env, sec, `a press on ${what}, dragged across the picture, draws nothing`);
     sec.ok(eq(Array.from(st.copyBytes()), Array.from(was.copyBytes())), `${what}: the model's picture is unchanged`);
   }
-  // the Marquee (the only tool not built): "Not built yet", nothing drawn, nothing committed
+  // the Marquee (PAINT 22.2): a drag selects (the picture and its copy are not changed, nothing committed); choosing the Pencil again drops the selection (its outline erased)
   for (const t of [0]) {
     Q.chooseTool(env, t); st.chooseTool(t);
     const dirty0 = st.dirty;
     Q.stroke(env, [[300, 100], [320, 110], [340, 100]], { settle: 12 });
-    sec.ok(st.status === 'Not built yet', 'model: status after a press with another tool');
-    settleCheck(env, sec, `tool ${t} (${P.TOOLNAMES[t]}): a press in the picture says "Not built yet" and draws nothing`);
+    sec.ok(!!st.sel && st.status === 'Marquee', () => `model: the drag selected (${JSON.stringify(st.sel)}), status "${st.status}"`);
+    settleMq(env, sec, `tool ${t} (${P.TOOLNAMES[t]}): a drag in the picture selects and draws nothing into the picture (the outline is XOR on the display only)`);
     sec.ok(st.dirty === dirty0, 'dirty unchanged');
     Q.chooseTool(env, 1); st.chooseTool(1);
-    settleCheck(env, sec, `Pencil chosen again: the status is "Pencil"`);
+    settleCheck(env, sec, `Pencil chosen again: the selection is dropped, the status is "Pencil"`);
   }
   // the one strict check of PAINT 3's layout (the machine's order differs: report the exact mismatch)
   {
@@ -1652,6 +1667,317 @@ function g14() {
 }
 
 // ===========================================================================================================================================
-const run = [[1, g1], [2, g2], [3, g3], [4, g4], [5, g5], [6, g6], [7, g7], [8, g8], [9, g9], [10, g10], [11, g11], [12, g12], [13, g13], [14, g14]];
+// 15. P3b (PAINT 22.2): the Marquee (tool 0).  A press and drag inside the picture draws an XOR band; the release makes the selection (byte columns, exact rows, <= 2,048 bytes; "Selection too big" otherwise;
+// a click selects nothing; the pointer outside the picture is clamped) shown as an XOR outline that is in neither the picture nor its copy.  A press inside the selection moves it (8-pixel steps across, rows exact, the box
+// kept inside the picture; CAPS SHIFT held at the release copies); the release erases the source (a move), draws the lifted box (G_LIFT then G_ICON), commits (undo box = the union of source and destination for a
+// move, the destination for a copy; "Too big to undo" past 2,048 bytes) and the destination is the selection; a release without a change commits nothing.  DELETE clears the box (committed, selection kept), ESC drops it;
+// every menu command and a tool change drop it too; the outline is drawn again after an exposure (a dragged window).  The model is tests/pt-model.mjs mqPress / mqRelease / mqDelete / displayModel; PAINT 22.2 is the reference.
+function g15() {
+  const env = newEnv(), { m, S } = env, st = env.st;
+  const sec = new Sec('15 P3b (PAINT 22.2): the Marquee: select (sizes, the 2,048-byte limit, clicks, clamping), the outline (XOR, in neither the picture nor its copy), move and copy (all directions, 8-pixel steps, edges, overlap), the undo box (the union), no-change releases, DELETE, ESC, a new selection, tool and menu commands drop it, exposure (a dragged window), the status messages');
+  const tool = (t) => { Q.chooseTool(env, t); st.chooseTool(t); };
+  const scr = (px, py) => [P.PIC.x + st.ox + px, P.PIC.y + st.oy + py];
+  const eqSel = (a, b) => (a === null || b === null) ? a === b : a.c === b.c && a.n === b.n && a.y === b.y && a.h === b.h;
+  const showSel = (q) => (q ? `{ c ${q.c}, n ${q.n}, y ${q.y}, h ${q.h} }` : 'none');
+  const after = (ctx, o = {}) => { settleMq(env, sec, ctx, o); if (st.undoOn) undoAreaOk(env, sec, ctx); };
+  /** The packed rows a lift of box q from the picture g must leave in cold RAM $7800 (G_LIFT's layout: n bytes a row). */
+  const liftBytes = (q, g) => { const out = []; for (let r = 0; r < q.h; r++) for (let k = 0; k < q.n; k++) { let v = 0; for (let j = 0; j < 8; j++) v = (v << 1) | g.px(8 * (q.c + k) + j, q.y + r); out.push(v); } return out; };
+  const expectSel = (ctx, want) => sec.ok(eqSel(st.sel, want), () => `${ctx}: the model's selection is ${showSel(st.sel)}, PAINT 22.2 says ${showSel(want)}`);
+  /**
+   * A Marquee stroke along `pts` (screen points) with the band checked after every point and the machine settled and compared after the release.  o.cs: 'release' = CAPS SHIFT pressed after the last move and still held at the
+   * release (a copy), 'all' = held throughout (a copy), 'drag' = held from before the press and let go before the release (a move); o.noMid skips the band checks; o.check = Q.check options for the final check.
+   */
+  const mq = (ctx, pts, o = {}) => {
+    const before = st.clone(), last = Q.expand(pts, o.max ?? 100).length - 1, cs = o.cs, sel0 = st.sel && { ...st.sel };
+    st.cs = cs === 'all' || cs === 'release';
+    L.setKeys(m, cs === 'all' || cs === 'drag' ? [0] : []);
+    if (cs) env.frames_(2);
+    const r = Q.stroke(env, pts, { wait: 3, gap: 2, settle: 0, mid: (i, seen) => {
+      if (i === last && cs === 'release') { L.setKeys(m, [0]); env.frames_(2); }
+      if (i === last && cs === 'drag') { L.setKeys(m, []); env.frames_(2); }
+      if (o.noMid) return;
+      Q.check(env, sec, `${ctx}: mid-stroke after point ${i}`, { st: st.displayModel(), copyOf: before, extra: i > 0 ? [seen[i - 1]] : [] });
+      if (i === 0 && st.stroke && st.stroke.mode === 'move') {
+        const want = liftBytes(sel0, before), got = Array.from(m.ram.subarray(0x7800, 0x7800 + want.length)), k = want.findIndex((v, j) => got[j] !== v);
+        sec.ok(k < 0, () => `${ctx}: the lift buffer at $7800 differs from the selection's pixels at byte ${k} of ${want.length} (machine ${got[k]}, model ${want[k]})`);
+      }
+    } });
+    L.setKeys(m, []); st.cs = false; env.frames_(2);
+    const nf = Q.idle(env, 800);
+    sec.ok(nf < 800, () => `${ctx}: the loop never went idle (${nf} frames)`);
+    after(ctx, o.check || {});
+    return r;
+  };
+  /** The corners of a drag that selects the byte columns c0 .. c1 and the rows r0 .. r1 (rev: from the far corner back). */
+  const box = (c0, c1, r0, r1, rev = false) => (rev ? [scr(8 * c1 + 5, r1), scr(8 * c0 + 2, r0)] : [scr(8 * c0 + 3, r0), scr(8 * c1 + 4, r1)]);
+  /** A press in the middle of the selection and a drag by (dx, dy) pixels (through the half way point). */
+  const dragSel = (ctx, dx, dy, o = {}) => {
+    const q = st.sel;
+    if (!q) { sec.ok(false, `${ctx}: there is no selection to drag (an earlier step did not make one)`); return null; }
+    const [px, py] = scr(8 * q.c + 4 * q.n + 1, q.y + (q.h >> 1));
+    const cx = (v) => Math.max(0, Math.min(511, v)), cy = (v) => Math.max(0, Math.min(191, v));
+    return mq(ctx, [[px, py], [cx(px + (dx >> 1)), cy(py + (dy >> 1))], [cx(px + dx), cy(py + dy)]], o);
+  };
+  const key = (code) => { L.typeCode(env, code, 3, 3); Q.idle(env, 300); };
+  const del = (ctx) => { key(12); st.mqDelete(); after(ctx); };
+  const esc = (ctx) => { key(27); st.mqEsc(); after(ctx); };
+  const dirty = () => m.ram[S.PN_DIRTY];
+  /** Drop the selection by ESC (so that the next press cannot land inside it), then a new picture straight into the machine. */
+  const fresh = () => { if (st.sel) { key(27); st.mqEsc(); } };
+  const reinstall = (seed, ctx) => { fresh(); Q.install(env, noise(seed, 0.5)); settleMq(env, sec, ctx, { adoptStatus: true, noBox: true }); };
+  /** A selection made from scratch (the old one dropped first by ESC). */
+  const select = (ctx, c0, c1, r0, r1, rev = false, o = {}) => { fresh(); return mq(ctx, box(c0, c1, r0, r1, rev), o); };
+
+  Q.install(env, noise(41, 0.5));
+  tool(0);
+  after('a noisy picture installed, the Marquee chosen: nothing selected');
+  sec.ok(m.ram[S.PN_SELON] === 0, () => `PN_SELON ${m.ram[S.PN_SELON]} at the start`);
+
+  // ---- 1. clicks, a box one byte wide and one row tall, a drag back to its start ----
+  mq('a click without a drag selects nothing', [scr(100, 50)]);
+  expectSel('a click', null); sec.ok(st.status === 'Marquee' && !dirty(), () => `status "${st.status}", PN_DIRTY ${dirty()}`);
+  mq('a drag that comes back to its start selects nothing', [scr(100, 50), scr(140, 80), scr(100, 50)]);
+  expectSel('a drag back to its start', null);
+  mq('a 2-pixel drag along a row: one byte wide, one row tall (8 x 1 pixels)', [scr(100, 50), scr(102, 50)]);
+  expectSel('8 x 1', { c: 12, n: 1, y: 50, h: 1 });
+  mq('a click inside that selection (a move that goes nowhere): the outline again, nothing committed', [scr(100, 50)]);
+  expectSel('a click inside', { c: 12, n: 1, y: 50, h: 1 }); sec.ok(!dirty() && !st.undoOn, () => `PN_DIRTY ${dirty()}, undo ${st.undoOn}`);
+  mq('a 1-pixel drag down: one byte wide, two rows', [scr(160, 70), scr(160, 71)]);
+  expectSel('8 x 2', { c: 20, n: 1, y: 70, h: 2 });
+  mq('a 1-pixel drag to the left across a byte boundary: two bytes, one row', [scr(160, 90), scr(159, 90)]);
+  expectSel('16 x 1', { c: 19, n: 2, y: 90, h: 1 });
+  mq('a drag up and to the left (reverse corners): 6 x 4 bytes x rows', box(30, 35, 20, 23, true));
+  expectSel('reverse', { c: 30, n: 6, y: 20, h: 4 });
+
+  // ---- 2. random selections (small, some big), every corner order; a press outside the old selection starts a new one (the old outline is erased at the press) ----
+  for (let i = 0; i < NRAND * 2; i++) {
+    const ax = rng.int(0, 319), ay = rng.int(0, 143), big = rng.chance(0.25);
+    const dx = rng.int(big ? -250 : -90, big ? 250 : 90), dy = rng.int(big ? -110 : -30, big ? 110 : 30);
+    const pts = [scr(ax, ay)]; if (rng.chance(0.5)) pts.push(scr(Math.max(0, Math.min(319, ax + (dx >> 1) + rng.int(-9, 9))), Math.max(0, Math.min(143, ay + (dy >> 1) + rng.int(-9, 9)))));
+    pts.push(scr(Math.max(0, Math.min(319, ax + dx)), Math.max(0, Math.min(143, ay + dy))));
+    mq(`random drag ${i + 1} from (${ax}, ${ay}) to (${pts[pts.length - 1][0] - 128}, ${pts[pts.length - 1][1] - 32}) (picture coordinates; the previous selection ${showSel(st.sel)} is dropped at the press unless the press is inside it)`, pts);
+  }
+
+  // ---- 3. the 2,048-byte limit ----
+  const limit = (what, c0, c1, r0, r1, fits, rev = false) => {
+    select(`${what}: ${c1 - c0 + 1} x ${r1 - r0 + 1} = ${(c1 - c0 + 1) * (r1 - r0 + 1)} bytes`, c0, c1, r0, r1, rev);
+    if (fits) expectSel(what, { c: c0, n: c1 - c0 + 1, y: r0, h: r1 - r0 + 1 });
+    else sec.ok(st.sel === null && st.status === 'Selection too big', () => `${what}: selection ${showSel(st.sel)}, status "${st.status}" (PAINT 22.2: "Selection too big" and no selection)`);
+  };
+  limit('exactly 2,048 bytes (16 x 128)', 4, 19, 5, 132, true);
+  limit('exactly 2,048 bytes (16 x 128), dragged from the far corner back', 4, 19, 5, 132, true, true);
+  limit('exactly 2,048 bytes (32 x 64)', 2, 33, 20, 83, true);
+  limit('2,040 bytes (40 x 51, the whole width)', 0, 39, 10, 60, true);
+  limit('2,040 bytes (17 x 120)', 4, 20, 5, 124, true);
+  limit('the whole height (1 x 144)', 7, 7, 0, 143, true);
+  limit('the smallest box past the limit: 25 x 82 = 2,050 (2,049 = 3 x 683 is not a product of a width of 1-40 and a height of 1-144)', 3, 27, 10, 91, false);
+  sec.ok(st.status === 'Selection too big', 'the status line says "Selection too big" (a message)');
+  limit('16 x 129 = 2,064', 4, 19, 5, 133, false);
+  limit('17 x 121 = 2,057', 4, 20, 5, 125, false);
+  limit('40 x 52 = 2,080', 0, 39, 10, 61, false, true);
+  limit('the whole picture (40 x 144)', 0, 39, 0, 143, false);
+  limit('a fitting selection after a message: the status is the tool\'s name again', 10, 11, 10, 20, true);
+  sec.ok(st.status === 'Marquee', () => `status "${st.status}"`);
+
+  // ---- 4. the pointer outside the picture: the box is clamped to the picture's edges ----
+  fresh(); mq('press inside, release right of and below the picture (screen (500, 190))', [scr(300, 100), [500, 190]]);
+  expectSel('released at the bottom right', { c: 37, n: 3, y: 100, h: 44 });
+  fresh(); mq('press inside, release left of and above the picture (screen (20, 4))', [scr(250, 60), [20, 4]]);
+  expectSel('released at the top left', { c: 0, n: 32, y: 0, h: 61 });
+  fresh(); mq('press in the last column, release at the screen corner (505, 191): a clamped 8 x 1 box', [scr(319, 143), [505, 191]]);
+  expectSel('the last pixel', { c: 39, n: 1, y: 143, h: 1 });
+  fresh(); mq('press inside, release over the tool box and the status line', [scr(140, 100), [80, 185]]);
+  fresh(); mq('press near the top left, released far to the right on the desk (screen (490, 20))', [scr(10, 5), [490, 20]]);
+
+  // ---- 5. presses that are not in the picture: nothing changes, the selection stays ----
+  select('select 5 x 20 for the next rows', 10, 14, 20, 39, false);
+  for (const [what, p] of [['the canvas border (126, 100)', [126, 100]], ['the canvas inner frame (127, 60)', [127, 60]], ['below the picture (300, 177)', [300, 177]], ['the desk (490, 100)', [490, 100]]]) {
+    const was = st.clone();
+    const r = mq(`a press on ${what}, dragged across the picture and released: the selection stays`, [p, scr(200, 100), scr(250, 120), p]);
+    sec.ok(!r.began && eqSel(st.sel, was.sel) && Q.copyOf(env).join() === was.copyBytes(Q.SWAP).join(), () => `${what}: began ${r.began}, selection ${showSel(st.sel)}`);
+  }
+  mq('a press just outside the selection, released where it was pressed: the old selection is dropped, nothing new', [scr(8 * 9 + 2, 30)]);
+  expectSel('a click outside', null);
+
+  // ---- 6. moves: all directions, 8-pixel steps, overlap, the edges ----
+  reinstall(42, 'a new noisy picture installed');
+  select('select 4 x 30 bytes x rows at column 10, row 40', 10, 13, 40, 69, false);
+  expectSel('select', { c: 10, n: 4, y: 40, h: 30 });
+  const MOVES = [[16, 0], [-16, 0], [0, 10], [0, -10], [24, 12], [-24, -12], [24, -12], [-24, 12], [3, 0], [-3, 0], [7, 1], [-1, 0], [8, 0], [0, 1], [8, 1], [-8, -1], [0, 15], [16, 0], [-17, 7], [31, -5]];
+  for (const [dx, dy] of MOVES) {
+    const q0 = { ...st.sel };
+    dragSel(`move by (${dx}, ${dy}) pixels (8-pixel steps across: ${Math.floor(dx / 8)} byte columns)`, dx, dy);
+    const dc = Math.max(0, Math.min(40 - q0.n, q0.c + Math.floor(dx / 8))), dr = Math.max(0, Math.min(144 - q0.h, q0.y + dy));
+    if (Math.abs(dx) < 120) expectSel(`move by (${dx}, ${dy})`, { c: dc, n: q0.n, y: dr, h: q0.h });
+  }
+  sec.ok(st.dirty && st.undoOn && dirty() === 1, 'moves commit: PN_DIRTY 1, Undo enabled');
+  // the edges: far moves are clamped, a move onto the edge it is already at changes nothing
+  for (const [dx, dy, what] of [[-400, 0, 'far left'], [-40, 0, 'left again (already at the edge: no change)'], [0, -400, 'far up'], [0, -9, 'up again (no change)'], [500, 0, 'far right'], [90, 0, 'right again (no change)'], [0, 300, 'far down'], [0, 50, 'down again (no change)'], [-500, -300, 'to the top left corner'], [500, 300, 'to the bottom right corner']]) {
+    const d0 = dirty(), u = st.undoBox && { ...st.undoBox, px: 0 }, q0 = { ...st.sel };
+    dragSel(`${what}: by (${dx}, ${dy})`, dx, dy);
+    if (what.includes('no change')) sec.ok(eqSel(st.sel, q0) && dirty() === d0 && JSON.stringify(u) === JSON.stringify(st.undoBox && { ...st.undoBox, px: 0 }), () => `${what}: selection ${showSel(st.sel)}, PN_DIRTY ${dirty()}, the undo box changed`);
+  }
+
+  // ---- 7. copies: CAPS SHIFT at the release; held during the drag only = a move; overlapping; the edges ----
+  reinstall(43, 'a third noisy picture');
+  select('select 3 x 20 at column 20, row 60', 20, 22, 60, 79, false);
+  for (const [dx, dy, cs, what] of [[40, 0, 'release', 'a copy 5 columns right (CAPS SHIFT pressed at the end of the drag)'], [-48, 0, 'all', 'a copy left (CAPS SHIFT held all through)'], [0, 25, 'release', 'a copy down'], [0, -25, 'all', 'a copy up'],
+    [8, 0, 'release', 'an overlapping copy (one column right)'], [0, 1, 'release', 'an overlapping copy (one row down)'], [-8, -1, 'all', 'an overlapping copy up-left'], [24, 12, 'drag', 'CAPS SHIFT held during the drag and let go before the release: a MOVE'],
+    [-200, 0, 'release', 'a copy to the left edge (clamped)'], [0, -300, 'release', 'a copy to the top edge'], [400, 0, 'release', 'a copy to the right edge'], [0, 200, 'release', 'a copy to the bottom edge'], [5, 2, 'release', 'a copy by (5, 2): 0 columns, 2 rows'], [3, 0, 'release', 'a copy by 3 pixels: no change']]) {
+    dragSel(`${what} (${dx}, ${dy})`, dx, dy, { cs });
+    if (cs !== 'drag' && st.undoOn && st.undoBox) sec.ok(st.undoBox.nc * st.undoBox.nr <= 2048, 'the copy\'s undo box fits');
+  }
+  // the undo box of a copy is the destination only, of a move the union: stated through the model on a clean box
+  {
+    select('select 2 x 10 at column 4, row 30 (a fresh selection)', 4, 5, 30, 39, false);
+    dragSel('a copy 10 columns right: the undo box covers the destination only (columns 14-15)', 80, 0, { cs: 'release' });
+    sec.ok(st.undoBox && st.undoBox.c0 === 14 && st.undoBox.nc === 2 && st.undoBox.r0 === 30 && st.undoBox.nr === 10, () => `copy's undo box ${JSON.stringify(st.undoBox && { ...st.undoBox, px: 0 })}, want c0 14, nc 2, r0 30, nr 10`);
+    select('select 2 x 10 at column 4, row 30 again', 4, 5, 30, 39, false);
+    dragSel('a move 10 columns right: the undo box is the union of source and destination (columns 4-15)', 80, 0);
+    sec.ok(st.undoBox && st.undoBox.c0 === 4 && st.undoBox.nc === 12 && st.undoBox.r0 === 30 && st.undoBox.nr === 10, () => `move's undo box ${JSON.stringify(st.undoBox && { ...st.undoBox, px: 0 })}, want c0 4, nc 12, r0 30, nr 10`);
+  }
+
+  // ---- 8. Undo and redo of a move and of a copy (the menu drops the selection first) ----
+  select('select 3 x 16 at column 30, row 100', 30, 32, 100, 115, false);
+  dragSel('a move (to be undone)', -64, -40);
+  editMenu(env, 0); st.dropSel(); st.undo(); after('Edit > Undo of the move: both the source and the destination come back, the selection is dropped');
+  editMenu(env, 0); st.undo(); after('Undo again (redo)');
+  select('select 3 x 16 at column 5, row 20', 5, 7, 20, 35, false);
+  dragSel('a copy (to be undone)', 96, 60, { cs: 'release' });
+  editMenu(env, 0); st.undo(); after('Edit > Undo of the copy');
+  editMenu(env, 0); st.undo(); after('Undo again (redo)');
+
+  // ---- 9. "Too big to undo": the union past 2,048 bytes (after widening to even columns) ----
+  select('select 16 x 128 = 2,048 bytes at column 4 (even), row 5', 4, 19, 5, 132, false);
+  dragSel('move down 1 row: the union is 16 x 129 = 2,064 bytes: "Too big to undo", Undo disabled', 0, 1);
+  sec.ok(st.status === 'Too big to undo' && !st.undoOn, () => `status "${st.status}", undo ${st.undoOn}`);
+  select('select 16 x 64 at column 4, row 5', 4, 19, 5, 68, false);
+  dragSel('move down 64 rows: the union is 16 x 128 = 2,048 bytes: it fits, Undo enabled, the status is the tool\'s name', 0, 64);
+  sec.ok(st.undoOn && st.status === 'Marquee', () => `undo ${st.undoOn}, status "${st.status}"`);
+  select('select 16 x 128 = 2,048 bytes at column 3 (odd), row 5', 3, 18, 5, 132, false);
+  del('DELETE of a 2,048-byte box at an odd column: widened to 18 x 128 = 2,304: "Too big to undo"');
+  sec.ok(st.status === 'Too big to undo' && !st.undoOn && !!st.sel, () => `status "${st.status}", undo ${st.undoOn}, selection ${showSel(st.sel)}`);
+  select('select 16 x 128 = 2,048 bytes at column 4 (even), row 5', 4, 19, 5, 132, false);
+  del('DELETE of a 2,048-byte box at an even column: it fits, Undo enabled');
+  sec.ok(st.undoOn && st.status === 'Marquee', () => `undo ${st.undoOn}, status "${st.status}"`);
+
+  // ---- 10. DELETE and ESC ----
+  reinstall(44, 'a fourth noisy picture');
+  { const d0 = dirty(), u0 = m.ram[S.PN_UNDO]; del('DELETE with no selection: nothing happens'); sec.ok(dirty() === d0 && m.ram[S.PN_UNDO] === u0, () => `a DELETE with no selection changed PN_DIRTY (${d0} -> ${dirty()}) or PN_UNDO (${u0} -> ${m.ram[S.PN_UNDO]})`); }
+  esc('ESC with no selection: nothing happens');
+  select('select 6 x 25 at column 12, row 50', 12, 17, 50, 74, false);
+  del('DELETE: the box is cleared to paper, committed (PN_DIRTY 1, Undo enabled), the selection stays');
+  sec.ok(st.dirty && st.undoOn && !!st.sel, 'model: committed, selection kept');
+  sec.ok(Q.copyOf(env).length > 0 && Array.from({ length: 25 }, (_, r) => r).every((r) => Array.from({ length: 48 }, (_, j) => st.px(96 + j, 50 + r)).every((v) => v === 0)), 'model: the box is paper');
+  editMenu(env, 0); st.undo(); after('Edit > Undo of DELETE: the box is back, the selection dropped');
+  select('select 6 x 25 at column 12, row 50 again', 12, 17, 50, 74, false);
+  del('DELETE again (the box is cleared)');
+  del('DELETE a second time on the same selection (already paper: still a commit)');
+  esc('ESC: the selection is dropped, the picture unchanged'); expectSel('ESC', null);
+  esc('ESC again: nothing');
+
+  // ---- 11. a new selection with a press outside the old one; a press inside moves it ----
+  select('select 5 x 20 at column 8, row 30', 8, 12, 30, 49, false);
+  mq('a press outside (column 20), a drag: the first selection is dropped at the press, the new one made', box(20, 26, 90, 120));
+  expectSel('second selection', { c: 20, n: 7, y: 90, h: 31 });
+  mq('a press just outside the new selection (one column left of it), dragged: a new selection', box(18, 19, 90, 100));
+  expectSel('third selection', { c: 18, n: 2, y: 90, h: 11 });
+  mq('a press on the last column of the selection, one byte inside: that is a move', [scr(8 * 19 + 7, 95), scr(8 * 19 + 7 + 8, 95)]);
+  expectSel('moved one column', { c: 19, n: 2, y: 90, h: 11 });
+
+  // ---- 12. a tool change drops the selection; the same tool again does not; every menu command drops it ----
+  select('select 6 x 12 at column 2, row 20', 2, 7, 20, 31, false);
+  tool(0); after('the Marquee chosen again: the selection stays');
+  sec.ok(!!st.sel && m.ram[S.PN_SELON] === 1, 'the selection survives choosing the same tool');
+  tool(1); after('the Pencil chosen: the selection is dropped, the picture unchanged'); tool(0);
+  select('select 6 x 12 at column 2, row 20', 2, 7, 20, 31, false);
+  Q.chooseBrush(env, 2); st.chooseBrush(2); Q.choosePattern(env, 3); st.choosePat(3); after('a pattern and a brush chosen: the selection stays');
+  sec.ok(!!st.sel, 'the palettes keep the selection');
+  tool(5); after('the Bucket chosen: dropped'); tool(0);
+  select('select 6 x 12 at column 2, row 20', 2, 7, 20, 31, false);
+  Q.menuPick(env, 2, 0); st.dropSel(); st.setFill(true); after('Options > Filled shapes: dropped');
+  Q.menuPick(env, 2, 1); st.setFill(false);
+  select('select 6 x 12 at column 2, row 20', 2, 7, 20, 31, false);
+  { st.dropSel(); const f = openSaveDialog(env, sec, 'File > Save with a selection (the selection is dropped at the command)'); const [x, y] = Q.centreOf(W3.SAVE.cancel); L.click(env, x, y, 3, 6); env.frames_(20); after('Save...: the name dialog cancelled: the selection was dropped at the command', { adoptStatus: true }); }
+  select('select 6 x 12 at column 2, row 20', 2, 7, 20, 31, false);
+  dragSel('a move so that the picture is changed (the discard question will be asked)', 40, 20);
+  editMenu(env, 1); st.dropSel(); sec.ok(waitDialog(env, 'ask'), 'Clear asks'); Q.askAnswer(env, 'cancel'); after('Edit > Clear, Cancel: the selection is dropped, the picture kept', { adoptStatus: true });
+  select('select 6 x 12 at column 2, row 20', 2, 7, 20, 31, false);
+  editMenu(env, 1); st.dropSel(); sec.ok(waitDialog(env, 'ask'), 'Clear asks again'); Q.askAnswer(env, 'discard'); st.clear(); after('Edit > Clear, Discard: the selection is dropped, the picture cleared', { adoptStatus: true });
+  reinstall(46, 'a fifth noisy picture');
+  select('select 6 x 12 at column 2, row 20', 2, 7, 20, 31, false);
+  dragSel('a move (the picture is changed again)', 24, 24);
+  fileMenu(env, 0); st.dropSel(); sec.ok(waitDialog(env, 'ask'), 'New asks'); Q.askAnswer(env, 'discard'); st.newDoc(); after('File > New, Discard: the selection is dropped, a new picture', { adoptStatus: true });
+  reinstall(47, 'a sixth noisy picture');
+  select('select 6 x 12 at column 2, row 20', 2, 7, 20, 31, false);
+  { const file = pbmOf(noise(48, 0.3)); openFile(env, sec, 'File > Open with a selection (the picture is unchanged: no question)', 'sel.pbm', file); st.loadPbm(file); st.name = 'sel.pbm'; after('File > Open: the selection is dropped, the file shown', { adoptStatus: true }); }
+
+  // ---- 13. exposure: the window dragged with a selection (the outline is drawn again at the new place), then used there ----
+  reinstall(49, 'a seventh noisy picture');
+  const dragWin = (dx, dy) => {
+    const w = Q.paintWin(env), tx = w.x + 200, ty = w.y + 3;
+    L.moveTo(env, tx, ty); m.mouse.buttons = L.MOUSE_LEFT; env.frames_(3);
+    L.moveTo(env, tx + dx, ty + dy); env.frames_(3);
+    m.mouse.buttons = L.MOUSE_UP; env.frames_(30);
+    const w2 = Q.paintWin(env); st.ox = w2.x - 48; st.oy = w2.y - 16;
+    return [w2.x - w.x, w2.y - w.y];
+  };
+  let nd = 0; const seen = [];
+  for (const [dx, dy] of [[40, 0], [-30, 12], [-100, 0], [64, 16], [0, -20], [-16, 16]]) {
+    mq(`before drag ${nd + 1}: select 6 x 20 at column 5, row 10`, box(5, 10, 10, 29));
+    const [rx, ry] = dragWin(dx, dy);
+    const w = Q.paintWin(env), tag = `the window at (${w.x}, ${w.y})`; seen.push(`(${w.x}, ${w.y})`);
+    sec.note(`dragged by (${dx}, ${dy}): the window moved by (${rx}, ${ry})`);
+    after(`${tag}: after the drag the outline is drawn again at the new place and nowhere else`, { adoptStatus: true });
+    dragSel(`${tag}: a move`, 56, 30);
+    dragSel(`${tag}: a copy`, -40, 20, { cs: 'release' });
+    del(`${tag}: DELETE`);
+    editMenu(env, 0); st.undo(); after(`${tag}: Undo`, { adoptStatus: true });
+    mq(`${tag}: select 3 x 8 at the picture's top left corner`, box(0, 2, 0, 7));
+    dragSel(`${tag}: a move up-left from the corner: clamped, no change`, -80, -40);
+    mq(`${tag}: select 4 x 10 at the bottom right corner`, box(36, 39, 134, 143));
+    dragSel(`${tag}: a move down-right from the corner: clamped, no change`, 80, 40);
+    nd++;
+  }
+  dragWin(-st.ox, -st.oy);
+  after('dragged back to (48, 16): the outline is where the selection is', { adoptStatus: true });
+  dragSel('a move at home again', 24, -16);
+  tool(1); after('the Pencil chosen: dropped');
+  tool(0);
+
+  // ---- 14. report rows: select, move, copy and DELETE, the release to idle (report only: no bound) ----
+  {
+    reinstall(50, 'a picture for the timing rows');
+    const timed = (label, f) => {
+      const per = Q.busy(env, () => { f(); Q.idle(env, 800); }, [S.pn_mqup, S.pn_key].filter(Boolean));
+      const t = Q.spansFrom(per.ev, label.pc);
+      row(`marquee: ${label.name}: entry of ${label.pc === S.pn_key ? 'pn_key' : 'pn_mqup'} to idle (HALT)`, t[0] ?? 0, null, `${t.length} entr${t.length === 1 ? 'y' : 'ies'}; ${Math.round((t[0] ?? 0) / FRAME_T * 10) / 10} frames`);
+    };
+    const run = (name, pc, pts, o = {}) => {
+      st.cs = o.cs === 'release';
+      const before = st.clone();
+      timed({ name, pc }, () => { if (o.cs) L.setKeys(m, [0]); Q.stroke(env, pts, { wait: 3, gap: 2, settle: 0 }); if (o.cs) L.setKeys(m, []); });
+      st.cs = false;
+      after(`after the timed ${name}`, { adoptStatus: true, noBox: true });
+    };
+    for (const [name, c0, c1, r0, r1] of [['select 16 x 128 (2,048 bytes)', 4, 19, 5, 132], ['select 4 x 30 (120 bytes)', 10, 13, 40, 69], ['select 1 x 1', 20, 20, 90, 90]]) { fresh(); run(name, S.pn_mqup, box(c0, c1, r0, r1)); }
+    select('select 16 x 128 = 2,048 bytes at column 4, row 5', 4, 19, 5, 132, false, { noMid: true });
+    { const q = st.sel, [px, py] = scr(8 * q.c + 4 * q.n + 1, q.y + (q.h >> 1)); run('move of a 2,048-byte box by 8 pixels across', S.pn_mqup, [[px, py], [px + 4, py], [px + 8, py]]); }
+    { const q = st.sel, [px, py] = scr(8 * q.c + 4 * q.n + 1, q.y + (q.h >> 1)); run('copy of a 2,048-byte box by 24 pixels across (CAPS SHIFT)', S.pn_mqup, [[px, py], [px + 12, py], [px + 24, py]], { cs: 'release' }); }
+    select('select 4 x 30 at column 10, row 40', 10, 13, 40, 69, false, { noMid: true });
+    { const q = st.sel, [px, py] = scr(8 * q.c + 4 * q.n + 1, q.y + (q.h >> 1)); run('move of a 120-byte box by 16 pixels across', S.pn_mqup, [[px, py], [px + 8, py], [px + 16, py]]); }
+    { const q = st.sel, [px, py] = scr(8 * q.c + 4 * q.n + 1, q.y + (q.h >> 1)); run('move of a 120-byte box by 40 pixels across and 20 rows down', S.pn_mqup, [[px, py], [px + 20, py + 10], [px + 40, py + 20]]); }
+    select('select 16 x 128 = 2,048 bytes at column 4, row 5', 4, 19, 5, 132, false, { noMid: true });
+    timed({ name: 'DELETE of a 2,048-byte box', pc: S.pn_key }, () => { key(12); });
+    st.mqDelete(); after('after the timed DELETE', { adoptStatus: true });
+    select('select 4 x 30 at column 10, row 40', 10, 13, 40, 69, false, { noMid: true });
+    timed({ name: 'DELETE of a 120-byte box', pc: S.pn_key }, () => { key(12); });
+    st.mqDelete(); after('after the timed DELETE', { adoptStatus: true });
+  }
+  sec.end(`window positions tried: ${seen.join(' ')}; stack so far ${env.stack.depth()} bytes; image writes ${env.img.n}; memory watch: ${env.w.summary()}`);
+}
+
+// ===========================================================================================================================================
+const run = [[1, g1], [2, g2], [3, g3], [4, g4], [5, g5], [6, g6], [7, g7], [8, g8], [9, g9], [10, g10], [11, g11], [12, g12], [13, g13], [14, g14], [15, g15]];
 for (const [n, f] of run) if (has(n)) { const t0 = Date.now(); try { f(); } catch (e) { C.check(`group ${n} ran to the end`, false, e.stack.split('\n').slice(0, 3).join(' | ')); } if (VERBOSE) console.log(`  (group ${n}: ${((Date.now() - t0) / 1000).toFixed(1)} s)`); }
 finish();
