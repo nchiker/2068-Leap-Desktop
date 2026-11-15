@@ -242,8 +242,8 @@ margin, to be reset to the measure by the owner as before.
 | Stack of every path, crossings included | <= 128 |
 | One pencil step (a 30-pixel `G_LINE`, shielded, clipped), from the `E_MOVE` | <= 58,000 (one frame) **report** |
 | The commit (the whole-picture `G_SAVERECT` + undo save) | <= 260,000 |
-| A fully exposed canvas, redrawn (section 4) | <= 330,000 |
-| Undo (swap + redraw of a 2,044-byte box) | <= 150,000 |
+| A fully exposed canvas, redrawn (section 4) | <= 725,000 (owner, 2026-11-15: the measured figure; PAINT 20) |
+| Undo (swap + redraw of a 2,044-byte box) | <= 265,442 (owner, 2026-11-15: the measured figure; PAINT 20) |
 | `G_PATFILL` 320 x 144 | **report** (EST 250,000) |
 | `G_OVAL` of 320 x 144 (outline) | <= 100,000 |
 | `G_FLOOD` of an empty picture (EST worst case) | **report** |
