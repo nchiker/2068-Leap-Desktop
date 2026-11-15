@@ -2,7 +2,7 @@
 // g6-flood.mjs -- G_FLOOD in DOCK chunk 6 under mapping R ($F4 = $73), on the prebuilt `desk5` cartridge (build/desk5.dck, build/desk5/out.sym; never rebuilt here).
 // Written from docs/PAINT.md 21 (the contract: GA = x, y (the seed) and GA+8 = the pattern pointer; the region = the 4-connected set of pixels equal to the seed's pixel inside GCLIP; the region's pixels are
 // replaced by the pattern (REPLACE); the seed outside the clip changes nothing; carry clear = complete, carry SET = overflow when the region has more than 204 maximal horizontal runs ('spans') and the
-// pattern is not the one-pass fast path (every byte of the pattern is the colour opposite to the target: all $FF over paper, all $00 over ink), or when the seed stack passes 256 entries; after a
+// pattern is not the one-pass fast path (every byte of the pattern is the colour opposite to the target: all $FF over paper, all $00 over ink), or when the seed stack passes its limit (256 seeds for a patterned fill, 512 for the one-pass fill: revised 2026-11-15); after a
 // complete fill the region's box is in FL_BX0 / FL_BX1 (words) and FL_BY0 / FL_BY1 (bytes)), with PAINT 16 (G_PATFILL's pattern table and the pattern anchoring), docs/BANKING.md (KFAR, the mappings)
 // and tests/g6-patfill.mjs (the method).  src/gfx6/flood.asm was not used; only the symbol names of build/desk5/out.sym.
 //   node tests/g6-flood.mjs [--seed N] [--n N]
@@ -28,11 +28,11 @@ const C = checks('g6-flood');
 const rng = makeRng(SEED);
 const STUB = 0x5F00;
 const STACK_BOUND = 128;
-const SPAN_MAX = 204, STK_MAX = 256;
+const SPAN_MAX = 204, STK_SLOW = 256, STK_FAST = 512;      // PAINT 21 (revised): a patterned fill keeps 204 spans and 256 seeds; the one-pass fill has no span list and 512 seeds ($7800-$7FFF)
 
 const env = T.bootParked({ rng, video: false });
 const { m, S } = env;
-T.needSyms(env, ['G_FLOOD', 'PATTAB', 'GA', 'GOP', 'GCLIP', 'G_SETCLIP', 'K_FAR', 'K_FJP', 'V_SHADOW_F4', 'V_FRAMES', 'FL_BX0', 'FL_BX1', 'FL_BY0', 'FL_BY1', 'FL_FAST', 'FL_LIST', 'FL_LEND', 'FL_STK']);
+T.needSyms(env, ['G_FLOOD', 'PATTAB', 'GA', 'GOP', 'GCLIP', 'G_SETCLIP', 'K_FAR', 'K_FJP', 'V_SHADOW_F4', 'V_FRAMES', 'FL_BX0', 'FL_BX1', 'FL_BY0', 'FL_BY1', 'FL_FAST', 'FL_SLIM', 'FL_LIST', 'FL_LEND', 'FL_STK']);
 if (S.G_FLOOD < 0xC000 || S.G_FLOOD >= 0xE000) { C.check('G_FLOOD is in chunk 6 ($C000-$DFFF)', false, hex(S.G_FLOOD)); C.done(); process.exit(); }
 C.check(`G_FLOOD is in chunk 6 ($C000-$DFFF): ${hex(S.G_FLOOD)}; PATTAB ${hex(S.PATTAB)}; FL_BX0 ${hex(S.FL_BX0)}, FL_BX1 ${hex(S.FL_BX1)}, FL_BY0 ${hex(S.FL_BY0)}, FL_BY1 ${hex(S.FL_BY1)}, FL_FAST ${hex(S.FL_FAST)}`, true);
 
@@ -47,7 +47,7 @@ C.check('PATTAB: pattern 0 is all $FF, pattern 15 all $00, pattern 2 the 50 % ch
 m.ram[STUB] = 0xEF; m.ram[STUB + 1] = S.G_FLOOD & 0xFF; m.ram[STUB + 2] = S.G_FLOOD >> 8; m.ram[STUB + 3] = 0xC9;
 
 // ---- watches -----------------------------------------------------------------------------------------------------------------------------------------
-const watch = { armed: false, accR: 0, badMap: [], wrHeap: [], spanTop: 0, stkLow: 0x8000 };
+const watch = { armed: false, fast: false, accR: 0, badMap: [], wrHeap: [], spanTop: 0, stkLow: 0x8000 };
 {
   const rd0 = m.bus.read, wr0 = m.bus.write;
   const note = (addr, isWrite) => {
@@ -59,8 +59,11 @@ const watch = { armed: false, accR: 0, badMap: [], wrHeap: [], spanTop: 0, stkLo
     }
     if (isWrite) {
       if (addr >= 0xC000 && addr < 0xE000 && watch.wrHeap.length < 8) watch.wrHeap.push(`${hex(addr)} written by PC ${hex(pc)} under ${hex(m.portF4, 2)}`);
-      if (addr >= S.FL_LIST && addr < S.FL_LEND && addr > watch.spanTop) watch.spanTop = addr;
-      if (addr >= S.FL_LEND && addr < S.FL_STK && addr < watch.stkLow) watch.stkLow = addr;
+      if (watch.fast) { if (addr >= S.FL_LIST && addr < S.FL_STK && addr < watch.stkLow) watch.stkLow = addr; }          // one pass: the whole $7800-$7FFF is the seed stack
+      else {
+        if (addr >= S.FL_LIST && addr < S.FL_LEND && addr > watch.spanTop) watch.spanTop = addr;
+        if (addr >= S.FL_LEND && addr < S.FL_STK && addr < watch.stkLow) watch.stkLow = addr;
+      }
     }
   };
   m.bus.read = function (addr) { note(addr & 0xFFFF, false); return rd0(addr); };
@@ -95,7 +98,7 @@ const colourAt = (x, y) => (x >= 0 && x < W && y >= 0 && y < H ? px[y * W + x] :
 const MAY = (a) => (a >= 0xE000 && a < 0xE011) || (a >= 0xE01A && a < 0xE080) || (a >= 0xE0D0 && a < 0xE0E8) || (a >= 0xE700 && a < 0xE800) || (a >= 0x4000 && a < 0x5800) || (a >= 0x6000 && a < 0x7800) ||
   (a >= 0x7800 && a < 0x8000) || (a >= 0xFE00 && a < 0xFF00) || (a >= S.K_FJP && a < S.K_FJP + 4);
 const stats = { calls: 0, bad: 0, first: '', stackMax: 0, stackBad: 0, outside: 0, outsideFirst: '', di: 0, pres: 0, presFirst: '', mapBack: 0, tMax: 0, tMaxDesc: '', cases: {}, gaBad: 0, clipBad: 0,
-  complete: 0, overflow: 0, offClip: 0, fastDone: 0, slowDone: 0, spansMax: 0, spansMaxDone: 0, stkEntriesMax: 0, listMax: 0, stackOverflows: [], stackLegit: 0, stackLegitFast: [], stackLegitSlow: [], carryBad: 0, boxBad: 0, goBad: 0, bndBad: 0, gopChanged: 0, regionMax: 0 };
+  complete: 0, overflow: 0, offClip: 0, fastDone: 0, slowDone: 0, spansMax: 0, spansMaxDone: 0, stkEntriesMax: 0, listMax: 0, stackOverflows: [], slimBad: 0, slimFirst: '', stackLegit: 0, stackLegitFast: [], stackLegitSlow: [], carryBad: 0, boxBad: 0, goBad: 0, bndBad: 0, gopChanged: 0, regionMax: 0 };
 const fail = (what) => { stats.bad++; if (!stats.first) stats.first = what; };
 const ptrOf = (off) => S.PATTAB + off;
 const hx2 = (v) => hex(v, 2).slice(1);
@@ -116,7 +119,7 @@ function flood(x, y, off, tag, o = {}) {
   const px0 = px.slice();
   const ga = Array.from(m.ram.subarray(S.GA, S.GA + 10)), gclip = Array.from(m.ram.subarray(S.GCLIP, S.GCLIP + 8)), gop = m.ram[S.GOP];
   const mr = scr.floodFill(x, y, pat);                 // the model (changes `px` only on a complete fill)
-  watch.armed = true; watch.spanTop = 0; watch.stkLow = 0x8000;
+  watch.fast = mr.inClip && mr.fast; watch.armed = true; watch.spanTop = 0; watch.stkLow = 0x8000;
   let r;
   try { r = T.runCall(env, STUB, {}, { ints: true, hooks, guard: 60_000_000 }); }
   catch (e) { watch.armed = false; fail(`${tag} ${desc}: ${e.message}`); scr.loadRam(m.ram); return null; }
@@ -134,11 +137,12 @@ function flood(x, y, off, tag, o = {}) {
   else if (mr.overflow) { wantCarry = 1; why = `${mr.spans} spans > ${SPAN_MAX} and the pattern is not the one-pass fast path`; }
   else { wantCarry = 0; why = `${mr.spans} spans, ${mr.fast ? 'one-pass fast path' : 'two-pass'}`; }
   if (mr.inClip) { if (mr.spans > stats.spansMax) stats.spansMax = mr.spans; if (mr.n > stats.regionMax) stats.regionMax = mr.n; }
-  const legit = carry === 1 && wantCarry === 0 && mr.inClip && !o.expectStack && stkEntries >= STK_MAX && mr.pushBound > STK_MAX;   // the seed stack passed 256 entries (PAINT 21): allowed, counted
+  const stkLimit = mr.fast ? STK_FAST : STK_SLOW;
+  const legit = carry === 1 && wantCarry === 0 && mr.inClip && !o.expectStack && stkEntries >= stkLimit && mr.pushBound > stkLimit;   // the seed stack passed its limit (256 patterned, 512 one-pass; PAINT 21): allowed, counted
   if (legit) { stats.stackLegit++; (mr.fast ? stats.stackLegitFast : stats.stackLegitSlow).push(`${tag} ${desc}: ${mr.spans} spans, ${mr.n} px, up to ${mr.pushBound} pushes`); }
   else if (carry !== wantCarry) {
     ok = false; stats.carryBad++;
-    const stackHint = (wantCarry === 0 && carry === 1 && mr.fast) ? ` (a fast fill: the machine's seed stack reached ${stkEntries} entries; the contract says overflow only past ${STK_MAX})` : '';
+    const stackHint = (wantCarry === 0 && carry === 1 && mr.fast) ? ` (a fast fill: the machine's seed stack reached ${stkEntries} entries; the contract says overflow only past ${stkLimit})` : '';
     fail(`${tag} ${desc}: carry ${carry}, expected ${wantCarry} (${why}); model: region ${mr.n} px, ${mr.spans} spans, fast ${mr.fast}${stackHint}`);
   }
   if (carry === 1 && mr.inClip) {
@@ -180,7 +184,8 @@ function flood(x, y, off, tag, o = {}) {
   if (r.preserved.length) { stats.pres++; ok = false; stats.presFirst ||= `${desc}: ${r.preserved.join(',')}`; fail(`${tag} fill ${desc}: not preserved: ${r.preserved.join(',')}`); }
   if (m.portF4 !== 0x33 || m.ram[S.V_SHADOW_F4] !== 0x33) { stats.mapBack++; ok = false; fail(`${tag} fill ${desc}: mapping after the call: port ${hex(m.portF4, 2)}, shadow ${hex(m.ram[S.V_SHADOW_F4], 2)}, want $33`); }
   if (Array.from(m.ram.subarray(S.GCLIP, S.GCLIP + 8)).join() !== gclip.join()) { stats.clipBad++; ok = false; fail(`${tag} fill ${desc}: GCLIP changed`); }
-  if (m.ram[S.GOP] !== gop) stats.gopChanged++;
+  if (mr.inClip) { const lim = L.rd16(m, S.FL_SLIM), want = mr.fast ? 0x7800 : 0x7C00; if (lim !== want) { stats.slimBad++; stats.slimFirst ||= `${desc}: FL_SLIM ${hex(lim)}, want ${hex(want)} (${mr.fast ? 'one-pass' : 'patterned'})`; } }
+  void gop;                                     // G_FLOOD clobbers GOP (PAINT 21, revised): an expected write, not checked
   if (r.sp !== 0xFF00) { ok = false; fail(`${tag} fill ${desc}: SP ${hex(r.sp)} after the call, want $FF00`); }
   for (let a = 0; a < 0x10000; a++) {
     if (m.ram[a] !== before[a] && !MAY(a)) { stats.outside++; ok = false; if (!stats.outsideFirst) stats.outsideFirst = `${desc}: ${hex(a)} ${hex(before[a], 2)} -> ${hex(m.ram[a], 2)}`; fail(`${tag} fill ${desc}: RAM outside the allowed areas changed: ${hex(a)} ${hex(before[a], 2)} -> ${hex(m.ram[a], 2)}`); break; }
@@ -351,22 +356,31 @@ for (let i = 0; i < N; i++) {
   combCase(K, h, inv, pickOff(inv), `random comb K ${K} x ${h} (${1 + K * h} spans)`, rng.pick(['same', 'wall', 'noise']));
 }
 
-// ---- 7. the seed stack: a span with teeth up and down pushes Ku + Kd seeds at once (PAINT 21: it overflows when the stack passes 256 entries) ----------------
-/** A paper bar (row cy + hu) with Ku teeth up (x = cx + 2 j) and Kd teeth down (x = cx + 2 j), all one pixel wide and one pixel high; the rest ink.  Spans 1 + Ku + Kd. */
-function buildBar(cx, cy, cw, Ku, Kd, inv) {
+// ---- 7. the seed stack: a span with teeth up and down pushes Ku + Kd seeds at once (PAINT 21 revised: a one-pass fill overflows past 512 seeds, a patterned fill past 256) ----
+/** A paper bar (row cy + 1) with Ku teeth up (x = cx + 2 j) and Kd teeth down (x = cx + 2 j), all one pixel wide and one pixel high; the rest ink.  Spans 1 + Ku + Kd.  `bars`: a full-width bar above the up teeth and below the down teeth too. */
+function buildBar(cx, cy, cw, Ku, Kd, inv, bars = false) {
   const wall = inv ? 0 : 1, open = inv ? 1 : 0;
   fillPx(wall);
   rectPx(cx, cy + 1, cw, 1, open);
   for (let j = 0; j < Ku; j++) setPx(cx + 2 * j, cy, open);
   for (let j = 0; j < Kd; j++) setPx(cx + 2 * j, cy + 2, open);
+  if (bars) { rectPx(cx, cy - 1, cw, 1, open); rectPx(cx, cy + 3, cw, 1, open); }
   store();
 }
 const stkRes = {};
-for (const inv of [0, 1]) for (const [Ku, Kd] of [[100, 100], [128, 128], [200, 56], [200, 57], [150, 150], [255, 1], [255, 2], [128, 129], [250, 250]]) {
-  buildBar(0, 80, 512, Ku, Kd, inv); setClip(0, 0, 512, 192);
-  const off = FAST_FOR(inv), tot = Ku + Kd;
-  const r = flood(3, 81, off, 'stack-probe', { expectStack: tot <= STK_MAX ? 'ok' : 'over' });
-  stkRes[`${inv}:${Ku}+${Kd}`] = r && { carry: r.carry, stk: r.stkEntries };
+for (const inv of [0, 1]) {
+  // one pass (the colour opposite to the target): up to 512 seeds in one span complete (the picture holds at most 256 + 256); the old 256 limit is gone
+  for (const [Ku, Kd] of [[100, 100], [128, 128], [200, 56], [200, 57], [150, 150], [255, 1], [255, 2], [128, 129], [250, 250], [256, 255], [256, 256]]) {
+    buildBar(0, 80, 512, Ku, Kd, inv); setClip(0, 0, 512, 192);
+    const tot = Ku + Kd;
+    const r = flood(3, 81, FAST_FOR(inv), 'stack-probe', { expectStack: tot <= STK_FAST ? 'ok' : 'over' });
+    stkRes[`${inv}:${Ku}+${Kd}`] = r && { carry: r.carry, stk: r.stkEntries, want: tot <= STK_FAST ? 0 : 1, what: `${tot} seeds pushed by the first span` };
+  }
+  // past 512: bars above and below the teeth: the first span pushes 512 seeds; the span of a popped tooth is a 1-pixel run whose bar pushes the 255 other teeth again (a seed is pushed for every run of target
+  // pixels, filled or not yet), so the stack passes 512 whatever the scan order (513 in one span is not buildable on a 512-pixel screen)
+  buildBar(0, 80, 512, 256, 256, inv, true); setClip(0, 0, 512, 192);
+  { const r = flood(3, 81, FAST_FOR(inv), 'stack-probe', { expectStack: 'over' });
+    stkRes[`${inv}:bars 256+256`] = r && { carry: r.carry, stk: r.stkEntries, want: 1, what: 'bars above and below 256 + 256 teeth: more than 512 seeds in all (duplicates)' }; }
 }
 // ---- 8. big complex regions, solid fills (the fast path completes whatever the span count): the largest the seed stack allows ------------------------------
 const bigRes = [];
@@ -436,6 +450,7 @@ C.check(`every call equals the reference model (display after a complete fill, c
 C.check(`carry: ${stats.carryBad} wrong of ${stats.calls}`, stats.carryBad === 0, stats.first);
 C.check(`the region's box (FL_BX0, FL_BX1, FL_BY0, FL_BY1) equals the bounding box after every complete fill: ${stats.boxBad} wrong`, stats.boxBad === 0);
 C.check(`on an overflow the pixels outside the region are as they were: ${stats.bndBad} wrong of ${stats.overflow} overflows`, stats.bndBad === 0);
+C.check(`FL_SLIM holds the seed stack's lowest address ($7800 one-pass, $7C00 patterned) after every call with the seed in the clip: ${stats.slimBad} wrong`, stats.slimBad === 0, stats.slimFirst);
 C.check('G_SETCLIP behaved as specified on the way', setupBad === 0, setupFirst);
 C.check(`G_FLOOD ran under R ($F4 = $73, shadow $73) at its first instruction: ${entry.n} entries`, entry.n >= stats.calls && entry.bad.length === 0, entry.bad.slice(0, 3).join(' | '));
 C.check(`every access made by code in $C000-$DFFF was under R: ${watch.accR} accesses`, watch.accR > 0 && watch.badMap.length === 0, watch.badMap.join(' | '));
@@ -446,13 +461,13 @@ C.check(`stack used (KFAR included) <= ${STACK_BOUND} bytes: max ${stats.stackMa
 C.check('no DI, IX / IY and the alternate set preserved, SP and the mapping ($33) restored after every call', stats.di === 0 && stats.pres === 0 && stats.mapBack === 0, stats.presFirst);
 C.check(`memory watch of BANKING 10.7 (tests/bank-lib makeWatch, armed through the whole run): ${env.w.summary()}`, env.w.n === 0);
 C.check(`V_FRAMES rose by 1 every normal frame: ${framesBad.checked} frames checked, ${framesBad.vfbad} wrong, no DI across a frame`, framesBad.checked >= 12 && framesBad.vfbad === 0 && framesBad.n === 0, framesBad.first);
-console.log(`  ${stats.stackLegit} fills overflowed the machine's seed stack (256 entries) with more than 256 possible pushes (allowed by PAINT 21): ${stats.stackLegitFast.length} one-pass (solid) and ${stats.stackLegitSlow.length} two-pass; e.g. ${(stats.stackLegitFast[0] || stats.stackLegitSlow[0] || 'none')}`);
-// the seed-stack probes: Ku + Kd seeds pushed at once; the contract: overflow when the stack passes 256 entries (these are the machine's answers; a mismatch is reported, not bent)
+console.log(`  ${stats.stackLegit} fills overflowed the machine's seed stack (256 patterned / 512 one-pass) with more pushes possible than that (allowed by PAINT 21): ${stats.stackLegitFast.length} one-pass (solid) and ${stats.stackLegitSlow.length} two-pass; e.g. ${(stats.stackLegitFast[0] || stats.stackLegitSlow[0] || 'none')}`);
+// the seed-stack probes (PAINT 21 revised): the machine's answers against 512 seeds for a one-pass fill; a mismatch is reported, not bent
 for (const [k, v] of Object.entries(stkRes)) {
-  const [inv, kk] = k.split(':'), tot = kk.split('+').map(Number).reduce((a, b) => a + b, 0), want = tot <= STK_MAX ? 0 : 1;
-  C.check(`seed-stack probe, ${inv === '1' ? 'ink' : 'paper'} bar with ${kk} teeth (up + down = ${tot} seeds pushed by the first span): carry ${v ? v.carry : '?'} (contract: ${want ? 'overflow, past 256' : 'completes'}); seed stack reached ${v ? v.stk : '?'} entries`, !!v && v.carry === want);
+  const [inv, kk] = k.split(':');
+  C.check(`seed-stack probe (one pass), ${inv === '1' ? 'ink' : 'paper'}, ${kk} teeth (${v ? v.what : '?'}): carry ${v ? v.carry : '?'} (contract: ${v && v.want ? 'overflow, past 512' : 'completes'}); seed stack reached ${v ? v.stk : '?'} entries`, !!v && v.carry === v.want);
 }
-console.log(`  the seed stack's deepest use ${stats.stkEntriesMax} entries (of ${STK_MAX}); the span list's longest ${stats.listMax} entries (of ${SPAN_MAX}); the largest region ${stats.regionMax} px; G_FLOOD changed GOP in ${stats.gopChanged} of ${stats.calls} calls; FL_FAST differed from the model's fast flag in ${stats.flFast || 0} complete fills`);
+console.log(`  the seed stack's deepest use ${stats.stkEntriesMax} entries (limits ${STK_SLOW} patterned / ${STK_FAST} one-pass); the span list's longest ${stats.listMax} entries (of ${SPAN_MAX}); the largest region ${stats.regionMax} px; FL_FAST differed from the model's fast flag in ${stats.flFast || 0} complete fills`);
 for (const s of bigRes) console.log(`  big solid fill: ${s}`);
 console.log(`longest call ${stats.tMax} T (${stats.tMaxDesc})`);
 for (const [k, v] of Object.entries(timing)) console.log(`  ${k}: ${v}`);

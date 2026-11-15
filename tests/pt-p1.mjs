@@ -1498,10 +1498,8 @@ function g14() {
   { const c = click('the background around the rectangle and a speck: 205 spans, pattern 2 (overflows: "Fill too complex")', 10, 100); sec.ok(c.b && c.b.spans === 205 && c.b.overflow, () => `model: ${c.b && c.b.spans} spans, overflow ${c.b && c.b.overflow}`);
     sec.ok(Q.statusOf(env) === 'Fill too complex', 'the status line says "Fill too complex"'); }
   // the picture is exactly as before (also the display against the copy: settleCheck did both); the status gives way to the tool's name at the next tool choice
-  // PAINT 21: "The status returns to the tool's name at the next choice of a tool".  Choosing the tool that is already chosen: the machine keeps "Fill too complex" (reported as a note; the model adopts the machine's status)
-  Q.chooseTool(env, 5); st.chooseTool(5);
-  { const stat = Q.statusOf(env); if (stat !== 'Bucket') { sec.note(`MISMATCH (reported, not bent): a press on the cell of the tool that is ALREADY chosen (the Bucket) after "Fill too complex": the status stays "${stat}" (PAINT 21: it "returns to the tool's name at the next choice of a tool")`); st.status = stat; } }
-  settleCheck(env, sec, 'the already-chosen Bucket cell pressed after an overflow', { adoptStatus: true });
+  // PAINT 21 (revised): pressing the already-chosen tool's cell brings the tool's name back after a message, as choosing another tool does
+  tool(5); settleCheck(env, sec, 'the already-chosen Bucket cell pressed after an overflow: the status is "Bucket" again');
   tool(1); settleCheck(env, sec, 'another tool (the Pencil) chosen after an overflow: the status is "Pencil"'); tool(5); settleCheck(env, sec, 'the Bucket chosen again: the status is "Bucket"');
   pat(0);
   { const c = click('the same 205-span region, solid pattern 0: completes (fast path)', 10, 100); sec.ok(c.b && c.b.spans === 205 && !c.b.overflow, () => `model: ${c.b && c.b.spans} spans`);
@@ -1563,7 +1561,7 @@ function g14() {
   { const [x0, y0] = screenOf(150, 70);
     click('a bucket press inside the rectangle, then the button held and the pointer dragged over the picture: one fill, no more', 0, 0, { pts: [[x0, y0], [x0 + 60, y0 - 20], [x0 + 120, y0 + 30], [x0 - 20, y0 + 40]], max: 400 }); }
   // ---- a picture with noise: the machine and the model agree on the fill and the overflow.  A fill that completes on the machine needs the seed stack (256 entries) not to pass its limit: the model cannot predict that,
-  // so a seed is picked whose region the model proves cannot (at most 256 pushes in any order), or whose fill overflows by the span count in any case ----
+  // so a seed is picked whose region the model proves cannot (at most 512 pushes in any order for a solid fill, 256 for a patterned one), or whose fill overflows by the span count in any case ----
   for (const [d, p] of [[0.5, 0], [0.5, 2], [0.45, 5], [0.55, 0], [0.55, 9], [0.7, 6], [0.3, 0], [0.3, 12]]) {
     const r = L.makeRng(900 + Math.round(d * 100) + p); const t = new Uint8Array(320 * 144); for (let i = 0; i < t.length; i++) t[i] = r.next() < d ? 1 : 0;
     pat(p); Q.install(env, (x, y) => t[y * 320 + x]);
@@ -1572,15 +1570,24 @@ function g14() {
       for (let k = 0; k < 400 && !seed; k++) {
         const x = r.int(0, 319), y = r.int(0, 143); if (t[y * 320 + x] !== colour) continue;
         const pr = st.probe(P.PIC.x + x, P.PIC.y + y, p);
-        if (pr.overflow || pr.pushBound <= 256) { seed = [x, y]; why = `${pr.n} px, ${pr.spans} spans, ${pr.overflow ? 'overflow' : 'completes'}`; }
+        if (pr.overflow || pr.pushBound <= (pr.fast ? 512 : 256)) { seed = [x, y]; why = `${pr.n} px, ${pr.spans} spans, ${pr.overflow ? 'overflow' : 'completes'}`; }
       }
       if (!seed) { sec.note(`noise ink density ${d}, pattern ${p}, ${colour ? 'ink' : 'paper'} seed: no seed without a seed-stack risk found (skipped)`); continue; }
       click(`noise (ink density ${d}), pattern ${p}, ${colour ? 'an ink' : 'a paper'} seed (${why})`, seed[0], seed[1], { check: { noBox: true } });
     }
   }
-  // the seed stack: the bar with 129 teeth up and 129 down pushes 258 seeds at once from its first span: G_FLOOD overflows although the region has only 259 spans and the pattern is solid
-  { pat(0); Q.install(env, (x, y) => { if (y === 70 && x < 320) return 0; if (y === 69 && x % 2 === 0 && x < 258) return 0; if (y === 71 && x % 2 === 0 && x < 258) return 0; return 1; });
-    const c = click('a bar of paper with 129 one-pixel teeth up and 129 down (258 seeds pushed at once), solid: the SEED STACK passes 256 entries: "Fill too complex" although the pattern is solid', 3, 70, { stackOverflow: true });
+  // the seed stack (PAINT 21 revised: 512 seeds for a one-pass fill): a paper bar with 160 one-pixel teeth up and 160 down, each tooth capped by a full bar with 160 more teeth beyond it: the first span pushes 320 seeds, a popped tooth
+  // leads to a bar that pushes the other 159 teeth again (duplicates) and its own 160 more: well over 512 whatever the scan order.  G_FLOOD overflows with a solid pattern: "Fill too complex".
+  { pat(0);
+    const bars = new Set([66, 68, 70, 72, 74]), teeth = new Set([65, 67, 71, 73]);          // rows: teeth 65, bar 66, up-teeth 67, bar 68 ...
+    const rowsT = [[67, 'tooth'], [69, 'bar'], [70, 'tooth'], [71, 'bar'], [73, 'tooth'], [74, 'bar']];
+    void bars; void teeth; void rowsT;
+    // layout (picture rows): 64 teeth2, 65 bar0, 66 up teeth, 67 bar1 (the seed's row), 68 down teeth, 69 bar2, 70 teeth2'
+    const pic = (x, y) => { const T = (x % 2 === 0 && x < 320); if (y === 65 || y === 67 || y === 69) return 0; if ((y === 64 || y === 66 || y === 68 || y === 70) && T) return 0; return 1; };
+    Q.install(env, pic);
+    const pr = st.probe(P.PIC.x + 3, P.PIC.y + 67, 0);
+    sec.ok(pr.fast && !pr.overflow && pr.pushBound > 512, () => `model: the seed-stack picture is a solid fill with ${pr.pushBound} possible pushes (must exceed 512)`);
+    const c = click('bars and 160 + 160 teeth (more than 512 seeds in all), solid: the SEED STACK passes 512 entries: "Fill too complex" although the pattern is solid', 3, 67, { stackOverflow: true });
     sec.ok(c.b && c.b.forced, 'the model was told to expect the seed-stack overflow'); }
   // ---- a moved window: the picture is where the canvas view is ----
   const drag = (dx, dy) => {
