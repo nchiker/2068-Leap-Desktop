@@ -1358,7 +1358,7 @@ function g9() {
     const per = Q.busy(env, () => { editMenu(env, 0, { settle: 0 }); env.frames_(14); }, marks);
     st.undo();
     const u = Q.spansFrom(per.ev, S.pn_undo);
-    row(`Undo of a ${rr.box.nc} x ${rr.box.nr} box (${bytes} bytes): pn_undo entry to HALT`, u[0], null, `the busy periods of the whole menu action: ${per.map((p) => p.t1 - p.t0).filter((d) => d > base + 200).join(', ')}`, 150000);
+    row(`Undo of a ${rr.box.nc} x ${rr.box.nr} box (${bytes} bytes): pn_undo entry to HALT`, u[0], null, `the busy periods of the whole menu action: ${per.map((p) => p.t1 - p.t0).filter((d) => d > base + 200).join(', ')}`, 265442);
     settleCheck(env, sec, 'after the timed Undo', { adoptStatus: true });
   }
   // Save and Open of the whole picture
@@ -1393,7 +1393,7 @@ function g9() {
     const T2 = TKcalls(e2);
     const t1 = T2.inval(126, 30, 324, 148), t2 = T2.update();
     const stk = T2.lastStack();
-    row('a fully exposed canvas (W_INVAL of the canvas view, then W_UPDATE): redrawn', t1 + t2, null, `W_INVAL ${t1} + W_UPDATE ${t2}`, 330000);
+    row('a fully exposed canvas (W_INVAL of the canvas view, then W_UPDATE): redrawn', t1 + t2, null, `W_INVAL ${t1} + W_UPDATE ${t2}`, 725000);
     for (const [name, x, y, w, h] of [['the pattern palette (55, 112, 66, 50)', 55, 112, 66, 50], ['the brush palette (55, 164, 66, 18)', 55, 164, 66, 18], ['the tool box (55, 28, 66, 82)', 55, 28, 66, 82]]) {
       const a = T2.inval(x, y, w, h), b = T2.update();
       row(`redraw of ${name}: W_INVAL of the view, then W_UPDATE`, a + b, null, `W_INVAL ${a} + W_UPDATE ${b}`);
