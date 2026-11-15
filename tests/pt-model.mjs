@@ -52,9 +52,11 @@ export const RND0 = 0xACE1;
 /** `pn_rnd`: a 16-bit Galois LFSR, mask $B400, 8 shifts a byte, the byte being the low byte of the state after them; returns [state, byte]. */
 export function rndStep(st) { for (let i = 0; i < 8; i++) { const lsb = st & 1; st >>= 1; if (lsb) st ^= 0xB400; } return [st, st & 0xFF]; }
 /** The stroke box's margin (byte columns, rows) by tool (PN_PADC, PN_PADR). */
-export const PADS = { 1: [0, 0], 2: [1, 4], 3: [1, 4], 4: [2, 8], 6: [0, 0], 7: [0, 0] };
-export const SHAPES = [6, 7];                 // the Line and the Rectangle (PAINT 17): an XOR band while the button is held
-export const DRAWING = [1, 2, 3, 4, 6, 7];
+export const PADS = { 1: [0, 0], 2: [1, 4], 3: [1, 4], 4: [2, 8], 6: [0, 0], 7: [0, 0], 8: [0, 0], 9: [0, 0] };
+export const SHAPES = [6, 7, 8, 9];             // the Line, the Rectangle, the Rounded rectangle and the Oval (PAINT 17, 18): an XOR band while the button is held (a line, or the bounding rectangle)
+export const DRAWING = [1, 2, 3, 4, 6, 7, 8, 9];   // all but the Marquee (0) and the Bucket (5)
+/** G_RRECT's radii by tool (PAINT 18): the Rounded rectangle 8 x 4, the Oval 255 x 100 (cut to w / 2, h / 2). */
+export const RADII = { 8: [8, 4], 9: [255, 100] };
 export const inPic = (x, y) => x >= PIC.x && x < PIC.x + PIC.w && y >= PIC.y && y < PIC.y + PIC.h;
 export const UNDO_MAX = 2048;
 export const PBM_HEADER = codesOf('P4\n320 144\n');
@@ -130,6 +132,9 @@ export class PaintModel {
   drawShape(g, op, ax, ay, x, y, fillFirst = false) {
     if (this.tool === 6) { g.setOp(op); g.line(ax, ay, x, y); return; }
     const r = this.shapeRect(ax, ay, x, y);
+    if (this.tool >= 8 && op !== OP_XOR) {          // PAINT 18: the release draws G_RRECT in SET, the mode = PN_FILL (the band is the bounding rectangle, below)
+      g.setOp(op); g.rrect(r.x, r.y, r.w, r.h, RADII[this.tool][0], RADII[this.tool][1], fillFirst ? 1 : 0, PATS[this.pat], op); return;
+    }
     if (fillFirst) g.patFill(r.x + 1, r.y + 1, r.w - 2, r.h - 2, PATS[this.pat], 3);
     g.setOp(op); g.frame(r.x, r.y, r.w, r.h);
   }

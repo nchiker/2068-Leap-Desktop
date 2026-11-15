@@ -146,6 +146,50 @@ export class Gfx6Model {
     }
   }
 
+  /**
+   * G_RRECT (PAINT 18): the outline of a rectangle with quarter-ellipse corners, optionally with its inside in a pattern.  Written from the contract's text.
+   * (x, y, w, h): w or h <= 0 draws nothing.  rx, ry (unsigned words) are cut to w >> 1 / h >> 1, then rx to 255 and ry to 100.  mode 0: the outline only; mode 1: each row's span is first
+   * filled by REPLACE with pat8 (G_PATFILL, op 3), then the outline.  `op` is the outline's op (SET 0 or CLR 1; default the model's op).  Clipped to the clip.
+   * K = max(ry, 1) corner rows, rr = 0 .. K - 1 from the top, each mirrored to the bottom row (y + h - 1 - rr), a row drawn once when the two are one row;
+   * inset(rr) = rx - ((rx * v + ry) div (2 ry)), v = isqrt(4 ry^2 - (2 (ry - rr) - 1)^2), 0 when ry = 0.  The span is [x + inset, x + w - 1 - inset].  The outline: rr = 0 the whole span;
+   * rr > 0 a run of max(1, inset(rr - 1) - inset(rr)) pixels from each end of the span inwards.  The rows between the corners (h - 2 K rows from y + K, when positive): the whole width in
+   * the pattern when filled, and the columns x and x + w - 1 in the op.
+   */
+  rrect(x, y, w, h, rx, ry, mode, pat8, op = this.op) {
+    x = s16(x); y = s16(y); w = s16(w); h = s16(h);
+    if (w <= 0 || h <= 0) return;
+    rx = Math.min(rx & 0xFFFF, w >> 1, 255); ry = Math.min(ry & 0xFFFF, h >> 1, 100);
+    const isqrt = (n) => { let r = Math.floor(Math.sqrt(n)); while (r * r > n) r--; while ((r + 1) * (r + 1) <= n) r++; return r; };
+    const inset = (rr) => {
+      if (ry === 0) return 0;
+      const t = 2 * (ry - rr) - 1, v = isqrt(4 * ry * ry - t * t);
+      return rx - Math.floor((rx * v + ry) / (2 * ry));
+    };
+    const op0 = this.op; this.op = op;
+    const K = Math.max(ry, 1), filled = mode === 1;
+    const row = (yy, rr) => {
+      const ins = inset(rr), xl = x + ins, xr = x + w - 1 - ins;
+      if (filled) this.patFill(xl, yy, w - 2 * ins, 1, pat8, 3);
+      if (rr === 0) this.fill(xl, yy, w - 2 * ins, 1);
+      else {
+        const run = Math.max(1, inset(rr - 1) - ins);
+        this.fill(xl, yy, run, 1); this.fill(xr - run + 1, yy, run, 1);
+      }
+    };
+    for (let rr = 0; rr < K; rr++) {
+      const yt = y + rr, yb = y + h - 1 - rr;
+      if (yt > yb) break;
+      row(yt, rr);
+      if (yb !== yt) row(yb, rr);
+    }
+    const mid = h - 2 * K;
+    if (mid > 0) {
+      if (filled) this.patFill(x, y + K, w, mid, pat8, 3);
+      this.fill(x, y + K, 1, mid); this.fill(x + w - 1, y + K, 1, mid);
+    }
+    this.op = op0;
+  }
+
   /** Apply the draw op to the pixel (x, y), which the caller has already checked is inside the clip. */
   plot(x, y, bit) {
     const i = y * SCR_W + x;

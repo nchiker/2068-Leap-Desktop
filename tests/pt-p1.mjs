@@ -6,7 +6,8 @@
 //     --nrand N    random strokes in groups 3 and 4 (default 12 each)
 //     --only LIST  groups: 1 launch, 2 tool box, 3 pencil, 4 eraser, 5 undo (and Clear), 6 files (Save, Open, the discard question, New), 7 quit, 8 exposure (dialogs over the canvas, a dragged window), 9 bounds and report rows,
 //                  10 P2a: the pattern and brush palettes, the brush, the spray (PAINT 16), 11 the spray's frame rule (PAINT 16),
-//                  12 P2b-1 (PAINT 17): the Options menu, the Line and the Rectangle tools (the XOR band, hollow and filled)
+//                  12 P2b-1 (PAINT 17): the Options menu, the Line and the Rectangle tools (the XOR band, hollow and filled),
+//                  13 P2b-2 (PAINT 18): the Rounded rectangle (8) and the Oval (9): the XOR band is the bounding rectangle, the release draws G_RRECT
 // Exit code 1 on any failure.  The last lines are "pt-p1: N passed, M failed" and "pt-p1: N of M groups pass".
 // Where the machine disagrees with the contract the test says so and fails: the model is not changed to match the machine.
 // PAINT 3 (corrected 2026-11-14): the copy's part 1 holds the ODD byte columns; its header is (OX >> 3, 40, OY, 144) of the last whole-picture save; the picture origin follows the Canvas view (x + 2, y + 2).
@@ -17,7 +18,7 @@ import { openLook } from './look-model.mjs';
 const { L, P, H, WM, W3, hex, rd16 } = Q;
 const { argv, argNum } = L;
 const SEED = argNum('--seed', 1), NRAND = argNum('--nrand', 12);
-const ONLY = argv.includes('--only') ? String(argv[argv.indexOf('--only') + 1]).split(',').map(Number) : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+const ONLY = argv.includes('--only') ? String(argv[argv.indexOf('--only') + 1]).split(',').map(Number) : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
 const VERBOSE = argv.includes('--verbose');
 const rng = L.makeRng(SEED);
 const { C, Sec, finish } = Q.makeGroups('pt-p1', VERBOSE);
@@ -148,7 +149,7 @@ function g2() {
 // 3. The pencil
 function g3() {
   const env = newEnv(), { m, S } = env, st = env.st;
-  const sec = new Sec('3 pencil: G_LINE segments between successive pointer positions; a single click is one pixel; the copy is the state before the stroke until the release; clipping; presses off the picture; other tools say "Not built yet" (PAINT 15)');
+  const sec = new Sec('3 pencil: G_LINE segments between successive pointer positions; a single click is one pixel; the copy is the state before the stroke until the release; clipping; presses off the picture; other tools (the Marquee, the Bucket) say "Not built yet" (PAINT 15, 18)');
   // a single click
   doStroke(env, sec, 'a single click at (200, 80)', [[200, 80]]);
   sec.ok(st.px(72, 48) === 1 && st.pic.count() === 1, () => `the model's single click: pixel ${st.px(72, 48)}, count ${st.pic.count()}`);
@@ -195,7 +196,7 @@ function g3() {
     sec.ok(eq(Array.from(st.copyBytes()), Array.from(was.copyBytes())), `${what}: the model's picture is unchanged`);
   }
   // another tool: "Not built yet", nothing drawn, nothing committed
-  for (const t of [0, 5, 8, 9]) {
+  for (const t of [0, 5]) {
     Q.chooseTool(env, t); st.chooseTool(t);
     const dirty0 = st.dirty;
     Q.stroke(env, [[300, 100], [320, 110], [340, 100]], { settle: 12 });
@@ -1094,6 +1095,120 @@ function g12() {
 }
 
 // ===========================================================================================================================================
+// 13. P2b-2 (PAINT 18): the Rounded rectangle (tool 8, radii 8 x 4) and the Oval (tool 9, radii 255 x 100) -- the XOR band is the bounding rectangle (G_FRAME) exactly as for the Rectangle; the release
+// draws G_RRECT in SET with the mode PN_FILL (hollow: the outline; filled: the inside by REPLACE of the chosen pattern, then the outline); the stroke box is the two corners (pad 0); the commit as for the other shapes
+function g13() {
+  const env = newEnv(), { m, S } = env, st = env.st;
+  const sec = new Sec('13 P2b-2 (PAINT 18): the Rounded rectangle (8 x 4) and the Oval (255 x 100): the XOR band is the bounding rectangle, the release draws G_RRECT in SET with the mode PN_FILL (hollow, and filled with every pattern), the box is the two corners, commit and undo as for the Rectangle; four drag directions, tiny, thin and big shapes, clipping, noise');
+  const after = (ctx, o = {}) => { settleCheck(env, sec, ctx, o); if (st.undoOn) undoAreaOk(env, sec, ctx); };
+  const tool = (t) => { Q.chooseTool(env, t); st.chooseTool(t); };
+  const pat = (p) => { Q.choosePattern(env, p); st.choosePat(p); };
+  const setFill = (on) => {
+    if (st.fill === !!on) return;
+    Q.menuPick(env, 2, on ? 0 : 1); st.setFill(on);
+    settleCheck(env, sec, `Options > ${on ? 'Filled' : 'Hollow'} shapes`);
+  };
+  const shapePads = (ctx) => { const [pc, pr] = P.PADS[st.tool]; sec.ok(m.ram[S.PN_PADC] === pc && m.ram[S.PN_PADR] === pr, () => `${ctx}: PN_PADC / PN_PADR ${m.ram[S.PN_PADC]}, ${m.ram[S.PN_PADR]}; the margins of tool ${st.tool} are ${pc}, ${pr}`); };
+  const shape = (ctx, pts, o = {}) => {
+    const before = st.clone();
+    const far = Math.max(...pts.map(([x, y]) => Math.max(Math.abs(x - pts[0][0]), Math.abs(y - pts[0][1])))) > 90;
+    const r = Q.stroke(env, pts, { gap: far ? 3 : 0, settle: 45, ...o, mid: o.noMid ? undefined : (i, seen) => {
+      if (i === 0) { const ax = rd16(m, S.PN_AX), ay = m.ram[S.PN_AY]; sec.ok(ax === seen[0][0] && ay === seen[0][1], () => `${ctx}: the anchor PN_AX, PN_AY = (${ax}, ${ay}), the press was at (${seen[0]})`); }
+      Q.check(env, sec, `${ctx}: mid-stroke after point ${i} (the band is the bounding rectangle in XOR)`, { st: st.bandModel(), copyOf: before, extra: i > 0 ? [seen[i - 1]] : [] });
+    } });
+    settleCheck(env, sec, ctx, o.check || {});
+    shapePads(ctx);
+    if (st.undoOn) undoAreaOk(env, sec, ctx);
+    sec.ok(r.box === null || (r.box.nc * r.box.nr <= 2048) === st.undoOn, () => `${ctx}: box ${JSON.stringify(r.box)} (${r.box && r.box.nc * r.box.nr} bytes): the model's undo ${st.undoOn}`);
+    return r;
+  };
+  const undoRedo = (ctx) => {
+    if (!st.undoOn) return;
+    editMenu(env, 0); st.undo(); after(`Undo of ${ctx}`);
+    editMenu(env, 0); st.undo(); after(`Undo again (redo) of ${ctx}`);
+  };
+  const NAMES = { 8: 'rounded rectangle', 9: 'oval' };
+  const rb = [300, 100];
+  const signs = [[1, 1], [-1, 1], [1, -1], [-1, -1]];
+  // the model's own band is the bounding rectangle: the first checks look at the model's pieces (the contract's text)
+  {
+    const c = st.clone(); st.chooseTool(9);
+    const g = new P.Gfx6Model(); g.setClip(P.PIC.x, P.PIC.y, P.PIC.w, P.PIC.h);
+    st.drawShape(g, P.OP_XOR, 200, 60, 239, 89); const f = new P.Gfx6Model(); f.setClip(P.PIC.x, P.PIC.y, P.PIC.w, P.PIC.h); f.setOp(P.OP_XOR); f.frame(200, 60, 40, 30);
+    sec.ok(g.px.every((v, i) => v === f.px[i]), 'model: the band of the Oval is the bounding rectangle in XOR');
+    st.chooseTool(c.tool);
+  }
+  for (const t of [8, 9]) {
+    const nm = NAMES[t];
+    setFill(false);
+    tool(t);
+    settleCheck(env, sec, `the ${nm} chosen (hollow): the status line shows "${P.TOOLNAMES[t]}"`);
+    Q.install(env, noise(60 + t, 0.5));
+    settleCheck(env, sec, `a noisy picture installed (the ${nm} chosen)`);
+    sec.ok(m.ram[S.PN_TOOL] === t, () => `PN_TOOL ${m.ram[S.PN_TOOL]}, want ${t}`);
+    // -- hollow
+    { const r = shape(`${nm}: a press and release at one point (200, 80): 1 x 1`, [[200, 80]]); sec.ok(r.began, `${nm}: the press started a stroke`); undoRedo(`the one-point ${nm}`); }
+    const sizes = [[0, 0], [1, 1], [2, 2], [3, 3], [1, 0], [0, 1], [2, 0], [0, 2], [1, 4], [4, 1], [99, 2], [2, 99], [60, 40], [7, 7], [8, 8], [9, 9], [15, 15], [16, 16], [30, 20], [100, 50]];
+    for (const [w, h] of sizes) for (const [sx, sy] of signs) {
+      if ((w === 0 && sx < 0) || (h === 0 && sy < 0)) continue;
+      shape(`hollow ${nm} dragged ${sx > 0 ? 'right' : 'left'} ${w} and ${sy > 0 ? 'down' : 'up'} ${h} (a ${w + 1} x ${h + 1} shape)`, [rb, [rb[0] + sx * w, rb[1] + sy * h]], { noMid: (w + h) % 4 !== 0 });
+      if (w + h <= 4) undoRedo(`the ${w + 1} x ${h + 1} hollow ${nm}`);
+    }
+    shape(`hollow ${nm} with many moves (the band is the bounding rectangle each time)`, [[250, 60], [300, 90], [260, 120], [200, 80], [240, 100], [320, 130]]);
+    shape(`hollow ${nm} whose last move comes back to the anchor (1 x 1)`, [[330, 90], [380, 120], [330, 90]]);
+    shape(`hollow ${nm} leaving the picture on the right`, [[400, 100], [440, 110], [480, 140]]);
+    shape(`hollow ${nm} leaving on the left and the top`, [[160, 60], [100, 40], [90, 10]]);
+    shape(`hollow ${nm} leaving at the bottom and the right (a big one)`, [[200, 100], [480, 186]]);
+    shape(`hollow ${nm} from the picture's corner to the opposite corner (the whole picture)`, [[128, 32], [447, 175]], { check: { noBox: true } });
+    sec.ok(!st.undoOn && st.status === 'Too big to undo', () => `the whole-picture hollow ${nm}: Undo ${st.undoOn}, status "${st.status}"`);
+    shape(`hollow ${nm} over the picture's top edge and right edge`, [[128, 32], [447, 32], [447, 175]]);
+    for (let i = 0; i < NRAND; i++) { shape(`random hollow ${nm} ${i + 1}`, rndWalk(rng.int(1, 6), rng.int(135, 440), rng.int(40, 170), rng.int(1, 150), [100, 20], [490, 186]), { noMid: i % 2 === 1 }); if (i % 3 === 0) undoRedo(`random hollow ${nm} ${i + 1}`); }
+    // -- filled: the inside is the chosen pattern (REPLACE), then the outline; every pattern
+    setFill(true);
+    tool(t);
+    for (let p = 0; p < 16; p++) {
+      pat(p);
+      shape(`filled ${nm}, pattern ${p}, 41 x 25, dragged down-right`, [[150 + 20 * (p & 3), 50 + 28 * (p >> 2)], [190 + 20 * (p & 3), 74 + 28 * (p >> 2)]], { noMid: p % 4 !== 0 });
+      if (p % 5 === 0) undoRedo(`the filled ${nm}, pattern ${p}`);
+    }
+    for (const p of [0, 2, 15, 6, 11]) {
+      pat(p);
+      for (const [w, h] of [[0, 0], [1, 1], [2, 2], [3, 3], [4, 4], [1, 5], [5, 1], [2, 40], [40, 2], [3, 40], [40, 3], [31, 15]]) for (const [sx, sy] of signs) {
+        if ((w === 0 && sx < 0) || (h === 0 && sy < 0)) continue;
+        if (p !== 2 && (sx < 0) !== (sy < 0)) continue;           // all four directions for pattern 2; the diagonal pair for the others
+        shape(`filled ${nm}, pattern ${p}, ${w + 1} x ${h + 1}, dragged ${sx > 0 ? 'right' : 'left'} ${sy > 0 ? 'down' : 'up'}`, [[300, 100], [300 + sx * w, 100 + sy * h]], { noMid: true });
+      }
+    }
+    pat(2);
+    shape(`a filled ${nm} with many moves (the band is the bounding rectangle only)`, [[250, 60], [300, 90], [260, 120], [200, 80], [240, 100], [320, 130]]);
+    shape(`a filled ${nm} leaving the picture on the right`, [[400, 100], [440, 110], [480, 140]]);
+    shape(`a filled ${nm} leaving on the left and the top`, [[160, 60], [100, 40], [90, 10]]);
+    shape(`a filled ${nm}, the whole picture`, [[128, 32], [447, 175]], { check: { noBox: true } });
+    sec.ok(!st.undoOn && st.status === 'Too big to undo', () => `the whole-picture filled ${nm}: Undo ${st.undoOn}, status "${st.status}"`);
+    pat(13);
+    shape(`a filled ${nm} 200 x 100 on the noise`, [[170, 50], [369, 149]], { noMid: true, check: { noBox: true } });
+    for (let i = 0; i < NRAND; i++) { pat(rng.int(0, 15)); shape(`random filled ${nm} ${i + 1} (pattern ${st.pat})`, rndWalk(rng.int(1, 6), rng.int(135, 440), rng.int(40, 170), rng.int(1, 150), [100, 20], [490, 186]), { noMid: i % 2 === 1 }); if (i % 3 === 0) undoRedo(`random filled ${nm} ${i + 1}`); }
+    // presses that start no stroke: the tool box, the desk
+    for (const [what, [x, y]] of [['the tool box (80, 60)', [80, 60]], ['the desk (490, 100)', [490, 100]]]) {
+      const was = st.clone(), r = Q.stroke(env, [[x, y], [200, 100], [250, 120], [300, 100]], { settle: 12 });
+      sec.ok(!r.began, `the ${nm}: ${what}: no stroke`);
+      if (what.startsWith('the tool box')) tool(t);
+      settleCheck(env, sec, `the ${nm}: a press on ${what}, dragged across the picture, draws nothing`);
+      sec.ok(eq(Array.from(st.copyBytes()), Array.from(was.copyBytes())), 'the picture is unchanged');
+    }
+    pat(0);
+  }
+  // the other shape tools still draw as before, and the mode / pattern are kept across tool choices
+  setFill(true); pat(5);
+  tool(7); shape('the Rectangle after the oval: filled, pattern 5', [[200, 60], [260, 100]]);
+  tool(6); shape('the Line after the oval', [[200, 60], [260, 100]]);
+  tool(8); shape('back to the Rounded rectangle, still filled with pattern 5', [[200, 60], [260, 100]]);
+  setFill(false); pat(0);
+  tool(1); shape('the pencil after the shapes', [[300, 60], [340, 90]], { noMid: true });
+  sec.end(`stack so far ${env.stack.depth()} bytes; image writes ${env.img.n}`);
+}
+
+// ===========================================================================================================================================
 // 9. Bounds and report rows
 function g9() {
   const sec = new Sec('9 bounds: stack <= 128 on every path, no DI (V_FRAMES + 1 a frame), the memory watch (BANKING 10.7) clean, no write to the program image outside its variables, the image and its variables end at or below AL_RAM (rows with no bound are reports; PAINT 12\'s own bounds are quoted in their notes)');
@@ -1187,6 +1302,30 @@ function g9() {
     Q.menuPick(env, 2, 1); st.setFill(false); Q.choosePattern(env, 0); st.choosePat(0);
     Q.chooseTool(env, 1); st.chooseTool(1);
     settleCheck(env, sec, 'Pencil, pattern 0 and hollow shapes chosen again', { adoptStatus: true });
+  }
+  // P2b-2 (PAINT 18): the release of the whole-picture (320 x 144) Oval, hollow and filled (pattern 2), and of the Rounded rectangle (8 x 4), the band erased, G_RRECT, the commit.  Reported (the draw is G_RRECT's 841 k / 1,466 k T).
+  {
+    const relRow = (label, t, fill, p, from, to) => {
+      Q.menuPick(env, 2, fill ? 0 : 1); st.setFill(fill); Q.choosePattern(env, p); st.choosePat(p);
+      Q.chooseTool(env, t); st.chooseTool(t);
+      L.moveTo(env, from[0], from[1]); env.frames_(2);
+      m.mouse.buttons = L.MOUSE_LEFT; env.frame(); st.press(...L.pointerPos(m, S));
+      for (const q of Q.expand([from, to]).slice(1)) { const [x, y] = Q.stepTo(env, q[0], q[1]); st.move(x, y); env.frames_(6); }
+      let rbox;
+      const lost0 = env.vf.bad;
+      const per = Q.busy(env, () => { m.mouse.buttons = L.MOUSE_UP; env.frame(); rbox = st.release(); env.frames_(60); }, [S.pn_shapedone, S.pn_commit].filter(Boolean));
+      const sd = S.pn_shapedone ? Q.spansFrom(per.ev, S.pn_shapedone) : [], cm = Q.spansFrom(per.ev, S.pn_commit);
+      row(`release of ${label}: the release frame ISR entry to HALT (band erased, G_RRECT, commit)`, Math.max(...per.map((p2) => p2.t1 - p2.t0)), null, `idle frame ${base}; pn_shapedone entry to HALT ${sd.join(', ') || 'n/a'}; pn_commit entry to HALT ${cm.join(', ')}; box ${rbox.nc} x ${rbox.nr}; busy periods ${per.map((p2) => p2.t1 - p2.t0).filter((d) => d > base + 200).join(', ')}; frames lost in the release ${env.vf.bad - lost0}`);
+      settleCheck(env, sec, `after ${label}`, { adoptStatus: true, noBox: rbox.nc * rbox.nr > 2048 });
+    };
+    relRow('a hollow oval 320 x 144 (the whole picture)', 9, false, 2, [128, 32], [447, 175]);
+    relRow('a filled oval 320 x 144 (the whole picture, pattern 2)', 9, true, 2, [128, 32], [447, 175]);
+    relRow('a filled oval 200 x 100 (pattern 2)', 9, true, 2, [170, 50], [369, 149]);
+    relRow('a hollow rounded rectangle 320 x 144 (8 x 4)', 8, false, 2, [128, 32], [447, 175]);
+    relRow('a filled rounded rectangle 320 x 144 (8 x 4, pattern 2)', 8, true, 2, [128, 32], [447, 175]);
+    Q.menuPick(env, 2, 1); st.setFill(false); Q.choosePattern(env, 0); st.choosePat(0);
+    Q.chooseTool(env, 1); st.chooseTool(1);
+    settleCheck(env, sec, 'Pencil, pattern 0 and hollow shapes chosen again (after the oval releases)', { adoptStatus: true });
   }
   // the commit (release to idle): small and large box
   const commit = (pts) => {
@@ -1287,6 +1426,6 @@ function TKcalls(env) {
 }
 
 // ===========================================================================================================================================
-const run = [[1, g1], [2, g2], [3, g3], [4, g4], [5, g5], [6, g6], [7, g7], [8, g8], [9, g9], [10, g10], [11, g11], [12, g12]];
+const run = [[1, g1], [2, g2], [3, g3], [4, g4], [5, g5], [6, g6], [7, g7], [8, g8], [9, g9], [10, g10], [11, g11], [12, g12], [13, g13]];
 for (const [n, f] of run) if (has(n)) { const t0 = Date.now(); try { f(); } catch (e) { C.check(`group ${n} ran to the end`, false, e.stack.split('\n').slice(0, 3).join(' | ')); } if (VERBOSE) console.log(`  (group ${n}: ${((Date.now() - t0) / 1000).toFixed(1)} s)`); }
 finish();
