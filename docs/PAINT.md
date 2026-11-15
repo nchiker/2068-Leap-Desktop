@@ -388,3 +388,17 @@ filled first; the outline is then, on rr = 0, the whole span, and on rr > 0 a ru
 when positive) are the whole width in the pattern (when filled) and the two side columns (x and x + w - 1) in the op.
 **Tools:** Rounded rectangle (8): rx = 8, ry = 4 (a corner round on mode 6's 1 : 2 pixels); Oval (9): rx = 255, ry = 100 (cut to w / 2, h / 2). Both rubber-band with the bounding rectangle (XOR `G_FRAME`) as the
 Rectangle does; the release draws `G_RRECT` in SET with the mode `PN_FILL` and the chosen pattern; the stroke's box and commit as for the Rectangle. All ten tools but the Marquee (0) and the Bucket (5) now draw.
+
+
+## 19. Measured: P2 (TSRun, 2026-11-15, `tests/pt-p1.mjs` group 9, `tests/g6-patfill.mjs`, `tests/g6-rrect.mjs`; no contention)
+
+All 24 suites pass (`build/test-logs/2026-11-15_02-03-40`), Fuse 6 of 6, ZEsarUX 240 of 240 (63 of them Paint's session). The figures are reports unless a bound is quoted.
+- **Pencil step** 18.8 k T (bound 58,000: met). **Brush step**, a 30-pixel move with the large round brush: 344 k T (about 6 frames; the stamps are every 2nd step, three `G_PATFILL`s each). **Spray burst** 37-46 k T (one a frame).
+- **Line / rectangle band step** about 27-30 k T (one frame). **Release of a filled 200 x 100 rectangle** 435 k T; of a **whole-picture oval** hollow 1.03 M T, **filled 1.66 M T (about 28 frames)**.
+- `G_PATFILL`: a 320 x 144 REPLACE fill 519 k T (was 1.82 M before the column loop was rewritten), the full screen 1.04 M. `G_RRECT`: a 320 x 144 oval 841 k outline, 1.47 M filled; a 100 x 50 rounded
+  rectangle 53 k outline, 145 k filled. The longest call 2.27 M T (an oval wider than the screen, filled).
+- **Commit** 113-161 k T (bound 260,000: met). **Palette redraws:** patterns 368 k, brushes 185 k, tool box 202 k. **Save** 949 k, **Open** 1.06 M.
+- **Bounds missed (reported, not changed):** Undo of a 2,016-byte box **265 k T (bound 150 k)**; a fully exposed canvas **725 k T (bound 330 k)**. Stack at most 88 bytes (bound 128); 0 frames lost; Paint's
+  variables end at `$C281`, 319 bytes below `AL_RAM`.
+- **Open for the owner:** the filled whole-picture oval (28 frames) and the exposure redraw are slow; options are accepting them (they are rare), or speeding `G_RRECT`'s fill (draw whole bands instead of one
+  `G_PATFILL` a row) and a `G_PUTRECT` for the exposure.
