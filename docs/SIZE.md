@@ -101,3 +101,15 @@ The speed-up costs about +40 bytes of DOCK 2-3 that other features could use. No
 - **Checked by grep:** `pointer.asm` uses none of the moved labels (it calls `G_PRESHIFT` at start, which stays); the only other callers of the moved
   routines were Check's X (replaced), the shell (`KFAR G_BLIT`) and Notepad (`KFAR G_SCROLLV`).
 - **G_LINE under R** has no `desk5` caller until Paint: `tests/g6-line.mjs` runs it from mapping A on the model's random lines.
+
+
+## 9. The DOCK 2-3 trim (2026-11-15; owner: "Calculator trim also", after the Calculator size review)
+
+**Why:** DOCK 2-3 has 274 bytes free and the marquee (`docs/PAINT.md` 22) needs about 500-700 in Paint's own code (the owner asked for that). The review (a read-only survey, 2026-11-15) found the Calculator at 2,382 bytes with about 325 of safe savings, and the other programs' images hold zero-filled variables (`SIZE.md` 5).
+**The Calculator (options A, D, E, G of the review; B, C, F, K are not taken):**
+- **A** the 127 zero-filled variable bytes leave the image (their addresses by `EQU`; `C_START` clears them; the image copy shrinks by 127): saves 127, no speed cost;
+- **D** `cd_rect` goes (identical to the kernel's `w_gaview`, exported): saves 32, +27 T on a draw;
+- **E** `c_build` with running x / y counters instead of the multiplies, and the redundant `ld (ix+View_w+1),0` dropped (`K_NEW` returns zeroed objects; the creation order, so the arena layout, is unchanged): saves about 40;
+- **G** the small ones (`q_one` inline, `c_isz32` as `ld b,4` into `q_isz`, `c_clear` through `q_zero`, trims in `c_fmt` and `c_neg`): about 20.
+**The others:** the zero-filled variables of **Notepad (195), Key Caps (57) and the shell (9)** leave their images as Paint's did (variables after the image, cleared at start).
+**Bounds:** DOCK 2-3 free >= 700 after (**report**; EST 274 + 220 + 261 = about 755); every image still ends at or below `AL_RAM`; every suite passes; the screens identical; **speed rows (`calc-perf`, `wr-perf`, `kc-k1`, `shell-perf`) are exact bounds: any row that moves is reported with its numbers (the owner resets bounds), nothing is weakened.** The Calculator's tests (the 20,036-operation BigInt model, the 3,000 key sequences, the screens) are the safety net.
