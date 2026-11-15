@@ -70,8 +70,10 @@ PN_START:
 pn_loop:
     call K_GETEV
     jr nc,.ev
+    call pn_idle                    ; (a held spray sprays on a frame without an event)
     halt
-    call pn_idle
+    xor a
+    ld (PN_SPR),a                   ; a new frame: its burst not yet made
     jr pn_loop
 .ev:
     cp E_MENU
@@ -115,12 +117,14 @@ pn_loop:
     call pn_dkcmd
     jr pn_loop
 
-; pn_menu: E_MENU (K_EV+1 the menu, K_EV+2 the item): File 1 (New 1, Open 2, Save 3, Quit 4), Edit 2 (Undo 1, Clear 2).
+; pn_menu: E_MENU (K_EV+1 the menu, K_EV+2 the item): File 1 (New 1, Open 2, Save 3, Quit 4), Edit 2 (Undo 1, Clear 2), Options 3 (Filled shapes 1, Hollow shapes 2).
 pn_menu:
     ld hl,(K_EV+1)                  ; L = the menu, H = the item
     ld a,l
     dec a
     jr z,.file
+    cp 2
+    jr z,.opt
     ld a,h
     dec a
     jp z,pn_undo
@@ -128,6 +132,20 @@ pn_menu:
     ret nz
     ld a,4                          ; Clear
     jr pn_ask
+.opt:                           ; Options: item 1 Filled shapes, item 2 Hollow shapes: the chosen mode's item is disabled
+    ld a,h
+    and 1
+    ld (PN_FILL),a
+    xor 1
+    ld b,a
+    ld c,0
+    ld a,2
+    call MB_ENABLE
+    ld a,(PN_FILL)
+    ld b,a
+    ld c,1
+    ld a,2
+    jp MB_ENABLE
 .file:
     ld a,h
     cp 3
@@ -954,6 +972,9 @@ pn_cevent:
     jr z,.cons
     xor a
     ld (PN_DRAW),a
+    ld a,(PN_TOOL)
+    cp 6
+    call nc,pn_shapedone
     call pn_commit
 .cons:
     scf
@@ -988,20 +1009,26 @@ pn_cevent:
     jr c,.no
     cp 144
     jr nc,.no
-    ld a,(PN_TOOL)                  ; the pencil, the brush, the eraser and the spray draw
-    dec a
-    cp 4
+    ld a,(PN_TOOL)                  ; the pencil, the brush, the eraser, the spray, the line and the rectangle draw
+    or a
+    jr z,.nyet
+    cp 5
+    jr z,.nyet
+    cp 8
     jr c,.go
+.nyet:
     ld hl,PN_MNYET                  ; the other tools are not built yet
     push ix
     call pn_msg
     pop ix
     jr .no
 .go:
-    ld a,(PN_TOOL)                  ; the stroke's box margin: byte columns and rows (the pencil 0, 0; the spray 2, 8; the others 1, 4)
+    ld a,(PN_TOOL)                  ; the stroke's box margin: byte columns and rows (the pencil and the shapes 0, 0; the spray 2, 8; the others 1, 4)
     ld bc,$0000
     cp 1
     jr z,.pd
+    cp 6
+    jr nc,.pd
     ld bc,$0208
     cp 4
     jr z,.pd
@@ -1023,6 +1050,17 @@ pn_cevent:
     xor a
     ld (PN_BC1),a
     ld (PN_BR1),a
+    ld (PN_BON),a
+    ld a,(PN_TOOL)
+    cp 6
+    jr c,.fs
+    ld hl,(PN_NX)                   ; a shape: the press is its anchor, nothing is drawn yet
+    ld (PN_AX),hl
+    ld a,(PN_NY)
+    ld (PN_AY),a
+    scf
+    ret
+.fs:
     call pn_seg
     scf
     ret
@@ -1049,8 +1087,167 @@ pn_org:
     ret
 
 
+; ---------------------------------------------------------------------------------------------------------------------------
+; The shapes (PAINT 7): the line and the rectangle (the rounded rectangle and the oval: P2b-2).  A press is the anchor (PN_AX, PN_AY); while the button is
+; held an XOR band joins the anchor and the pointer (the line: G_LINE; the others: the bounding rectangle, G_FRAME), erased and drawn again at every
+; move; the release erases it and draws the shape: the line in SET, a rectangle hollow (G_FRAME) or, with "Filled shapes", its inside in the chosen pattern
+; (G_PATFILL, REPLACE) and then the frame.
+
+; pn_bandstep: a move of a shape tool: the old band erased (the last point PN_LX, PN_LY), the new drawn.  Clobbers AF, BC, DE, HL.
+pn_bandstep:
+    call pn_shield
+    ld a,(PN_BON)
+    or a
+    call nz,pn_xorband
+    ld hl,(PN_NX)
+    ld (PN_LX),hl
+    ld a,(PN_NY)
+    ld (PN_LY),a
+    call pn_xorband
+    ld a,1
+    ld (PN_BON),a
+    jp pn_unshield
+
+; pn_xorband: the band from the anchor to (PN_LX, PN_LY) in XOR.
+pn_xorband:
+    ld a,2
+    ld (GOP),a
+    ld a,(PN_TOOL)
+    cp 6
+    jr z,.l
+    call pn_rectga
+    KFAR G_FRAME
+    ret
+.l:
+    call pn_linega
+    KFAR G_LINE
+    ret
+
+; pn_linega: GA = the anchor and (PN_LX, PN_LY).  pn_rectga: GA = the rectangle with these corners (x, y, w, h): w = |dx| + 1, h = |dy| + 1.
+pn_linega:
+    ld hl,(PN_AX)
+    ld (GA),hl
+    ld a,(PN_AY)
+    ld l,a
+    ld h,0
+    ld (GA+2),hl
+    ld hl,(PN_LX)
+    ld (GA+4),hl
+    ld a,(PN_LY)
+    ld l,a
+    ld h,0
+    ld (GA+6),hl
+    ret
+pn_rectga:
+    ld hl,(PN_AX)
+    ld de,(PN_LX)
+    or a
+    sbc hl,de                       ; AX - LX
+    jr nc,.xa
+    xor a                           ; AX < LX: x = AX, w = LX - AX + 1
+    sub l
+    ld l,a
+    sbc a,a
+    sub h
+    ld h,a
+    inc hl
+    ld (GA+4),hl
+    ld hl,(PN_AX)
+    ld (GA),hl
+    jr .y
+.xa:
+    inc hl                          ; x = LX, w = AX - LX + 1
+    ld (GA+4),hl
+    ld (GA),de
+.y:
+    ld a,(PN_AY)
+    ld hl,PN_LY
+    ld c,(hl)
+    sub c
+    jr nc,.ya
+    neg                             ; AY < LY: y = AY, h = LY - AY + 1
+    inc a
+    ld l,a
+    ld h,0
+    ld (GA+6),hl
+    ld a,(PN_AY)
+    jr .yy
+.ya:
+    inc a                           ; y = LY, h = AY - LY + 1
+    ld l,a
+    ld h,0
+    ld (GA+6),hl
+    ld a,c
+.yy:
+    ld l,a
+    ld h,0
+    ld (GA+2),hl
+    ret
+
+; pn_shapedone: the release of a shape: the band erased, the shape drawn from the anchor to the pointer (PN_NX, PN_NY), the stroke's box the two corners.
+pn_shapedone:
+    call pn_shield
+    ld a,(PN_BON)
+    or a
+    call nz,pn_xorband
+    xor a
+    ld (PN_BON),a
+    ld hl,(PN_NX)
+    ld (PN_LX),hl
+    ld a,(PN_NY)
+    ld (PN_LY),a
+    ld a,(PN_TOOL)
+    cp 6
+    jr nz,.r
+    xor a
+    ld (GOP),a
+    call pn_linega
+    KFAR G_LINE
+    jr .box
+.r:
+    ld a,(PN_FILL)
+    or a
+    jr z,.h
+    call pn_rectga                  ; the inside: (x + 1, y + 1, w - 2, h - 2) in the pattern, REPLACE
+    ld hl,(GA)
+    inc hl
+    ld (GA),hl
+    ld hl,(GA+2)
+    inc hl
+    ld (GA+2),hl
+    ld hl,(GA+4)
+    dec hl
+    dec hl
+    ld (GA+4),hl
+    ld hl,(GA+6)
+    dec hl
+    dec hl
+    ld (GA+6),hl
+    ld a,(PN_PAT)
+    call pn_patptr
+    ld (GA+8),hl
+    ld a,3
+    ld (GOP),a
+    KFAR G_PATFILL
+.h:
+    xor a
+    ld (GOP),a
+    call pn_rectga
+    KFAR G_FRAME
+.box:
+    ld hl,(PN_AX)
+    ld a,(PN_AY)
+    call pn_grow
+    ld hl,(PN_NX)
+    ld a,(PN_NY)
+    call pn_grow
+    jp pn_unshield
+
 ; pn_idle: every frame without an event: a held spray keeps spraying at the last point (the pointer may not move).
 pn_idle:
+    ld a,(PN_SPR)
+    or a
+    ret nz                          ; this frame has had its burst
     ld a,(PN_DRAW)
     or a
     ret z
@@ -1071,6 +1268,8 @@ pn_idle:
 ; pn_spray: a burst of dots about (PN_NX, PN_NY): up to 12 random points inside an ellipse of 16 x 8 pixels (round on mode 6's 1 : 2 pixels), each a 1 x 1
 ; G_PATFILL (SET) of the chosen pattern (the pattern's ink only).  The clip and the shield are the caller's.  Clobbers AF, BC, DE, HL.
 pn_spray:
+    ld a,1
+    ld (PN_SPR),a                   ; one burst a frame
     xor a
     ld (GOP),a
     ld a,(PN_PAT)
@@ -1189,6 +1388,9 @@ pn_unshield:
 ; pn_seg: one step of the stroke: the segment from (PN_LX, PN_LY) to the pointer (PN_NX, PN_NY): the pencil's G_LINE, or the eraser's
 ; stamps along it (pn_walk); the stroke's box grows; the pointer becomes the last point.
 pn_seg:
+    ld a,(PN_TOOL)
+    cp 6
+    jp nc,pn_bandstep
     call pn_shield
     ld a,(PN_TOOL)
     cp 4
@@ -1448,6 +1650,7 @@ pn_grow:
     ld (hl),a
 .l2:
     ld a,b
+    ld hl,PN_PADC
     add a,(hl)
     cp 40
     jr c,.h
@@ -1480,6 +1683,7 @@ pn_grow:
     ld (hl),a
 .rl2:
     ld a,b
+    ld hl,PN_PADR
     add a,(hl)
     cp 144
     jr c,.rh
@@ -1978,8 +2182,8 @@ PN_MBIG:    DB 15, "Too big to undo"
 PN_STAT:    DB 6, "Pencil"
             DS 26 - 6
 PN_MENUS:
-    DB 2
-    DW PN_M1, PN_M2
+    DB 3
+    DW PN_M1, PN_M2, PN_M3
 PN_M1:
     DB 1, 4, "File", 5
     DB 1, 0, 3, "New"
@@ -1991,6 +2195,10 @@ PN_M2:
     DB 2, 4, "Edit", 2
     DB 1, 1, 4, "Undo"              ; disabled until there is something to undo
     DB 2, 0, 5, "Clear"
+PN_M3:
+    DB 3, 7, "Options", 2
+    DB 1, 0, 13, "Filled shapes"
+    DB 2, 1, 13, "Hollow shapes"    ; (hollow is the start: its item is disabled)
     ENT
 PN_IMG_LEN  EQU $ - PN_IMG
 
@@ -2060,7 +2268,12 @@ PN_RND      EQU PN_BRM + 1          ; the spray's random state (a word)
 PN_PADC     EQU PN_RND + 2          ; the stroke's box margin: byte columns and rows
 PN_PADR     EQU PN_PADC + 1
 PN_WM       EQU PN_PADR + 1         ; the walk stamps when its step count AND this is 0 (3: every 4th, 1: every 2nd)
-PN_VARS_END EQU PN_WM + 1
+PN_AX       EQU PN_WM + 1           ; a shape's anchor (screen x, y), whether its band is drawn, "Filled shapes" chosen
+PN_AY       EQU PN_AX + 2
+PN_BON      EQU PN_AY + 1
+PN_FILL     EQU PN_BON + 1
+PN_SPR      EQU PN_FILL + 1         ; 1 when this frame has had a spray burst
+PN_VARS_END EQU PN_SPR + 1
 PN_VARS_LEN EQU PN_VARS_END - PN_VARS
     ASSERT PN_VARS_END <= AL_RAM && PN_IMG_LEN <= 1024
     ASSERT (CL_Canvas >> 8) == ((CL_Canvas + 11) >> 8) && (CL_Palette >> 8) == ((CL_Palette + 11) >> 8)

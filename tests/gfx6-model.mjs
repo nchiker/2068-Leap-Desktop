@@ -112,6 +112,25 @@ export class Gfx6Model {
       else for (let i = r + xa; i < r + xb; i++) px[i] ^= 1;
     }
   }
+  /**
+   * G_PATFILL (PAINT 16): the rectangle clipped to the clip and the screen; the pixel (x, y) takes bit 7 - (x AND 7) of pat8[y AND 7] (anchored to the screen).
+   * op 0 SET (dst OR bit), 1 CLR (dst AND NOT bit), 2 XOR, 3 REPLACE (dst = bit).  `op` defaults to the model's draw op.  An empty or negative w / h draws nothing.
+   */
+  patFill(x, y, w, h, pat8, op = this.op) {
+    x = s16(x); y = s16(y); w = s16(w); h = s16(h);
+    if (w <= 0 || h <= 0) return;
+    const c = this.clip;
+    const xa = Math.max(x, c.x0), xb = Math.min(x + w, c.x1), ya = Math.max(y, c.y0), yb = Math.min(y + h, c.y1);
+    if (xa >= xb || ya >= yb) return;
+    const px = this.px;
+    for (let yy = ya; yy < yb; yy++) {
+      const r = yy * SCR_W, pb = pat8[yy & 7];
+      for (let xx = xa; xx < xb; xx++) {
+        const bit = (pb >> (7 - (xx & 7))) & 1, i = r + xx;
+        if (op === 0) px[i] |= bit; else if (op === 1) px[i] &= bit ^ 1; else if (op === 2) px[i] ^= bit; else px[i] = bit;
+      }
+    }
+  }
   hline(x, y, w) { this.fill(x, y, w, 1); }
   vline(x, y, h) { this.fill(x, y, 1, h); }
 

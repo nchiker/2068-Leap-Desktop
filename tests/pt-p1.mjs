@@ -1,10 +1,11 @@
 "use strict";
-// pt-p1.mjs -- Paint slice P1 (program 4, docs/PAINT.md 2-9 and the "As built" section 15) on the prebuilt `desk5` cartridge (build/desk5.dck, build/desk5/out.sym; never rebuilt here).
+// pt-p1.mjs -- Paint slices P1 and P2a (program 4, docs/PAINT.md 2-9 and the "As built" sections 15 and 16) on the prebuilt `desk5` cartridge (build/desk5.dck, build/desk5/out.sym; never rebuilt here).
 // Written from the contract; src/apps/paint.asm was used only to find symbol names.  The reference is tests/pt-model.mjs (the window, the tool box, the pencil's G_LINE segments, the eraser's stamps, the commit,
 // the undo box, Clear / New, the PBM bytes), the harness tests/pt-lib.mjs (on tests/shell-lib.mjs and tests/calc-lib.mjs).
 //   node tests/pt-p1.mjs [--seed N] [--nrand N] [--only LIST] [--verbose]
 //     --nrand N    random strokes in groups 3 and 4 (default 12 each)
-//     --only LIST  groups: 1 launch, 2 tool box, 3 pencil, 4 eraser, 5 undo (and Clear), 6 files (Save, Open, the discard question, New), 7 quit, 8 exposure (dialogs over the canvas, a dragged window), 9 bounds and report rows
+//     --only LIST  groups: 1 launch, 2 tool box, 3 pencil, 4 eraser, 5 undo (and Clear), 6 files (Save, Open, the discard question, New), 7 quit, 8 exposure (dialogs over the canvas, a dragged window), 9 bounds and report rows,
+//                  10 P2a: the pattern and brush palettes, the brush, the spray (PAINT 16), 11 the spray's frame rule (PAINT 16)
 // Exit code 1 on any failure.  The last lines are "pt-p1: N passed, M failed" and "pt-p1: N of M groups pass".
 // Where the machine disagrees with the contract the test says so and fails: the model is not changed to match the machine.
 // PAINT 3 (corrected 2026-11-14): the copy's part 1 holds the ODD byte columns; its header is (OX >> 3, 40, OY, 144) of the last whole-picture save; the picture origin follows the Canvas view (x + 2, y + 2).
@@ -14,7 +15,7 @@ import * as T from './tk-lib.mjs';
 const { L, P, H, WM, W3, hex, rd16 } = Q;
 const { argv, argNum } = L;
 const SEED = argNum('--seed', 1), NRAND = argNum('--nrand', 12);
-const ONLY = argv.includes('--only') ? String(argv[argv.indexOf('--only') + 1]).split(',').map(Number) : [1, 2, 3, 4, 5, 6, 7, 8, 9];
+const ONLY = argv.includes('--only') ? String(argv[argv.indexOf('--only') + 1]).split(',').map(Number) : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 const VERBOSE = argv.includes('--verbose');
 const rng = L.makeRng(SEED);
 const { C, Sec, finish } = Q.makeGroups('pt-p1', VERBOSE);
@@ -80,16 +81,20 @@ function g1() {
       sec.ok(w.title === 'Paint: Untitled', () => `title "${w.title}"`);
       sec.ok(L.openWindows(m, S).length === 1, () => `${L.openWindows(m, S).length} windows`);
       const k = Q.paintKids(env);
-      sec.ok(k.length === 3, () => `${k.length} children, want 3 (tool box, canvas, status)`);
-      if (k.length === 3) {
-        const want = [[55, 28, 66, 82, 1], [126, 30, 324, 148, 4], [127, 180, 324, 9, 5]];
+      sec.ok(k.length === 5, () => `${k.length} children, want 5 (tool box, patterns, brushes, canvas, status)`);
+      if (k.length === 5) {
+        const want = [[55, 28, 66, 82, 1], [55, 112, 66, 50, 2], [55, 164, 66, 18, 3], [126, 30, 324, 148, 4], [127, 180, 324, 9, 5]];
         k.forEach((v, i) => sec.ok([v.x, v.y, v.w, v.h, v.id].join() === want[i].join(), () => `child ${i}: ${[v.x, v.y, v.w, v.h, v.id]}, want ${want[i]}`));
-        sec.ok(k[2].cls === S.CL_Label && Q.strAt(m, rd16(m, k[2].a + S.Label_text)) === 'Pencil', () => `status view class ${hex(k[2].cls)} text "${Q.strAt(m, rd16(m, k[2].a + S.Label_text))}"`);
-        sec.ok(k[0].cls !== k[1].cls && k[0].cls !== S.CL_Label && k[1].cls !== S.CL_Label && k[0].cls !== S.CL_CWindow && k[1].cls !== S.CL_CWindow, () => `the Palette (${hex(k[0].cls)}) and the Canvas (${hex(k[1].cls)}) are two classes of their own`);
-        sec.ok(rd16(m, S.PN_LBL) === k[2].a, () => `PN_LBL ${hex(rd16(m, S.PN_LBL))}, the label view is ${hex(k[2].a)}`);
+        sec.ok(k[4].cls === S.CL_Label && Q.strAt(m, rd16(m, k[4].a + S.Label_text)) === 'Pencil', () => `status view class ${hex(k[4].cls)} text "${Q.strAt(m, rd16(m, k[4].a + S.Label_text))}"`);
+        sec.ok(k[0].cls === k[1].cls && k[1].cls === k[2].cls, () => `the tool box, the patterns and the brushes are all a Palette: classes ${hex(k[0].cls)} ${hex(k[1].cls)} ${hex(k[2].cls)}`);
+        sec.ok(k[0].cls !== k[3].cls && k[0].cls !== S.CL_Label && k[3].cls !== S.CL_Label && k[0].cls !== S.CL_CWindow && k[3].cls !== S.CL_CWindow, () => `the Palette (${hex(k[0].cls)}) and the Canvas (${hex(k[3].cls)}) are two classes of their own`);
+        sec.ok(rd16(m, S.PN_LBL) === k[4].a, () => `PN_LBL ${hex(rd16(m, S.PN_LBL))}, the label view is ${hex(k[4].a)}`);
       }
       sec.ok(rd16(m, S.PN_WIN) === w.a, () => `PN_WIN ${hex(rd16(m, S.PN_WIN))}, the window is ${hex(w.a)}`);
     }
+    sec.ok(m.ram[S.PN_PAT] === 0 && m.ram[S.PN_BRUSH] === 1 && rd16(m, S.PN_RND) === P.RND0, () => `at launch PN_PAT ${m.ram[S.PN_PAT]} (want 0), PN_BRUSH ${m.ram[S.PN_BRUSH]} (want 1), PN_RND ${hex(rd16(m, S.PN_RND))} (want $ACE1)`);
+    { const d6 = m.dock[6], t0 = S.PATTAB - 0xC000, bad = P.PATS.findIndex((pt, k) => pt.some((v, j) => d6[t0 + 8 * k + j] !== v));
+      sec.ok(bad < 0, () => `PATTAB (DOCK 6) differs from the model's PATS at pattern ${bad}`); }
     const pa = Q.picAddr(env), cp = Q.copyOf(env);
     sec.ok(pa >= 0xC400 && pa + 5764 <= 0xE000, () => `PN_PIC ${hex(pa)}: the copy (5,764 bytes) is not in the app arena $C400-$DFFF`);
     sec.ok(eq(Array.from(cp.subarray(0, 4)), [16, 40, 32, 144]), () => `the copy's header ${Array.from(cp.subarray(0, 4))}, want (c0, nc, y0, nr) = 16, 40, 32, 144`);
@@ -128,7 +133,7 @@ function g2() {
   }
   for (const t of [3, 1, 9, 0, 5, 5, 2, 8, 6, 7, 4, 1]) { Q.chooseTool(env, t); st.chooseTool(t); settleCheck(env, sec, `tool ${t} again`); }
   // clicks that must change nothing: the frame lines of the box, the gap between the box and the canvas, empty window content, the window's right part
-  const offs = [[55, 60], [70, 28], [122, 60], [60, 125], [90, 170], [123, 100], [300, 186]];
+  const offs = [[55, 60], [70, 28], [122, 60], [60, 111], [122, 170], [123, 100], [300, 186]];
   Q.chooseTool(env, 4); st.chooseTool(4);
   for (const [x, y] of offs) { L.click(env, x, y, 3, 6); settleCheck(env, sec, `a click at (${x}, ${y}) (off the cells; tool 4 stays)`); }
   Q.chooseTool(env, 1); st.chooseTool(1);
@@ -178,7 +183,7 @@ function g3() {
   doStroke(env, sec, 'runs along the picture\'s edge', [[128, 33], [447, 33], [447, 175], [128, 175], [128, 33]]);
   // presses that draw nothing
   const nodraw = [['the canvas border (126, 100)', [126, 100]], ['the canvas inner frame (127, 100)', [127, 100]], ['the canvas border below (300, 177)', [300, 177]], ['the tool box (80, 60)', [80, 60]], ['the desk (490, 100)', [490, 100]],
-    ['empty window content (80, 150)', [80, 150]], ['the status line (200, 184)', [200, 184]]];
+    ['empty window content (123, 150)', [123, 150]], ['the status line (200, 184)', [200, 184]]];
   for (const [what, [x, y]] of nodraw) {
     const was = st.clone();
     const r = Q.stroke(env, [[x, y], [200, 100], [250, 120], [300, 100]], { settle: 12 });
@@ -188,7 +193,7 @@ function g3() {
     sec.ok(eq(Array.from(st.copyBytes()), Array.from(was.copyBytes())), `${what}: the model's picture is unchanged`);
   }
   // another tool: "Not built yet", nothing drawn, nothing committed
-  for (const t of [0, 2, 4, 5, 6, 7, 8, 9]) {
+  for (const t of [0, 5, 6, 7, 8, 9]) {
     Q.chooseTool(env, t); st.chooseTool(t);
     const dirty0 = st.dirty;
     Q.stroke(env, [[300, 100], [320, 110], [340, 100]], { settle: 12 });
@@ -281,8 +286,8 @@ function g5() {
     undoAreaOk(env, sec, name);
     editMenu(env, 0); st.undo(); after(`Undo of the click, ${name}`);
   }
-  // the 2,048-byte boundary: a stroke whose box is 32 columns x 64 rows fits, 32 x 65 does not (PAINT 15)
-  for (const [name, p0, p1, wantFit] of [['32 x 64 (2,048 bytes)', [152, 60], [384, 115], true], ['32 x 65 (2,080 bytes)', [152, 60], [384, 116], false]]) {
+  // the 2,048-byte boundary: a stroke whose box is 32 columns x 64 rows fits, 32 x 65 does not (PAINT 15; the pencil's box has no margin: PAINT 16)
+  for (const [name, p0, p1, wantFit] of [['32 x 64 (2,048 bytes)', [152, 60], [384, 123], true], ['32 x 65 (2,080 bytes)', [152, 60], [384, 124], false]]) {
     const was = st.clone();
     const rr = Q.stroke(env, [p0, p1], {});
     const b = rr.box, fit = b.nc * b.nr <= 2048;
@@ -687,7 +692,7 @@ function g8() {
     const w = Q.paintWin(env), tag = `the window at (${w.x}, ${w.y})`; seen.push(`(${w.x}, ${w.y})`);
     sec.ok(w.x % 16 === 0 && w.y % 8 === 0, () => `the window's position (${w.x}, ${w.y}) is cell-aligned`);
     const k = Q.paintKids(env);
-    sec.ok(k.length === 3 && k[0].x === 55 + st.ox && k[1].x === 126 + st.ox && k[2].y === 180 + st.oy && k[1].y === 30 + st.oy, () => `${tag}: the views moved with the window: ${JSON.stringify(k.map((v) => [v.x, v.y]))}`);
+    sec.ok(k.length === 5 && k.slice(0, 3).every((v) => v.x === 55 + st.ox) && [28, 112, 164].every((y, i) => k[i].y === y + st.oy) && k[3].x === 126 + st.ox && k[3].y === 30 + st.oy && k[4].x === 127 + st.ox && k[4].y === 180 + st.oy, () => `${tag}: the views moved with the window: ${JSON.stringify(k.map((v) => [v.x, v.y]))}`);
     settleCheck(env, sec, `after the drag to (${w.x}, ${w.y}): the screen is the model's (the canvas inside its view)`, { adoptStatus: true });
     const px = (a) => w.x + 80 + a, py = (a) => w.y + 30 + a;                 // inside the picture (its origin is (w.x + 80, w.y + 16))
     doStroke(env, sec, `${tag}: a pencil stroke`, [[px(20), py(20)], [px(60), py(50)], [px(120), py(40)], [px(120), py(90)]], { check: { adoptStatus: true } });
@@ -726,6 +731,191 @@ function g8() {
 }
 
 // ===========================================================================================================================================
+// 10. P2a: the pattern and brush palettes, the brush, the spray (PAINT 16)
+function g10() {
+  const env = newEnv(), { m, S } = env, st = env.st;
+  const sec = new Sec('10 P2a (PAINT 16): pattern and brush palette clicks, brush strokes (REPLACE: the white pattern erases) with each brush and several patterns, spray bursts (the LFSR reproduced), undo of a brush / spray stroke, a stroke too big to undo');
+  const after = (ctx, o = {}) => { settleCheck(env, sec, ctx, o); if (st.undoOn) undoAreaOk(env, sec, ctx); };
+  const pads = (ctx) => { const [pc, pr] = P.PADS[st.tool]; sec.ok(m.ram[S.PN_PADC] === pc && m.ram[S.PN_PADR] === pr, () => `${ctx}: PN_PADC / PN_PADR ${m.ram[S.PN_PADC]}, ${m.ram[S.PN_PADR]}; the margins of tool ${st.tool} are ${pc}, ${pr}`); };
+  // a brush stamp is up to 15,000 T, a 24-pixel step 12 stamps: steps are split to 24 pixels and followed by 4 quiet frames, so that the machine finishes each step before the next (as a hand would not outrun it)
+  const slow = () => (st.tool === 2 ? { gap: 4, max: 24, settle: 30 } : {});
+  const go = (ctx, pts, o = {}) => { const r = doStroke(env, sec, ctx, pts, { check: { adoptStatus: true }, ...slow(), ...o });
+    if (st.tool === 4 && r.began) sec.ok(r.burstBad === 0 && r.bursts.length >= 1 && r.bursts[0].x === r.pts[0][0] && r.bursts[0].y === r.pts[0][1] && !r.bursts[0].idle, () => `${ctx}: the machine's bursts (${r.bursts.length}) must be at the pointer's positions, the first at the press: ${r.burstBad} elsewhere; first ${JSON.stringify(r.bursts[0])}, press at ${r.pts[0]}`); pads(ctx); if (st.undoOn) undoAreaOk(env, sec, ctx); return r; };
+  const pat = (p) => { Q.choosePattern(env, p); st.choosePat(p); };
+  const brush = (b) => { Q.chooseBrush(env, b); st.chooseBrush(b); };
+  const tool = (t) => { Q.chooseTool(env, t); st.chooseTool(t); };
+  // -- the pattern palette: every swatch (centre, then a corner of the interior), then the same one twice, then clicks off the swatches
+  for (let p = 0; p < 16; p++) {
+    const c = P.swatchOf(p), [px, py] = [[c.x + 8, c.y + 6], [c.x, c.y], [c.x + 15, c.y + 11], [c.x + 3, c.y + 9]][p % 4];
+    L.click(env, px, py, 3, 6); st.choosePat(p);
+    settleCheck(env, sec, `pattern ${p} clicked at (${px}, ${py})`);
+  }
+  for (const p of [15, 0, 5, 5, 9, 2, 13]) { pat(p); settleCheck(env, sec, `pattern ${p} again`); }
+  pat(2);
+  for (const [x, y] of [[120, 130], [120, 150], [100, 112], [100, 111], [122, 130]]) { L.click(env, x, y, 3, 6); settleCheck(env, sec, `a click at (${x}, ${y}) off the swatches (pattern 2 stays)`); }
+  // -- the brush palette
+  for (let b = 0; b < 4; b++) {
+    const c = P.brushCell(b), [px, py] = [[c.x + 8, c.y + 8], [c.x, c.y], [c.x + 15, c.y + 15], [c.x + 4, c.y + 11]][b];
+    L.click(env, px, py, 3, 6); st.chooseBrush(b);
+    settleCheck(env, sec, `brush ${b} (${P.BRUSHNAMES[b]}) clicked at (${px}, ${py})`);
+  }
+  for (const b of [0, 3, 3, 1, 2, 0]) { brush(b); settleCheck(env, sec, `brush ${b} again`); }
+  brush(1); pat(0);
+  for (const [x, y] of [[120, 170], [100, 164], [122, 170], [60, 182]]) { L.click(env, x, y, 3, 6); settleCheck(env, sec, `a click at (${x}, ${y}) off the brushes (brush 1 stays)`); }
+  sec.ok(m.ram[S.PN_DIRTY] === 0 && m.ram[S.PN_UNDO] === 0 && m.ram[S.PN_TOOL] === 1, () => `palette clicks changed PN_DIRTY ${m.ram[S.PN_DIRTY]}, PN_UNDO ${m.ram[S.PN_UNDO]}, PN_TOOL ${m.ram[S.PN_TOOL]}`);
+  // -- the brush: on a noisy picture every brush with several patterns (the paper bits of the pattern are drawn: REPLACE)
+  Q.install(env, noise(21, 0.5));
+  tool(2);
+  settleCheck(env, sec, 'a noisy picture installed, the Brush chosen');
+  go('a single click, brush 1, pattern 0', [[200, 80]]);
+  const PATSET = [0, 2, 3, 7, 9, 11, 13, 15];
+  for (let b = 0; b < 4; b++) {
+    brush(b);
+    for (const p of PATSET) {
+      pat(p);
+      const y0 = 40 + 14 * PATSET.indexOf(p);
+      go(`brush ${b} (${P.BRUSHNAMES[b]}), pattern ${p}: a horizontal stroke, 1 pixel a frame, and a click`, [...Array.from({ length: 12 }, (_, i) => [150 + 3 * b * 10 + i, y0]), [330 + 20 * b, y0 + 2]]);
+    }
+  }
+  brush(1);
+  for (const [name, pts] of [
+    ['a diagonal, 2 pixels a frame', Array.from({ length: 14 }, (_, i) => [200 + 2 * i, 60 + 2 * i])],
+    ['a vertical, 1 pixel a frame (odd and even step counts)', Array.from({ length: 11 }, (_, i) => [260, 60 + i])],
+    ['a fast stroke (40 pixels a frame)', [[140, 50], [180, 60], [220, 100], [260, 90], [300, 150]]],
+    ['a single step of 1 and of 2 pixels', [[350, 100], [351, 100], [351, 102], [352, 102]]],
+    ['stamps clipped at the picture\'s edge', [[130, 40], [135, 36], [128, 34], [135, 34], [445, 174], [440, 170]]],
+    ['leaves the picture and returns', [[430, 100], [446, 104], [470, 112], [480, 130], [440, 130]]],
+  ]) { pat(2); go(name, pts); }
+  pat(15);
+  go('the white pattern erases (brush 1, pattern 15) over the noise', Array.from({ length: 30 }, (_, i) => [180 + 3 * i, 120 + (i % 5)]));
+  pat(0); brush(2);
+  go('the solid square brush: a short stroke', [[300, 60], [320, 60], [320, 80]]);
+  for (let i = 0; i < NRAND; i++) {
+    brush(rng.int(0, 3)); pat(rng.int(0, 15));
+    go(`random brush stroke ${i + 1} (brush ${st.brush}, pattern ${st.pat})`, rndWalk(rng.int(2, 14), rng.int(135, 440), rng.int(40, 170), rng.int(1, 40), [129, 33], [446, 174]));
+  }
+  // -- undo of a brush stroke, and of a stroke with each margin
+  brush(3); pat(6);
+  go('a brush stroke to undo', [[200, 80], [230, 100], [250, 90]]);
+  sec.ok(st.undoOn && Q.menuWord(env, 1) === 3, 'Undo enabled after a brush stroke');
+  {
+    const pre = st.clone();
+    editMenu(env, 0); st.undo(); after('Undo of the brush stroke');
+    sec.ok(!eq(Array.from(pre.copyBytes()), Array.from(st.copyBytes())), 'model: the undo changed the picture');
+    editMenu(env, 0); st.undo(); after('Undo again (redo) of the brush stroke');
+    sec.ok(eq(Array.from(pre.copyBytes()), Array.from(st.copyBytes())), 'model: undo twice is the identity');
+  }
+  for (const [b, p] of [[0, 15], [1, 0], [2, 11], [3, 13]]) {
+    brush(b); pat(p);
+    go(`a brush stroke, brush ${b}, pattern ${p}, then Undo`, [[300, 100], [320, 108], [340, 100]]);
+    editMenu(env, 0); st.undo(); after(`Undo of brush ${b}, pattern ${p}`);
+  }
+  // the box: a click in each corner of the picture (clamped margins), brush 1 and the spray, widened to even columns
+  brush(1);
+  for (const [name, pt] of [['top-left', [128, 32]], ['top-right', [447, 32]], ['bottom-left', [128, 175]], ['bottom-right', [447, 175]], ['column 24', [330, 100]]]) {
+    go(`a brush click, ${name}`, [pt]);
+    editMenu(env, 0); st.undo(); after(`Undo of the brush click, ${name}`);
+  }
+  // a brush stroke whose box is just 2,048 bytes and one row more (margins 1 column, 4 rows): the box is 32 columns x 64 rows for y 60 .. 115, 65 rows for y 116
+  for (const [name, p1, wantFit] of [['32 x 64', [384, 115], true], ['32 x 65', [384, 116], false]]) {
+    brush(1); pat(0);
+    const rr = Q.stroke(env, [[152, 60], p1], slow());
+    const b = rr.box;
+    sec.ok(b.nc === 32 && b.nr === (wantFit ? 64 : 65) && (b.nc * b.nr <= 2048) === wantFit, () => `the model's brush box for ${name}: ${JSON.stringify(b)}`);
+    settleCheck(env, sec, `the brush stroke with a box of ${name} bytes`, { adoptStatus: true, noBox: !wantFit });
+    if (wantFit) { undoAreaOk(env, sec, name); sec.ok(Q.menuWord(env, 1) === 3, `${name}: Undo enabled`); }
+    else sec.ok(Q.menuWord(env, 1) === 1 && Q.statusOf(env) === 'Too big to undo' && m.ram[S.PN_UNDO] === 0, () => `${name}: Edit word ${Q.menuWord(env, 1).toString(2)}, status "${Q.statusOf(env)}", PN_UNDO ${m.ram[S.PN_UNDO]}`);
+  }
+  // a brush stroke too big to undo: Undo disabled, the status says so; a small stroke after it enables Undo again
+  pat(2); brush(0);
+  {
+    const rr = Q.stroke(env, [[140, 45], [440, 45], [440, 170], [140, 170]], slow());
+    settleCheck(env, sec, 'a brush stroke round the picture (a very big box)', { noBox: true });
+    sec.ok(!st.undoOn && Q.menuWord(env, 1) === 1 && Q.statusOf(env) === 'Too big to undo' && !!rr.box, () => `very big brush box: Edit word ${Q.menuWord(env, 1).toString(2)}, status "${Q.statusOf(env)}"`);
+    go('a small brush stroke after a too-big one', [[300, 100], [310, 105]]);
+    sec.ok(Q.menuWord(env, 1) === 3, 'Undo enabled again');
+  }
+  // -- the spray: bursts at the press, at every E_MOVE and in every frame with the button held and no event; the model reproduces the LFSR (PN_RND is compared after every action)
+  Q.install(env, noise(22, 0.35));
+  tool(4);
+  settleCheck(env, sec, 'a noisy picture installed, the Spray chosen');
+  for (const p of [0, 2, 7, 11, 15]) {
+    pat(p);
+    go(`spray, pattern ${p}: a click (one burst)`, [[200 + 20 * p % 100, 60 + p]]);
+    go(`spray, pattern ${p}: held still for 6 frames (an idle burst each) after the press`, [[260, 100 + p]], { wait: 6 });
+    go(`spray, pattern ${p}: a stroke, 3 pixels a frame, and a pause`, [...Array.from({ length: 10 }, (_, i) => [300 + 3 * i, 90 + p]), [329, 90 + p], [329, 90 + p], [329, 90 + p]]);
+  }
+  pat(0);
+  for (const [name, pts, o] of [
+    ['a long stroke, 20 pixels a frame', Array.from({ length: 12 }, (_, i) => [140 + 20 * i, 60 + 6 * i]), {}],
+    ['a burst held for 40 frames in one place (many bursts: the LFSR runs on)', [[250, 120]], { wait: 40 }],
+    ['bursts at the picture\'s edges (clipped to the picture)', [[130, 34], [128, 32], [446, 34], [447, 33], [446, 174], [130, 174], [128, 175]], {}],
+    ['leaves the picture and returns', [[430, 100], [446, 104], [470, 112], [480, 130], [440, 130]], {}],
+  ]) go(`spray: ${name}`, pts, o);
+  for (let i = 0; i < NRAND; i++) { pat(rng.int(0, 15)); go(`random spray stroke ${i + 1} (pattern ${st.pat})`, rndWalk(rng.int(1, 10), rng.int(135, 440), rng.int(40, 170), rng.int(0, 30), [129, 33], [446, 174]), { wait: rng.int(0, 3) }); }
+  // spray: undo, the box (margins 2 columns, 8 rows), too big
+  pat(2);
+  go('a spray stroke to undo', [[200, 80], [230, 100], [250, 90]]);
+  sec.ok(st.undoOn, 'model: undo on');
+  editMenu(env, 0); st.undo(); after('Undo of the spray stroke');
+  editMenu(env, 0); st.undo(); after('Undo again (redo) of the spray stroke');
+  for (const [name, pt] of [['top-left', [128, 32]], ['bottom-right', [447, 175]], ['column 13', [233, 100]]]) {
+    go(`a spray click, ${name}`, [pt]);
+    editMenu(env, 0); st.undo(); after(`Undo of the spray click, ${name}`);
+  }
+  // 2,048 bytes: margins 2 columns, 8 rows: x 168 .. 380 is columns 5 .. 31, the box columns 3 .. 33 widened to 2 .. 33 (32 columns); y 60 .. 107 is rows 28 .. 75, the box rows 20 .. 83 (64); one row more does not fit
+  for (const [name, p0, p1, wantFit] of [['32 x 64', [168, 60], [380, 107], true], ['32 x 65', [168, 60], [380, 108], false]]) {
+    const rr = Q.stroke(env, [p0, p1], { wait: 2 });
+    const b = rr.box;
+    sec.ok(b.nc === 32 && b.nr === (wantFit ? 64 : 65) && (b.nc * b.nr <= 2048) === wantFit, () => `the model's spray box for ${name}: ${JSON.stringify(b)} (${b.nc * b.nr} bytes)`);
+    settleCheck(env, sec, `the spray stroke with a box of ${name}`, { adoptStatus: true, noBox: !wantFit });
+    if (wantFit) { undoAreaOk(env, sec, name); sec.ok(Q.menuWord(env, 1) === 3, `${name}: Undo enabled`); }
+    else sec.ok(Q.menuWord(env, 1) === 1 && Q.statusOf(env) === 'Too big to undo' && m.ram[S.PN_UNDO] === 0, () => `${name}: Edit word ${Q.menuWord(env, 1).toString(2)}, status "${Q.statusOf(env)}", PN_UNDO ${m.ram[S.PN_UNDO]}`);
+  }
+  {
+    const rr = Q.stroke(env, [[140, 45], [440, 45], [440, 170], [140, 170]], {});
+    settleCheck(env, sec, 'a spray stroke round the picture (a very big box)', { noBox: true });
+    sec.ok(!st.undoOn && Q.menuWord(env, 1) === 1 && Q.statusOf(env) === 'Too big to undo' && !!rr.box, () => `very big spray box: Edit word ${Q.menuWord(env, 1).toString(2)}, status "${Q.statusOf(env)}"`);
+  }
+  // the other tools still draw as before, with a pattern chosen (the pencil and the eraser ignore it)
+  pat(7); tool(1); go('the pencil with pattern 7 chosen: solid ink', [[300, 60], [340, 90]]);
+  tool(3); go('the eraser with pattern 7 chosen: paper', [[300, 70], [330, 80]]);
+  sec.end(`stack so far ${env.stack.depth()} bytes; image writes ${env.img.n}; PN_RND ${hex(rd16(m, S.PN_RND))}`);
+}
+
+// ===========================================================================================================================================
+// 11. The spray's frame rule (PAINT 16: a burst on the press, on every E_MOVE and on every frame WITHOUT an event while the button is held; the release frame has an event and no burst)
+function g11() {
+  const sec = new Sec('11 spray frame rule (PAINT 16): bursts on the press, on every E_MOVE, and on every frame without an event while held (pn_idle); read from the entry of pn_spray');
+  const env = newEnv(), { m, S } = env, st = env.st;
+  Q.chooseTool(env, 4); st.chooseTool(4);
+  const fmt = (l) => l.map((b) => `${b.idle ? 'idle' : 'event'}@(${b.x},${b.y}) f${b.f}`).join(', ');
+  // A: press at P0, then the pointer moves to P1 in the next frame, then 3 quiet frames and the release: the contract gives [press P0, E_MOVE P1, idle P1 x 3 ...]; the first two bursts must be the press at P0 and a burst at P1 from the E_MOVE
+  {
+    L.moveTo(env, 300, 100); env.frames_(2); env.bursts.length = 0;
+    m.mouse.buttons = L.MOUSE_LEFT; env.frame();
+    const f0 = env.frames; Q.stepTo(env, 310, 100); env.frames_(3);
+    m.mouse.buttons = L.MOUSE_UP; env.frames_(12);
+    const b = env.bursts.splice(0);
+    sec.ok(b.length >= 2 && !b[0].idle && b[0].x === 300 && !b[1].idle && b[1].x === 310, () => `after the press at (300, 100) and a move to (310, 100) the first two bursts should be the press and the E_MOVE's; the machine's first bursts: ${fmt(b.slice(0, 4))}`);
+  }
+  // B: press, 2 quiet frames, release: the contract gives 3 bursts (the press and 2 idle); the release frame has an event (E_UP) and no burst
+  {
+    L.moveTo(env, 300, 120); env.frames_(2); env.bursts.length = 0;
+    m.mouse.buttons = L.MOUSE_LEFT; env.frame(); env.frames_(2);
+    m.mouse.buttons = L.MOUSE_UP; env.frame(); env.frames_(12);
+    const b = env.bursts.splice(0);
+    sec.ok(b.length === 3, () => `a press, 2 quiet frames and the release: ${b.length} bursts, the contract gives 3 (the press and two pn_idle); the machine's: ${fmt(b)}`);
+  }
+  // C: nothing after the release (no bursts without the button)
+  {
+    env.bursts.length = 0; env.frames_(10);
+    sec.ok(env.bursts.length === 0, () => `${env.bursts.length} bursts in 10 frames with the button up`);
+  }
+  sec.end(`PN_RND ${hex(rd16(m, S.PN_RND))}`);
+}
+
+// ===========================================================================================================================================
 // 9. Bounds and report rows
 function g9() {
   const sec = new Sec('9 bounds: stack <= 128 on every path, no DI (V_FRAMES + 1 a frame), the memory watch (BANKING 10.7) clean, no write to the program image outside its variables, the image and its variables end at or below AL_RAM (rows with no bound are reports; PAINT 12\'s own bounds are quoted in their notes)');
@@ -744,11 +934,46 @@ function g9() {
       const dir = i % 2 ? 1 : -1;
       const per = Q.busy(env, () => Q.stepTo(env, 200 + (dir > 0 ? 30 : 0), 80), marks);
       ts.push(Math.max(...per.map((p) => p.t1 - p.t0))); seg.push(...Q.spansFrom(per.ev, S.pn_seg));
-      const [x, y] = L.pointerPos(m, S); st.move(x, y);
+      const [x, y] = L.pointerPos(m, S); st.held('move'); st.move(x, y);
     }
     row('pencil step: a 30-pixel segment, ISR entry of the E_MOVE frame to HALT (shielded, clipped)', Math.max(...ts), null, `idle frame ${base}; ${ts.join(', ')}`, 58000);
     if (seg.length) row('pencil step: pn_seg (the segment routine) entry to HALT', Math.max(...seg), null, `${seg.join(', ')}`);
-    m.mouse.buttons = L.MOUSE_UP; env.frames_(14); st.release();
+    m.mouse.buttons = L.MOUSE_UP; env.frame(); st.held('up'); st.release(); env.frames_(14);
+  }
+  // P2a (PAINT 16): a brush step (30 pixels, the large round brush, REPLACE with the 50 % checker), a spray burst (an E_MOVE frame and an idle frame)
+  {
+    Q.chooseTool(env, 2); st.chooseTool(2); Q.chooseBrush(env, 1); st.chooseBrush(1); Q.choosePattern(env, 2); st.choosePat(2);
+    L.moveTo(env, 200, 80); env.frames_(2);
+    m.mouse.buttons = L.MOUSE_LEFT; env.frame(); st.press(200, 80);
+    // each step is followed by 6 quiet frames, so that every busy period (ISR entry to HALT) closes inside the measured call; the longest period is the step's work
+    const ts = [];
+    for (let i = 1; i <= 8; i++) {
+      const dir = i % 2 ? 1 : -1;
+      const per = Q.busy(env, () => { Q.stepTo(env, 200 + (dir > 0 ? 30 : 0), 80); env.frames_(6); });
+      ts.push(Math.max(...per.map((p) => p.t1 - p.t0)));
+      const [x, y] = L.pointerPos(m, S); st.held('move'); st.move(x, y);
+    }
+    row('brush step: a 30-pixel segment, large round brush, pattern 2 (15 stamps of 3 rectangles), the E_MOVE\'s ISR entry to HALT (shielded, clipped)', Math.max(...ts), null, `idle frame ${base}; ${ts.join(', ')}`);
+    m.mouse.buttons = L.MOUSE_UP; env.frame(); st.held('up'); st.release(); env.frames_(14);
+    settleCheck(env, sec, 'after the brush steps', { adoptStatus: true });
+    Q.chooseTool(env, 4); st.chooseTool(4);
+    L.moveTo(env, 300, 100); env.frames_(2);
+    m.mouse.buttons = L.MOUSE_LEFT; env.frame(); st.press(300, 100);
+    {
+      // 8 frames with a 6-pixel step and 8 frames with the pointer still (pn_idle): every frame bursts once; the periods are ISR entry to HALT
+      const durs = [];
+      const per = Q.busy(env, () => {
+        for (let i = 1; i <= 8; i++) { Q.stepTo(env, 300 + (i % 2 ? 6 : 0), 100); const [x, y] = L.pointerPos(m, S); st.held('move'); st.move(x, y); }
+        for (let i = 0; i < 8; i++) { env.frame(); st.held('still'); }
+        env.frames_(2); st.held('still'); st.held('still');
+      });
+      for (const p of per) durs.push(p.t1 - p.t0);
+      row('spray burst (12 candidates, about 8 drawn as 1 x 1 patterns): the longest busy period over 16 frames of bursts (E_MOVE and pn_idle), ISR entry to HALT', Math.max(...durs), null, `idle frame ${base}; ${durs.join(', ')}`);
+    }
+    m.mouse.buttons = L.MOUSE_UP; env.frame(); st.held('up'); st.release(); env.frames_(14); st.applyBursts(env.bursts.splice(0));
+    settleCheck(env, sec, 'after the spray bursts', { adoptStatus: true });
+    Q.chooseTool(env, 1); st.chooseTool(1); Q.choosePattern(env, 0); st.choosePat(0); Q.chooseBrush(env, 1); st.chooseBrush(1);
+    settleCheck(env, sec, 'Pencil, pattern 0 and brush 1 chosen again', { adoptStatus: true });
   }
   // the commit (release to idle): small and large box
   const commit = (pts) => {
@@ -774,7 +999,7 @@ function g9() {
   // Undo of a ~2,000-byte box
   {
     Q.install(env, noise(41, 0.5));
-    const rr = Q.stroke(env, [[152, 60], [384, 114]], {});
+    const rr = Q.stroke(env, [[152, 60], [384, 122]], {});
     settleCheck(env, sec, 'the stroke for the Undo timing', { adoptStatus: true });
     sec.ok(st.undoOn, () => `box ${JSON.stringify(rr.box)} for Undo fits`);
     const bytes = rr.box.nc * rr.box.nr;
@@ -817,6 +1042,10 @@ function g9() {
     const t1 = T2.inval(126, 30, 324, 148), t2 = T2.update();
     const stk = T2.lastStack();
     row('a fully exposed canvas (W_INVAL of the canvas view, then W_UPDATE): redrawn', t1 + t2, null, `W_INVAL ${t1} + W_UPDATE ${t2}`, 330000);
+    for (const [name, x, y, w, h] of [['the pattern palette (55, 112, 66, 50)', 55, 112, 66, 50], ['the brush palette (55, 164, 66, 18)', 55, 164, 66, 18], ['the tool box (55, 28, 66, 82)', 55, 28, 66, 82]]) {
+      const a = T2.inval(x, y, w, h), b = T2.update();
+      row(`redraw of ${name}: W_INVAL of the view, then W_UPDATE`, a + b, null, `W_INVAL ${a} + W_UPDATE ${b}`);
+    }
     row('stack of the direct W_UPDATE call (the redraw, crossings included), bytes below the return address', stk, 128, '');
     const d = H.diffDisp(H.readDisp(e2.m), P.toDisp(P.renderScreen(st2)), L.pointerMask(e2.m, e2.S));
     sec.ok(d === null, () => `after the direct redraw the screen is not the model's: ${d}`);
@@ -845,6 +1074,6 @@ function TKcalls(env) {
 }
 
 // ===========================================================================================================================================
-const run = [[1, g1], [2, g2], [3, g3], [4, g4], [5, g5], [6, g6], [7, g7], [8, g8], [9, g9]];
+const run = [[1, g1], [2, g2], [3, g3], [4, g4], [5, g5], [6, g6], [7, g7], [8, g8], [9, g9], [10, g10], [11, g11]];
 for (const [n, f] of run) if (has(n)) { const t0 = Date.now(); try { f(); } catch (e) { C.check(`group ${n} ran to the end`, false, e.stack.split('\n').slice(0, 3).join(' | ')); } if (VERBOSE) console.log(`  (group ${n}: ${((Date.now() - t0) / 1000).toFixed(1)} s)`); }
 finish();

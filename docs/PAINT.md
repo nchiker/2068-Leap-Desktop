@@ -359,8 +359,20 @@ cross-hatch, large dots, weave, 2 x 2 checker, back diagonal, white); see `tools
 **The tools now drawing:** Pencil (1), **Brush (2)**, Eraser (3), **Spray (4)**; the others say "Not built yet".
 - **Brush:** the walk of section 15 with a stamp after every **2nd** step (the step count AND 1 = 0; the eraser's: AND 3 = 0) and at the end; a stamp is each rectangle of the chosen brush, `G_PATFILL` REPLACE
   with the chosen pattern (the rectangles in the table's order; every rectangle at (x + dx, y + dy)).
-- **Spray:** a burst at the pointer on the press, on every `E_MOVE` and on every frame without an event while the button is held (`pn_idle`, at the last point): 12 candidates; each draws two random
+- **Spray:** a burst at the pointer on the press, on every `E_MOVE` and on every frame without an event while the button is held (`pn_idle`, at the last point); **at most one burst a frame** (`PN_SPR`, set by a burst and cleared after each `HALT`: an idle burst is skipped on a frame that has had one): 12 candidates; each draws two random
   numbers dx = (r1 AND $1F) - 16 and dy = (r2 AND $0F) - 8 (`pn_rnd`: a 16-bit Galois LFSR, mask $B400, 8 shifts a byte, the byte being the low byte of the state after them; the state starts at $ACE1 at
   launch); the candidate is drawn when |dx| <= SPT[|dy|] with SPT = 16, 15, 15, 14, 13, 12, 10, 7, 0 (|dy| 0..8), as a 1 x 1 `G_PATFILL` in SET at (x + dx, y + dy) with the chosen pattern (so
   only the pattern's ink shows). The random numbers are drawn for every candidate, accepted or not.
 - **The stroke's box margin** (byte columns, rows): pencil 0, 0; brush and eraser 1, 4; spray 2, 8 (`PN_PADC`, `PN_PADR`); each point of the stroke (every walk stamp point, the spray's centre) grows the box by that margin, clamped.
+
+
+## 17. As built: P2b-1, the line, the rectangle and the Options menu (2026-11-15; the reference for the tests)
+
+**The Options menu** (menu 3, title "Options"; items 1 "Filled shapes", 2 "Hollow shapes", the second disabled at the start): menus have no check marks, so the chosen mode's item is disabled and the other
+enabled. Item 1: `PN_FILL` = 1, "Filled shapes" disabled, "Hollow shapes" enabled; item 2: the reverse. (`MB_ENABLE` menu index 2.) The menu bar is now "File  Edit  Options".
+
+**Shape tools** (Line 6, Rectangle 7; 8 and 9 still say "Not built yet"): a press inside the picture is the anchor (`PN_AX`, `PN_AY`; nothing is drawn); the stroke's box margin is 0, 0. While the button is held, each
+`E_MOVE` erases the old band and draws the new one in **XOR**: for the Line `G_LINE` from the anchor to the pointer; for the Rectangle `G_FRAME` of the rectangle with the anchor and the pointer as opposite corners (x = the
+smaller x, w = |dx| + 1, y = the smaller y, h = |dy| + 1). The band is clipped to the picture, with the pointer shielded. On the release: the band is erased (if drawn), then **Line:** `G_LINE` in SET from the anchor to the
+release point; **Rectangle, hollow:** `G_FRAME` in SET; **Rectangle, filled** (`PN_FILL`): first `G_PATFILL` REPLACE of the inside (x + 1, y + 1, w - 2, h - 2) with the chosen pattern, then the `G_FRAME` in SET. The stroke's
+box is the two corners (anchor and release point, pad 0); the commit (undo box, copy) is as for the other tools. A press and release at one point draws a 1-pixel line / a 1 x 1 rectangle.

@@ -15,7 +15,7 @@ export const { L, readDisp, diffDisp } = H;
 export const { hex, rd16 } = L;
 export const PIC_ADDR_NOTE = 'PN_PIC holds the address of the copy';
 export const NEEDED = ['PN_START', 'PN_END', 'PN_IMG', 'PN_IMG_LEN', 'PN_VARS', 'PN_VARS_END', 'PN_PIC', 'PN_BAND', 'PN_TOOL', 'PN_DIRTY', 'PN_UNDO', 'PN_UB0', 'PN_UBN', 'PN_UR0', 'PN_URN', 'PN_LBL', 'PN_STAT', 'PN_MENUS', 'PN_NAME', 'PN_TITLE',
-  'PN_WIN', 'AL_RAM', 'MB_ENT', 'ME_SIZE', 'ME_EN', 'Label_text', 'Window_title', 'K_FOCUS', 'K_PROG', 'CL_Dialog', 'CL_Button', 'CL_Field', 'CL_CWindow', 'Dialog_default', 'Dialog_cancel', 'Field_buf', 'V_FRAMES', 'W_MODAL'];
+  'PN_WIN', 'PN_PAT', 'PN_BRUSH', 'PN_RND', 'PN_PADC', 'PN_PADR', 'PN_NX', 'PN_NY', 'pn_spray', 'pn_idle', 'G_PATFILL', 'PATTAB', 'AL_RAM', 'MB_ENT', 'ME_SIZE', 'ME_EN', 'Label_text', 'Window_title', 'K_FOCUS', 'K_PROG', 'CL_Dialog', 'CL_Button', 'CL_Field', 'CL_CWindow', 'Dialog_default', 'Dialog_cancel', 'Field_buf', 'V_FRAMES', 'W_MODAL'];
 export function needPaint(S) { const miss = NEEDED.filter((n) => S[n] === undefined); if (miss.length) throw new Error(`desk5 does not define: ${miss.join(', ')}`); }
 
 /** PAINT 3 (as corrected 2026-11-14): the copy's part 1 holds the ODD byte columns, part 2 the EVEN ones; the header is (OX >> 3, 40, OY, 144) of the last whole-picture save. */
@@ -68,6 +68,19 @@ export function bootPaint(opts = {}) {
     if (env.img.armed && a >= 0xC000 && a < S.AL_RAM && (a < S.PN_VARS || a >= S.PN_VARS_END) && !(a >= S.PN_STAT && a < S.PN_MENUS)) { env.img.n++; if (env.img.first.length < 6) env.img.first.push(`${hex(a)} <- ${hex(v, 2)}, PC ${hex(m.cpu.pc)}`); }
     w0(addr, v);
   };
+  // every burst of the spray (entry of pn_spray) is logged with its centre (PN_NX, PN_NY: the screen position), the frame count and whether pn_idle called it: the machine's own timing decides how many bursts a stroke gets
+  // (a burst takes up to 60,000 T, a frame has 58,688 T), so the model draws the bursts the machine STARTED, at the centres it used (`st.applyBursts`), and the tests check the centres and the counts against the pointer's moves.
+  env.bursts = [];
+  { const r0 = m.bus.read;
+    m.bus.read = function (addr) {
+      const a = addr & 0xFFFF;
+      if (a === m.cpu.pc && a === S.pn_spray) {
+        const ret = m.ram[m.cpu.sp] | (m.ram[m.cpu.sp + 1] << 8);      // called from pn_idle (the return address is inside it: pn_idle .. pn_spray) or from the event handlers
+        env.bursts.push({ x: rd16(m, S.PN_NX), y: m.ram[S.PN_NY], f: env.frames, idle: ret >= S.pn_idle && ret < S.pn_spray });
+      }
+      return r0(addr);
+    }; }
+  if (globalThis.PT_BOOT_HOOK) globalThis.PT_BOOT_HOOK(env);       // a hook for experiments (a runner may patch the machine before the test uses it)
   return env;
 }
 /** The lowest address written in the stack's area [lo, $FF00) while armed: depth = $FF00 - min. */
@@ -163,6 +176,9 @@ export function check(env, sec, ctx, o = {}) {
   const t = (c, msg) => { good = sec.ok(c, msg) && good; };
   t(m.ram[S.K_PROG] === 4, () => `${ctx}: K_PROG ${m.ram[S.K_PROG]}, Paint (4) should be running`);
   t(m.ram[S.PN_TOOL] === st.tool, () => `${ctx}: PN_TOOL ${m.ram[S.PN_TOOL]}, model ${st.tool}`);
+  t(m.ram[S.PN_PAT] === st.pat, () => `${ctx}: PN_PAT ${m.ram[S.PN_PAT]}, model ${st.pat}`);
+  t(m.ram[S.PN_BRUSH] === st.brush, () => `${ctx}: PN_BRUSH ${m.ram[S.PN_BRUSH]}, model ${st.brush}`);
+  { const rn = rd16(m, S.PN_RND); t(rn === st.rnd, () => `${ctx}: PN_RND ${hex(rn)}, model ${hex(st.rnd)} (the spray's LFSR: the machine drew a different number of random bytes than the model's bursts)`); }
   t(m.ram[S.PN_DIRTY] === (st.dirty ? 1 : 0), () => `${ctx}: PN_DIRTY ${m.ram[S.PN_DIRTY]}, model ${st.dirty ? 1 : 0}`);
   t(m.ram[S.PN_UNDO] === (st.undoOn ? 1 : 0), () => `${ctx}: PN_UNDO ${m.ram[S.PN_UNDO]}, model ${st.undoOn ? 1 : 0}`);
   if (st.undoOn && st.undoBox && !o.noBox) {
@@ -214,7 +230,7 @@ export function stepTo(env, x, y) {
 /**
  * A stroke with the current tool: the pointer moved to pts[0] (frames run, no button), the button down (one frame: the E_DOWN), then one frame per further point with the pointer there (one E_MOVE each), then
  * the release.  The model follows with the positions the machine reports.  o: { mid: (i) => void called after the frame of point i (mid-stroke checks), settle: frames after the release (default 14),
- * wait: frames after the press before the first move (default 0), noRelease }.  Returns { pts: the positions seen, box (the model's), before: the model before }.
+ * wait: frames after the press before the first move (default 0), gap: quiet frames after each further point (the brush's long segments take several frames), max: the largest step (default 100) before a point is split, noRelease }.  Returns { pts: the positions seen, box (the model's), before: the model before }.
  */
 /** Points more than `max` apart in x or y get equally spaced points between them (the pointer moves at most 120 counts a frame). */
 export function expand(pts, max = 100) {
@@ -228,31 +244,39 @@ export function expand(pts, max = 100) {
 }
 export function stroke(env, pts, o = {}) {
   const { m, st } = env;
-  pts = expand(pts);
+  pts = expand(pts, o.max ?? 100);
   L.moveTo(env, pts[0][0], pts[0][1]); env.frames_(2);
   const before = st.clone();
   m.mouse.buttons = L.MOUSE_LEFT; env.frame();
   const [px0, py0] = L.pointerPos(m, env.S);
   const seen = [[px0, py0]];
   const began = st.press(px0, py0);
-  if (o.wait) env.frames_(o.wait);
+  if (o.wait) { env.frames_(o.wait); if (began) for (let k = 0; k < o.wait; k++) st.held('still'); }
   if (o.mid) o.mid(0, seen);
   for (let i = 1; i < pts.length; i++) {
     const [px, py] = stepTo(env, pts[i][0], pts[i][1]);
     seen.push([px, py]);
-    if (began && (px !== seen[i - 1][0] || py !== seen[i - 1][1])) st.move(px, py);
+    if (began) {
+      const moved = px !== seen[i - 1][0] || py !== seen[i - 1][1]; st.held(moved ? 'move' : 'still'); if (moved) st.move(px, py);
+    }
+    if (o.gap) { env.frames_(o.gap); if (began) for (let k = 0; k < o.gap; k++) st.held('still'); }
     if (o.mid) o.mid(i, seen);
   }
-  let box = null;
+  let box = null, bursts = [], burstBad = 0;
   if (!o.noRelease) {
     m.mouse.buttons = L.MOUSE_UP; env.frame();
+    if (began) st.held('up');
     box = began ? st.release() : null;
     env.frames_(o.settle ?? 14);
+    if (began) { const bl = env.bursts.splice(0); burstBad = bl.filter((b) => !seen.some(([x, y]) => x === b.x && y === b.y)).length; bursts = bl; st.applyBursts(bl); }
   }
-  return { pts: seen, box, before, began };
+  return { pts: seen, box, before, began, bursts, burstBad };
 }
 /** A click (press and release in place) on the tool box cell of tool t. */
 export function chooseTool(env, t) { const c = P.cellOf(t); L.click(env, c.x + env.st.ox + 16, c.y + env.st.oy + 8, 3, 6); park(env, 3); }
+/** A click on pattern swatch p (the model is not changed here: the caller calls st.choosePat) / on brush cell b. */
+export function choosePattern(env, p) { const c = P.swatchOf(p); L.click(env, c.x + env.st.ox + 8, c.y + env.st.oy + 6, 3, 6); park(env, 3); }
+export function chooseBrush(env, b) { const c = P.brushCell(b); L.click(env, c.x + env.st.ox + 8, c.y + env.st.oy + 8, 3, 6); park(env, 3); }
 /** The menu bar by the pointer: press on the title of menu `mi` (0 File, 1 Edit), move to item `ii`, release.  Returns nothing; the caller settles. */
 export function menuPick(env, mi, ii, { settle = 10 } = {}) {
   const { m } = env, lay = P.layoutOf(P.MENUS), b = lay.boxes[mi], d = lay.drops[mi];

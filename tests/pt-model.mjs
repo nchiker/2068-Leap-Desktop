@@ -15,10 +15,14 @@ import { layoutOf, menuSpec } from './wm-model3.mjs';
 export { Gfx6Model, OP_SET, OP_CLR, OP_XOR, toDisp, layoutOf };
 export const codesOf = (s) => Array.from(s, (c) => c.charCodeAt(0));
 
+// P2a (PAINT 16): the pattern palette (id 2) and the brush palette (id 3), the Brush (2) and Spray (4) tools: `PATS` (checked against the cartridge's PATTAB by tests/pt-p1.mjs), `BRUSH_RECTS`, `SPT`, the LFSR
+// `rndStep`, the model's brush strokes (REPLACE patterns through Gfx6Model.patFill), spray bursts, the stroke box margins, and the two palettes' pixels.
 // ---------------------------------------------------------------------------------------------------------------------------
-// Geometry (PAINT 2, 15)
+// Geometry (PAINT 2, 15, 16)
 export const WIN = { x: 48, y: 16, w: 416, h: 176, id: 255 };
 export const TOOLBOX = { x: 55, y: 28, w: 66, h: 82, id: 1 };
+export const PATBOX = { x: 55, y: 112, w: 66, h: 50, id: 2 };
+export const BRUSHBOX = { x: 55, y: 164, w: 66, h: 18, id: 3 };
 export const CANVAS = { x: 126, y: 30, w: 324, h: 148, id: 4 };
 export const STATUS = { x: 127, y: 180, w: 324, h: 9, id: 5 };
 export const PIC = { x: 128, y: 32, w: 320, h: 144 };
@@ -31,6 +35,25 @@ export function toolAt(x, y) {
   for (let t = 0; t < 10; t++) { const c = cellOf(t); if (x >= c.x && x < c.x + 32 && y >= c.y && y < c.y + 16) return t; }
   return -1;
 }
+/** The 16 patterns of PAINT 16 (tools/paint-mock.mjs PATS): 8 bytes each, bit 7 the leftmost pixel; solid first, white last. */
+export const PATS = [[255, 255, 255, 255, 255, 255, 255, 255], [0xEE, 0xBB, 0xEE, 0xBB, 0xEE, 0xBB, 0xEE, 0xBB], [0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55], [0x88, 0x22, 0x88, 0x22, 0x88, 0x22, 0x88, 0x22],
+  [0x88, 0x00, 0x22, 0x00, 0x88, 0x00, 0x22, 0x00], [0xFF, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00], [0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA], [0xC0, 0x60, 0x30, 0x18, 0x0C, 0x06, 0x03, 0x81],
+  [0x88, 0x00, 0x00, 0x00, 0x22, 0x00, 0x00, 0x00], [0xFF, 0x80, 0x80, 0x80, 0xFF, 0x08, 0x08, 0x08], [0xFF, 0x88, 0x88, 0x88, 0xFF, 0x88, 0x88, 0x88], [0x00, 0x38, 0x7C, 0x7C, 0x7C, 0x38, 0x00, 0x00],
+  [0x81, 0x42, 0x24, 0x18, 0x18, 0x24, 0x42, 0x81], [0xCC, 0xCC, 0x33, 0x33, 0xCC, 0xCC, 0x33, 0x33], [0x03, 0x06, 0x0C, 0x18, 0x30, 0x60, 0xC0, 0x81], [0, 0, 0, 0, 0, 0, 0, 0]];
+/** Swatch p (0-15, row-major, 4 columns): (56 + 16 (p AND 3), 113 + 12 (p >> 2)), 16 x 12.  Brush cell b (0-3): (56 + 16 b, 165), 16 x 16. */
+export const swatchOf = (p) => ({ x: 56 + 16 * (p & 3), y: 113 + 12 * (p >> 2), w: 16, h: 12 });
+export const brushCell = (b) => ({ x: 56 + 16 * b, y: 165, w: 16, h: 16 });
+/** The brushes' rectangles (dx, dy, w, h) about the stamp's centre (PAINT 16). */
+export const BRUSH_RECTS = [[[-2, -1, 5, 3], [-1, -2, 3, 5]], [[-4, -2, 9, 5], [-3, -3, 7, 7], [-2, -4, 5, 9]], [[-3, -3, 6, 6]], [[-4, 2, 3, 2], [-2, 0, 3, 2], [0, -2, 3, 2], [2, -4, 3, 2]]];
+export const BRUSHNAMES = ['round small', 'round large', 'square', 'diagonal'];
+/** The spray's half-width by |dy| (0..8). */
+export const SPT = [16, 15, 15, 14, 13, 12, 10, 7, 0];
+export const RND0 = 0xACE1;
+/** `pn_rnd`: a 16-bit Galois LFSR, mask $B400, 8 shifts a byte, the byte being the low byte of the state after them; returns [state, byte]. */
+export function rndStep(st) { for (let i = 0; i < 8; i++) { const lsb = st & 1; st >>= 1; if (lsb) st ^= 0xB400; } return [st, st & 0xFF]; }
+/** The stroke box's margin (byte columns, rows) by tool (PN_PADC, PN_PADR). */
+export const PADS = { 1: [0, 0], 2: [1, 4], 3: [1, 4], 4: [2, 8] };
+export const DRAWING = [1, 2, 3, 4];
 export const inPic = (x, y) => x >= PIC.x && x < PIC.x + PIC.w && y >= PIC.y && y < PIC.y + PIC.h;
 export const UNDO_MAX = 2048;
 export const PBM_HEADER = codesOf('P4\n320 144\n');
@@ -62,26 +85,28 @@ export const menuWords = (undoOn) => [0b11101, undoOn ? 0b11 : 0b01];
 export class PaintModel {
   constructor() { this.reset(); }
   reset() {
-    this.tool = 1; this.status = 'Pencil'; this.pic = new Gfx6Model(); this.pic.setClip(PIC.x, PIC.y, PIC.w, PIC.h);
+    this.tool = 1; this.status = 'Pencil'; this.pat = 0; this.brush = 1; this.rnd = RND0; this.pic = new Gfx6Model(); this.pic.setClip(PIC.x, PIC.y, PIC.w, PIC.h);
     this.undoOn = false; this.undoBox = null; this.dirty = false; this.name = ''; this.stroke = null;
     this.hox = 0; this.hoy = 0;               // the picture origin's offset when the copy was last saved (its header)
     this.ox = 0; this.oy = 0;                 // the window's offset from (48, 16) after a drag (the views move with it)
   }
   clone() {
-    const c = new PaintModel(); c.tool = this.tool; c.status = this.status; c.pic.px.set(this.pic.px); c.undoOn = this.undoOn;
+    const c = new PaintModel(); c.tool = this.tool; c.pat = this.pat; c.brush = this.brush; c.rnd = this.rnd; c.status = this.status; c.pic.px.set(this.pic.px); c.undoOn = this.undoOn;
     c.undoBox = this.undoBox && { ...this.undoBox, px: this.undoBox.px.slice() }; c.dirty = this.dirty; c.name = this.name; c.ox = this.ox; c.oy = this.oy; c.hox = this.hox; c.hoy = this.hoy; return c;
   }
   get title() { return 'Paint: ' + (this.name === '' ? 'Untitled' : this.name); }
   /** The picture's pixel (x, y) in picture coordinates (0..319, 0..143). */
   px(x, y) { return this.pic.get(PIC.x + x, PIC.y + y); }
   chooseTool(t) { this.tool = t; this.status = TOOLNAMES[t]; }
+  choosePat(p) { this.pat = p; }
+  chooseBrush(b) { this.brush = b; }
 
   // ---- strokes (PAINT 15) -------------------------------------------------------------------------------------------
   /** A press at screen (x, y): returns true when it starts a stroke (inside the picture, Pencil or Eraser); else the status "Not built yet" for another tool (a press in the picture only). */
   press(x, y) {
     x -= this.ox; y -= this.oy;               // screen to the window's home position: the picture's pixels are kept at (128, 32)
     if (!inPic(x, y)) return false;
-    if (this.tool !== 1 && this.tool !== 3) { this.status = 'Not built yet'; return false; }
+    if (!DRAWING.includes(this.tool)) { this.status = 'Not built yet'; return false; }
     this.stroke = { last: [x, y], pts: [[x, y]], before: this.clone() };
     this.segment(x, y, x, y);
     return true;
@@ -92,11 +117,18 @@ export class PaintModel {
     const s = this.stroke; if (!s) return;
     this.segment(s.last[0], s.last[1], x, y); s.last = [x, y]; s.pts.push([x, y]);
   }
+  /**
+   * (kept for the drivers: the spray's bursts are no longer predicted frame by frame.)  PAINT 16 says the spray bursts at the last point on every frame WITHOUT an event; the machine's loop
+   * (`halt / call pn_idle`) runs pn_idle on EVERY frame of a running stroke, before that frame's events, so it also bursts in a moving frame and in the release frame (group 10 checks it).
+   */
+  held(kind) { }
+  /** The bursts the machine started, [{ x, y }] screen centres in order (read at the entry of pn_spray): drawn here, the LFSR running on. */
+  applyBursts(list) { for (const b of list) this.burst(b.x - this.ox, b.y - this.oy); }
   /** The release: the commit (PAINT 15: the box, the fit rule, the undo area), then the picture is "saved" (the model is the picture).  Returns the box. */
   release() {
     const s = this.stroke; if (!s) return null;
     this.stroke = null;
-    const box = strokeBox(s.pts);
+    const box = strokeBox(s.pts, ...PADS[this.tool]);
     this.commit(box, s.before);
     return box;
   }
@@ -111,11 +143,26 @@ export class PaintModel {
   }
   segment(lx, ly, nx, ny) {
     if (this.tool === 1) { this.pic.setOp(OP_SET); this.pic.line(lx, ly, nx, ny); return; }
+    if (this.tool === 2) { this.walk(lx, ly, nx, ny, 2, (x, y) => this.brushStamp(x, y)); return; }
+    if (this.tool === 4) return;                                   // the spray's bursts are drawn by applyBursts (the machine decides how many and where)
     this.eraseWalk(lx, ly, nx, ny);
+  }
+  /** The next byte of the LFSR (PN_RND). */
+  rndByte() { const [s, b] = rndStep(this.rnd); this.rnd = s; return b; }
+  /** A brush stamp: each rectangle of the chosen brush at (x + dx, y + dy), REPLACE with the chosen pattern (PAINT 16). */
+  brushStamp(x, y) { for (const [dx, dy, w, h] of BRUSH_RECTS[this.brush]) this.pic.patFill(x + dx, y + dy, w, h, PATS[this.pat], 3); }
+  /** A spray burst at (x, y): 12 candidates, two random numbers each, drawn as a 1 x 1 SET of the pattern when |dx| <= SPT[|dy|]. */
+  burst(x, y) {
+    for (let i = 0; i < 12; i++) {
+      const r1 = this.rndByte(), r2 = this.rndByte(), dx = (r1 & 0x1F) - 16, dy = (r2 & 0x0F) - 8;
+      if (Math.abs(dx) <= SPT[Math.abs(dy)]) this.pic.patFill(x + dx, y + dy, 1, 1, PATS[this.pat], 0);
+    }
   }
   stamp(x, y) { this.pic.setOp(OP_CLR); this.pic.fill(x - 8, y - 4, 16, 8); }
   /** PAINT 15's eraser: stamps at every 4th step of the Bresenham walk and one at the end (one stamp when n = 0). */
-  eraseWalk(lx, ly, nx, ny) {
+  eraseWalk(lx, ly, nx, ny) { this.walk(lx, ly, nx, ny, 4, (x, y) => this.stamp(x, y)); }
+  /** The walk of PAINT 15: a stamp after every `every`-th step and one at the end (one stamp when n = 0). */
+  walk(lx, ly, nx, ny, every, stamp) {
     const dx = Math.abs(nx - lx), dy = Math.abs(ny - ly), sx = nx < lx ? -1 : 1, sy = ny < ly ? -1 : 1;
     const xmaj = dx > dy, dmaj = xmaj ? dx : dy, dmin = xmaj ? dy : dx, n = Math.max(dx, dy);
     let x = lx, y = ly, e = 0, c = 0;
@@ -124,9 +171,9 @@ export class PaintModel {
       e += dmin;
       if (e >= dmaj) { e -= dmaj; if (xmaj) y += sy; else x += sx; }
       c++;
-      if (c % 4 === 0) this.stamp(x, y);
+      if (c % every === 0) stamp(x, y);
     }
-    this.stamp(nx, ny);
+    stamp(nx, ny);
   }
 
   // ---- Undo, Clear, New ---------------------------------------------------------------------------------------------
@@ -176,12 +223,12 @@ export class PaintModel {
     return out;
   }
 }
-/** The stroke's box (PAINT 15): columns (x - 128) >> 3 of each point +-1 clamped to 0..39, rows y - 32 +- 4 clamped to 0..143; widened to an even first column and an even column count. */
-export function strokeBox(pts) {
+/** The stroke's box (PAINT 15, 16): columns (x - 128) >> 3 of each point +- padc (pencil 0, brush and eraser 1, spray 2) clamped to 0..39, rows y - 32 +- padr (0, 4, 8) clamped to 0..143; widened to an even first column and an even column count. */
+export function strokeBox(pts, padc = 1, padr = 4) {
   const cols = pts.map(([x]) => Math.floor((x - PIC.x) / 8)), rows = pts.map(([, y]) => y - PIC.y);
   const clampc = (v) => Math.max(0, Math.min(39, v)), clampr = (v) => Math.max(0, Math.min(143, v));
-  let c0 = clampc(Math.min(...cols) - 1), c1 = clampc(Math.max(...cols) + 1);
-  const r0 = clampr(Math.min(...rows) - 4), r1 = clampr(Math.max(...rows) + 4);
+  let c0 = clampc(Math.min(...cols) - padc), c1 = clampc(Math.max(...cols) + padc);
+  const r0 = clampr(Math.min(...rows) - padr), r1 = clampr(Math.max(...rows) + padr);
   c0 -= c0 & 1; if ((c1 - c0 + 1) & 1) c1++;
   return { c0, nc: c1 - c0 + 1, r0, nr: r1 - r0 + 1 };
 }
@@ -207,6 +254,25 @@ export function toolBoxLook(g, tool, ox = 0, oy = 0) {
     if (t === tool) { g.setOp(OP_XOR); g.fill(c.x + ox, c.y + oy, 31, 15); }
   }
 }
+/** The pattern palette (PAINT 16): swatch p is a REPLACE fill of pattern p (anchored to the screen), then the frame (x - 1, y - 1, 17, 13) in SET; the chosen pattern also gets the frame (x, y, 16, 12). */
+export function patternBoxLook(g, sel, ox = 0, oy = 0) {
+  for (let p = 0; p < 16; p++) {
+    const c = swatchOf(p), x = c.x + ox, y = c.y + oy;
+    g.patFill(x, y, 16, 12, PATS[p], 3);
+    g.setOp(OP_SET); g.frame(x - 1, y - 1, 17, 13);
+    if (p === sel) g.frame(x, y, 16, 12);
+  }
+}
+/** The brush palette (PAINT 16): cell b has the brush's rectangles in SET about (x + 8, y + 8), the frame (x - 1, y - 1, 17, 17) in SET, the chosen brush inverted (XOR fill (x, y, 16, 16)). */
+export function brushBoxLook(g, sel, ox = 0, oy = 0) {
+  for (let b = 0; b < 4; b++) {
+    const c = brushCell(b), x = c.x + ox, y = c.y + oy;
+    g.setOp(OP_SET);
+    for (const [dx, dy, w, h] of BRUSH_RECTS[b]) g.fill(x + 8 + dx, y + 8 + dy, w, h);
+    g.frame(x - 1, y - 1, 17, 17);
+    if (b === sel) { g.setOp(OP_XOR); g.fill(x, y, 16, 16); }
+  }
+}
 /** The canvas: its two frames (the view's rectangle and the one inside it) in SET, then the picture. */
 export function canvasLook(g, model, ox = 0, oy = 0) {
   g.setOp(OP_SET); g.frame(CANVAS.x + ox, CANVAS.y + oy, CANVAS.w, CANVAS.h); g.frame(CANVAS.x + ox + 1, CANVAS.y + oy + 1, CANVAS.w - 2, CANVAS.h - 2);
@@ -223,6 +289,8 @@ export function renderScreen(st, { active = true, dialog = null, title = st.titl
   macWindowLook(g, { x: WIN.x + ox, y: WIN.y + oy, w: WIN.w, h: WIN.h, title: { codes: codesOf(title) } }, active);
   if (active) closeBoxLook(g, WIN.x + ox, WIN.y + oy, false);
   toolBoxLook(g, st.tool, ox, oy);
+  patternBoxLook(g, st.pat, ox, oy);
+  brushBoxLook(g, st.brush, ox, oy);
   canvasLook(g, st, ox, oy);
   labelLook(g, { x: STATUS.x + ox, y: STATUS.y + oy, w: STATUS.w, h: STATUS.h, flags: 0, text: { codes: codesOf(status) } });
   if (dialog) dialog(g);

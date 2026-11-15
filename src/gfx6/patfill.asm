@@ -14,7 +14,7 @@ PF_MR       EQU $E053               ; byte: the last column's mask
 PF_Y        EQU $E054               ; byte: the row
 PF_YE       EQU $E055               ; byte: the row after the last
 PF_P        EQU $E056               ; byte: the row's pattern byte
-PF_CC       EQU $E057               ; byte: the column
+PF_N        EQU $E057               ; byte: the byte columns
 
 G_PATFILL:
     ld hl,(GA+4)                    ; x range: x0 = max(x, cx0), x1 = min(x + w, cx1)
@@ -24,10 +24,12 @@ G_PATFILL:
     add hl,de
     ld de,(GCX1)
     call l_min
+    bit 7,h
+    ret nz                          ; x1 < 0: wholly left of the screen
     push hl                         ; x1
     ld hl,(GA)
     ld de,(GCX0)
-    call l_max                      ; HL = x0
+    call l_max                      ; HL = x0 (>= 0)
     pop de                          ; DE = x1
     or a
     sbc hl,de
@@ -76,7 +78,10 @@ G_PATFILL:
     srl h
     rr l
     ld a,l
-    ld (PF_C1),a
+    ld hl,PF_C0
+    sub (hl)
+    inc a
+    ld (PF_N),a                     ; the byte columns
     ld hl,(GA+6)                    ; y range
     bit 7,h
     ret nz
@@ -84,30 +89,32 @@ G_PATFILL:
     add hl,de
     ld de,(GCY1)
     call l_min
+    bit 7,h
+    ret nz                          ; y1 < 0
     push hl                         ; y1
     ld hl,(GA+2)
     ld de,(GCY0)
-    call l_max                      ; HL = y0
+    call l_max                      ; HL = y0 (>= 0)
     pop de
-    ld a,e
-    sub l
-    ret z
-    ret c
+    or a
+    sbc hl,de
+    ret nc                          ; y0 >= y1
+    add hl,de
     ld a,l
     ld (PF_Y),a
     ld a,e
     ld (PF_YE),a
 .row:
     ld a,(PF_Y)
+    ld c,a
     and 7
     ld e,a
     ld d,0
     ld hl,(GA+8)
     add hl,de
     ld a,(hl)
-    ld (PF_P),a
-    ld a,(PF_Y)
-    ld l,a
+    ld (PF_P),a                     ; the row's pattern byte
+    ld l,c
     ld h,ROWTAB>>9
     add hl,hl
     ld a,(hl)
@@ -115,10 +122,6 @@ G_PATFILL:
     ld h,(hl)
     ld l,a                          ; HL = the row's base (file 1)
     ld a,(PF_C0)
-    ld (PF_CC),a
-.col:
-    ld a,(PF_CC)
-    ld c,a                          ; C = the column
     ld d,h
     ld e,l
     srl a
@@ -126,63 +129,68 @@ G_PATFILL:
     set 5,d
 .f1:
     or e
-    ld e,a                          ; DE = the byte
-    ld a,(PF_C0)
-    cp c
-    ld a,$FF
-    jr nz,.nl
-    ld a,(PF_ML)
-.nl:
-    ld b,a                          ; B = the mask
-    ld a,(PF_C1)
-    cp c
-    jr nz,.nr
-    ld a,(PF_MR)
-    and b
+    ld e,a                          ; DE = the first byte
+    ld a,(PF_N)
     ld b,a
-.nr:
+    ld a,(PF_ML)
+    ld c,a
+    dec b
+    jr nz,.many
+    ld a,(PF_MR)                    ; one byte: both masks
+    and c
+    ld c,a
+    call pf_m
+    jr .rowend
+.many:
+    call pf_m                       ; the first byte
+    call pf_nx
+    dec b
+    jr z,.last
+    ex de,hl                        ; the b whole bytes between: HL walks them
     ld a,(PF_P)
-    and b
-    ld c,a                          ; C = the pattern's bits inside the mask
+    ld c,a
     ld a,(GOP)
     or a
-    jr z,.set
+    jr z,.mset
     dec a
-    jr z,.clr
+    jr z,.mclr
     dec a
-    jr z,.xor
-    ld a,b                          ; REPLACE: (byte AND NOT mask) OR bits
-    cpl
-    ld b,a
-    ld a,(de)
-    and b
+    jr z,.mxor
+.mrep:                              ; REPLACE: the byte
+    ld (hl),c
+    call pf_nxh
+    djnz .mrep
+    jr .mend
+.mset:
+    ld a,(hl)
     or c
-    jr .st
-.set:
-    ld a,(de)
-    or c
-    jr .st
-.clr:
+    ld (hl),a
+    call pf_nxh
+    djnz .mset
+    jr .mend
+.mclr:
     ld a,c
     cpl
-    ld b,a
-    ld a,(de)
-    and b
-    jr .st
-.xor:
-    ld a,(de)
+    ld c,a
+.mc:
+    ld a,(hl)
+    and c
+    ld (hl),a
+    call pf_nxh
+    djnz .mc
+    jr .mend
+.mxor:
+    ld a,(hl)
     xor c
-.st:
-    ld (de),a
-    ld a,(PF_CC)
-    ld b,a
-    ld a,(PF_C1)
-    cp b
-    jr z,.rowend
-    inc b
-    ld a,b
-    ld (PF_CC),a
-    jr .col
+    ld (hl),a
+    call pf_nxh
+    djnz .mxor
+.mend:
+    ex de,hl                        ; DE = the last byte
+.last:
+    ld a,(PF_MR)
+    ld c,a
+    call pf_m
 .rowend:
     ld a,(PF_Y)
     inc a
@@ -190,6 +198,65 @@ G_PATFILL:
     ld hl,PF_YE
     cp (hl)
     jp c,.row
+    ret
+
+; pf_m: the byte at DE, masked by C, takes the pattern byte PF_P by GOP.  Clobbers AF, C (and B when REPLACE: no: B kept).
+pf_m:
+    ld a,(PF_P)
+    and c
+    push bc
+    ld b,a                          ; B = the pattern's bits inside the mask
+    ld a,(GOP)
+    or a
+    jr z,.set
+    dec a
+    jr z,.clr
+    dec a
+    jr z,.xor
+    ld a,c                          ; REPLACE: (byte AND NOT mask) OR bits
+    cpl
+    ld c,a
+    ld a,(de)
+    and c
+    or b
+    jr .st
+.set:
+    ld a,(de)
+    or b
+    jr .st
+.clr:
+    ld a,b
+    cpl
+    ld c,a
+    ld a,(de)
+    and c
+    jr .st
+.xor:
+    ld a,(de)
+    xor b
+.st:
+    ld (de),a
+    pop bc
+    ret
+
+; pf_nx: DE to the next byte column (the other file; from file 2 back to file 1, one byte on).  pf_nxh: the same for HL.  Clobber F.
+pf_nx:
+    bit 5,d
+    jr z,.a
+    res 5,d
+    inc e
+    ret
+.a:
+    set 5,d
+    ret
+pf_nxh:
+    bit 5,h
+    jr z,.a
+    res 5,h
+    inc l
+    ret
+.a:
+    set 5,h
     ret
 
 ; The 16 patterns of the palette (docs/PAINT.md 7): 8 bytes each, bit 7 the leftmost pixel.  Solid first, white last.
