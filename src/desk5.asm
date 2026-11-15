@@ -195,6 +195,7 @@ G6_START:
     INCLUDE "gfx6/s3ln.asm"     ; G_LINE
     INCLUDE "gfx6/patfill.asm"  ; G_PATFILL and the 16 patterns (docs/PAINT.md 7)
     INCLUDE "gfx6/rrect.asm"    ; G_RRECT: the rounded rectangle and the oval (docs/PAINT.md 7, 18)
+    INCLUDE "gfx6/flood.asm"    ; G_FLOOD: the bucket (docs/PAINT.md 21)
     INCLUDE "icons.inc"         ; the shell's icons (G_BLIT's set, 160 bytes each)
     INCLUDE "ticons.inc"        ; Paint's tool icons (G_BLIT's set, 96 bytes each)
 G6_END:

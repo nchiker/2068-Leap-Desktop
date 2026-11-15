@@ -410,3 +410,25 @@ All 24 suites pass (`build/test-logs/2026-11-15_02-03-40`), Fuse 6 of 6, ZEsarUX
   in section 12 for these rows are reset to those figures.
 - **The bucket (P3): "Fill too complex" on overflow** (the picture is restored from the copy; a fill that completes is undoable); **the marquee is its own slice (P3b) after the bucket.**
 - **Order:** the window-drag fix for Key Caps and Notepad, then the closable shell window, then P3 (`CLAUDE.md`).
+
+## 21. P3a: the bucket, `G_FLOOD` (2026-11-15; owner: "Fill too complex" on overflow; fills that complete are undoable)
+
+**Why two passes.** The screen has two colours, so a pixel already filled cannot be told from a boundary if the fill paints the final pattern at once (the pattern may contain the colour being replaced). `G_FLOOD`
+therefore (1) fills the region **with a solid marker** (the colour opposite to the target) and records each span it fills, then (2) paints every recorded span with the pattern (`G_PATFILL` REPLACE). The boundary is never touched.
+
+**`G_FLOOD`** (`src/gfx6/flood.asm`, DOCK 6, mapping R): GA = x, y (the seed, screen pixels), GA+8 = the pattern pointer (as `G_PATFILL`). The fill is clipped to GCLIP (the seed outside it: nothing). The target colour is the seed's pixel; the
+region is the 4-connected set of target pixels inside the clip. **Returns carry clear** when the fill is complete, **carry set when it overflowed**: the picture is then partly changed and the caller restores it. The filled
+region's box is left in hot RAM for the caller: `FL_BX0`, `FL_BX1` (words: the first and last x), `FL_BY0`, `FL_BY1` (bytes: the first and last y), valid after a complete fill. Clobbers AF, BC, DE, HL; the state is in hot RAM
+`$E0D0-$E0FF` and cold RAM `$7800-$7FFF` (the span list from `$7800` up, to `$7BFF`: **204 spans** of 5 bytes (y, x0 word, x1 word); the seed stack from `$7FFF` down, to `$7C00`: **256 seeds** of 4 bytes (x word, y, one spare)).
+**A fill overflows** when the region has more than 204 maximal horizontal runs (spans), or when the seed stack passes 256 entries. The undo area at `$5800` is not touched, so the undo box of a completed fill is saved from the copy as for any stroke.
+**Algorithm:** scanline: pop a seed; if its pixel is not the target, skip it; extend the run left and right (a whole byte of the target colour is skipped 8 pixels at a time); fill the span with the marker (`G_FILL`, op SET when the target is paper, CLR
+when it is ink) and record it; scan the rows above and below the span for runs of target pixels and push the first pixel of each. When the stack is empty, paint every recorded span with the pattern (REPLACE).
+**Paint (tool 5):** a press in the picture with the bucket: the pointer shielded, the clip the picture, `G_FLOOD` from the pointer with the chosen pattern; complete: the box (the region's) is the undo box (saved from the copy when it fits, else "Too big to undo"), the whole picture is saved
+into the copy, `PN_DIRTY` = 1; overflow: the picture is redrawn from the copy (the banded restore), the status says **"Fill too complex"**, nothing else changes (no undo change). No capture is taken (a click). The status returns to the tool's name at the next
+choice of a tool or a fitting stroke (`PN_MSG`).
+
+**The one-pass fast path (as built).** When every byte of the pattern is the colour opposite to the target (a solid ink pattern over paper, or the white pattern over ink: `FL_FAST` = 1), the marker is the fill: nothing is recorded, pass 2 is empty and only the seed stack can overflow. So **a solid fill never
+overflows on the span list**; a patterned fill of a region with more than 204 maximal horizontal runs does ("Fill too complex"; for example the background around two shapes). The state is `FL_*` in hot RAM `$E0D0-$E0E4`: `FL_FAST` `$E0E4`.
+The region's box is read by `pn_bucket` from `FL_BX0`, `FL_BX1`, `FL_BY0`, `FL_BY1` (`$E0DE-$E0E3`); a press with the bucket takes no capture (the press is not consumed). A whole-picture fill takes many frames (it is not bounded here; the owner's decision is
+to report it, `tests/g6-flood.mjs` measures it).
+**Space after P3a (2026-11-15):** DOCK 2-3 has about 289 bytes free (`PN_END` `$7EDF` of `$8000`), DOCK 6 about 900 (`G6_END` `$DC74` of `$E000`), the pool about 5,800. The marquee (P3b) and FatBits (P4) will not fit in DOCK 2-3 as it is: see the owner question in `CLAUDE.md`.

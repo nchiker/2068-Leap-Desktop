@@ -1013,7 +1013,7 @@ pn_cevent:
     or a
     jr z,.nyet
     cp 5
-    jr z,.nyet
+    jr z,.bkt
     cp 10
     jr c,.go
 .nyet:
@@ -1022,6 +1022,9 @@ pn_cevent:
     call pn_msg
     pop ix
     jr .no
+.bkt:                           ; the bucket: a click fills, no stroke (the press is not taken)
+    call pn_bucket
+    jp .no
 .go:
     ld a,(PN_TOOL)                  ; the stroke's box margin: byte columns and rows (the pencil and the shapes 0, 0; the spray 2, 8; the others 1, 4)
     ld bc,$0000
@@ -1266,6 +1269,62 @@ pn_shapedone:
     ld a,(PN_NY)
     call pn_grow
     jp pn_unshield
+
+; pn_bucket: a press with the bucket (PAINT 21): G_FLOOD from the pointer with the chosen pattern.  Complete: the region's box is the stroke's box and the commit follows (the
+; undo box when it fits, the copy, dirty).  Overflow: the picture is redrawn from the copy and the status says so.  Clobbers AF, BC, DE, HL.
+pn_bucket:
+    call pn_shield
+    ld hl,(PN_NX)
+    ld (GA),hl
+    ld a,(PN_NY)
+    ld l,a
+    ld h,0
+    ld (GA+2),hl
+    ld a,(PN_PAT)
+    call pn_patptr
+    ld (GA+8),hl
+    KFAR G_FLOOD
+    jr c,.over
+    ld hl,(FL_BX0)                  ; the box: byte columns and rows of the picture
+    ld de,(PN_OX)
+    or a
+    sbc hl,de
+    srl h
+    rr l
+    srl h
+    rr l
+    srl h
+    rr l
+    ld a,l
+    ld (PN_BC0),a
+    ld hl,(FL_BX1)
+    or a
+    sbc hl,de
+    srl h
+    rr l
+    srl h
+    rr l
+    srl h
+    rr l
+    ld a,l
+    ld (PN_BC1),a
+    ld hl,PN_OY
+    ld a,(FL_BY0)
+    sub (hl)
+    ld (PN_BR0),a
+    ld a,(FL_BY1)
+    sub (hl)
+    ld (PN_BR1),a
+    call pn_unshield
+    jp pn_commit
+.over:
+    call pn_unshield
+    call pn_redraw
+    ld hl,PN_MFILL
+    push ix
+    call pn_msg
+    pop ix
+    ret
 
 ; pn_idle: every frame without an event: a held spray keeps spraying at the last point (the pointer may not move).
 pn_idle:
@@ -2203,6 +2262,7 @@ PN_TNAMES:                          ; the tools' names, in the order of the tool
     DB 4, "Oval"
 PN_MNYET:   DB 13, "Not built yet"
 PN_MBIG:    DB 15, "Too big to undo"
+PN_MFILL:   DB 16, "Fill too complex"
 PN_STAT:    DB 6, "Pencil"
             DS 26 - 6
 PN_MENUS:
