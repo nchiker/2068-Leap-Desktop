@@ -52,7 +52,7 @@ export function bootW3(opts = {}) {
   env.host = host;
   env.st = new W3.W3();
   // W3 memory watch (13.7: $C000-$C3FF, Write's image and the RAM after it, below the arena): writes are allowed only into Write's variables: from WR_BUF to the end of WR_PNAME's 32 bytes
-  const { m, S } = env, lo = S.WR_BUF, hi = Math.max(S.WR_PNAME + 32, S.WR_FFB !== undefined ? S.WR_FFB + 32 : 0);   // W4: WR_FN, F's codes (WR_FCODES) and the Find Field's buffer WR_FFB (31 bytes) are in this range too
+  const { m, S } = env, lo = S.WR_BUF, hi = Math.max(S.WR_PNAME + 32, S.WR_FFB !== undefined ? S.WR_FFB + 32 : 0, S.WR_XEND !== undefined ? S.WR_XEND + 2 : 0);   // W4: WR_FN, F's codes (WR_FCODES) and the Find Field's buffer WR_FFB (31 bytes) are in this range too
   env.imgw = { n: 0, first: [], armed: true, lo, hi, log: new Map() };
   const wr0 = m.bus.write;
   m.bus.write = function (addr, v) {

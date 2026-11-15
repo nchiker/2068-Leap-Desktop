@@ -2342,13 +2342,15 @@ tv_draw:
     or a
     jr nz,.part
     call wr_org                 ; a full draw: the view is the real one (a part draw narrows it: its origin is not read then)
+    call wr_nc                  ; the caret's place follows a moved view
     ld a,1
     KFAR G_SETOP
     call wr_gav
     KFAR G_FILL
     ld bc,TV_N * 256            ; B = 16 lines from C = 0, not cleared (the view is paper)
     call wr_lines0
-    jp .newc
+    call .newc
+    jp wr_drawn                 ; the caret drawn is the new one
 .part:
     push af                     ; the old caret cleared
     ld a,(WR_OCV)
@@ -2764,7 +2766,6 @@ wr_min:
 ; ---------------------------------------------------------------------------------------------------------------------------
 ; tv_event: M_EVENT (11.5).  The type and data are read through DE.
 tv_event:
-    call wr_org
     xor a
     ld (WR_DRAWN),a
     ex de,hl

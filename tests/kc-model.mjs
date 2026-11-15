@@ -66,9 +66,10 @@ export const fillRect = (c) => ({ x: c.x + 1, y: c.y + 1, w: c.w - 2, h: c.h - 2
 /** The caps whose pressed state differs between two sets of keys down (the ones mode 1 redraws). */
 export const changedCaps = (a, b) => CAPS.filter((c) => capDown(c, a) !== capDown(c, b));
 /** The keyboard's M_DRAW (KEYCAPS 2, 7): the view's rectangle to paper, then the 42 caps in plane `plane`; the caps of the keys in `down` (a Set of k) XOR-filled. */
-export function renderKeyboard(g, keymap, plane, down) {
-  g.setOp(OP_CLR); g.fill(KB.x, KB.y, KB.w, KB.h);
-  for (const c of CAPS) {
+export function renderKeyboard(g, keymap, plane, down, dx = 0, dy = 0) {
+  g.setOp(OP_CLR); g.fill(KB.x + dx, KB.y + dy, KB.w, KB.h);
+  for (const c0 of CAPS) {
+    const c = dx || dy ? { ...c0, x: c0.x + dx, y: c0.y + dy } : c0;
     g.setOp(OP_SET); g.frame(c.x, c.y, c.w, c.h);
     const lab = capLabel(keymap, plane, c.k);
     if (lab !== null) { const cs = codesOf(lab), tw = g.textw(cs); g.textp(c.x + Math.floor((c.w - tw) / 2), c.y + (c.h - 8) / 2, cs); }
@@ -77,16 +78,17 @@ export function renderKeyboard(g, keymap, plane, down) {
 }
 /**
  * The screen of the open window: the desk, the empty bar, the window (active, close box), the three radios (`flags`, `focus` index or -1), the keyboard, the status line.
- * st = { keymap, flags: [f1, f2, f3], focus, status (a string), plane, down, active = true, covers = [] (plain active Windows drawn over: { x, y, w, h })}.
+ * st = { keymap, flags: [f1, f2, f3], focus, status (a string), plane, down, active = true, covers = [] (plain active Windows drawn over: { x, y, w, h }), dx = 0, dy = 0 (the window dragged by whole cells: everything
+ * inside it, the caps included, is laid out for the window's origin (32, 24) and moves with it)}.
  */
 export function renderScreen(st) {
-  const g = new Gfx6Model(), active = st.active ?? true;
+  const g = new Gfx6Model(), active = st.active ?? true, dx = st.dx || 0, dy = st.dy || 0;
   deskLook(g); barLook(g, null, null);
-  macWindowLook(g, { x: WIN.x, y: WIN.y, w: WIN.w, h: WIN.h, title: { codes: codesOf(WIN.title) } }, active);
-  RADIOS.forEach((r, i) => checkLook(g, { x: r.x, y: r.y, w: r.w, h: r.h, flags: st.flags[i], codes: codesOf(r.text) }, st.focus === i));
-  renderKeyboard(g, st.keymap, st.plane, st.down);
-  labelLook(g, { x: STAT.x, y: STAT.y, w: STAT.w, h: STAT.h, flags: 0, text: { codes: codesOf(st.status) } });
-  if (active) closeBoxLook(g, WIN.x, WIN.y, false);
+  macWindowLook(g, { x: WIN.x + dx, y: WIN.y + dy, w: WIN.w, h: WIN.h, title: { codes: codesOf(WIN.title) } }, active);
+  RADIOS.forEach((r, i) => checkLook(g, { x: r.x + dx, y: r.y + dy, w: r.w, h: r.h, flags: st.flags[i], codes: codesOf(r.text) }, st.focus === i));
+  renderKeyboard(g, st.keymap, st.plane, st.down, dx, dy);
+  labelLook(g, { x: STAT.x + dx, y: STAT.y + dy, w: STAT.w, h: STAT.h, flags: 0, text: { codes: codesOf(st.status) } });
+  if (active) closeBoxLook(g, WIN.x + dx, WIN.y + dy, false);
   for (const c of st.covers || []) macWindowLook(g, { x: c.x, y: c.y, w: c.w, h: c.h, title: c.title ? { codes: codesOf(c.title) } : null }, true);
   return g;
 }
@@ -104,11 +106,18 @@ export class KCSim {
     const kb = { kind: 'KeyCaps', id: 4, x: KB.x, y: KB.y, w: KB.w, h: KB.h, flags: 0 };
     const lbl = { kind: 'Label', id: 5, x: STAT.x, y: STAT.y, w: STAT.w, h: STAT.h, flags: 0, codes: codesOf(START_STATUS) };
     this.tree = new TkTree({ x: WIN.x, y: WIN.y, w: WIN.w, h: WIN.h, slot: 1, title: codesOf(WIN.title) }, [...this.radios, kb, lbl]);
+    this.dx = 0; this.dy = 0; this.kids = [...this.radios, kb, lbl];
     this.tree.activate();
     this.status = START_STATUS;
     this.down = new Set();
     this.caps = 0; this.kp = 0;                   // caps lock (K_CAPS) and keyboard-pointer mode (K_KPMODE)
     this.log = [];
+  }
+  /** The window dragged to the offset (dx, dy) from its opening position: the tree's window and every view move with it (the drag itself changes nothing else). */
+  moveBy(dx, dy) {
+    const ddx = dx - this.dx, ddy = dy - this.dy;
+    for (const n of [this.tree.win, ...this.kids]) { n.x += ddx; n.y += ddy; }
+    this.dx = dx; this.dy = dy;
   }
   get sel() { return this.radios.findIndex((r) => r.flags & FL.CHECKED); }
   get focus() { return this.radios.indexOf(this.tree.focus); }
@@ -141,7 +150,7 @@ export class KCSim {
   }
   /** A pointer event at (px, py) (t = E.DOWN / E.MOVE / E.UP). */
   point(t, px, py) { this.tree.resetLog(); this.tree.dispatch({ t, px, py }); this.log.push(...this.tree.posts); }
-  state(extra = {}) { return { keymap: this.keymap, flags: this.flags, focus: this.focus, status: this.status, plane: this.plane, down: this.down, ...extra }; }
+  state(extra = {}) { return { keymap: this.keymap, flags: this.flags, focus: this.focus, status: this.status, plane: this.plane, down: this.down, dx: this.dx, dy: this.dy, ...extra }; }
   screen(extra = {}) { return renderScreen(this.state(extra)); }
 }
 export const dispOf = (g) => toDisp(g);

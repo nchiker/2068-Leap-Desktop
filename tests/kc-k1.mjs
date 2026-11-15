@@ -6,7 +6,7 @@
 //     --nkeys N    random key presses in group 3 on top of the exhaustive ones (default 60)
 //     --nradio N   random radio actions (mouse and keys) in group 5 (default 80)
 //     --only LIST  groups: 1 window as opened, 2 every key alone in each plane, 3 shifts over a radio's plane, 4 radios (mouse, keys), 5 mode 1 (one frame, only the changed caps),
-//                  6 covering window, 7 quit (close box, SS+Q) and relaunch, 8 bounds (KEYCAPS 4) (default all)
+//                  6 covering window, 7 quit (close box, SS+Q) and relaunch, 8 bounds (KEYCAPS 4), 10 the window dragged to other cell positions (default all)
 // Exit code 1 on any failure.  The last line is "kc-k1: N of M groups pass".
 import { checks } from './lib.mjs';
 import * as KL from './kc-lib.mjs';
@@ -15,7 +15,7 @@ import * as H from './shell-lib.mjs';
 const { L, K, hex, rd16 } = KL;
 const { argv, argNum } = L;
 const SEED = argNum('--seed', 1), NKEYS = argNum('--nkeys', 60), NRADIO = argNum('--nradio', 80);
-const ONLY = argv.includes('--only') ? String(argv[argv.indexOf('--only') + 1]).split(',').map(Number) : [1, 2, 3, 4, 5, 6, 7, 8];
+const ONLY = argv.includes('--only') ? String(argv[argv.indexOf('--only') + 1]).split(',').map(Number) : [1, 2, 3, 4, 5, 6, 7, 8, 10];
 const VERBOSE = argv.includes('--verbose');
 const rng = L.makeRng(SEED);
 const C = checks('kc-k1');
@@ -28,7 +28,7 @@ const groupsOk = [];
 class Sec {
   constructor(name) { this.name = name; this.n = 0; this.nf = 0; this.fails = []; this.notes = []; }
   ok(c, msg) { this.n++; if (!c) { this.nf++; if (this.fails.length < (VERBOSE ? 40 : 6)) this.fails.push(typeof msg === 'function' ? msg() : msg); } return c; }
-  note(s) { if (!this.notes.includes(s) && this.notes.length < 10) this.notes.push(s); }
+  note(s) { if (!this.notes.includes(s) && this.notes.length < (VERBOSE ? 60 : 10)) this.notes.push(s); }
   end(extra = '') {
     groupsOk.push(this.nf === 0);
     C.check(`${this.name}: ${this.n} checks${extra ? ', ' + extra : ''}`, this.nf === 0, this.nf ? `${this.nf} failed: ${this.fails.join(' | ')}` : '');
@@ -281,14 +281,14 @@ function g4() {
 // ===========================================================================================================================================
 // 5. Mode 1: a key change redraws only the changed caps, within one frame
 /** A key set changing: the model told, the keys set, two frames run (the ISR sees the keys at the start of the first), traced and watched.  Returns what happened. */
-function keyChange(env, next) {
+function keyChange(env, next, off = { dx: 0, dy: 0 }) {
   const { m, S } = env, sim = env.sim, kb = KL.kcViews(env).kb.a, lbl = KL.kcViews(env).lbl.a;
   const prev = [...sim.down];
   const tr = KL.traceLoop(env), wd = KL.watchDisplay(m);
   const typed = sim.hold(next);
   L.setKeys(m, next);
   env.frame();
-  const d1 = KL.diffDisp(KL.readDisp(m), K.toDisp(sim.screen()), (() => { const mk = L.pointerMask(m, S); for (const b of KL.rectBytes(K.STAT.x, K.STAT.y, K.STAT.w, K.STAT.h)) mk[b] = 0; return mk; })());
+  const d1 = KL.diffDisp(KL.readDisp(m), K.toDisp(sim.screen()), (() => { const mk = L.pointerMask(m, S); for (const b of KL.rectBytes(K.STAT.x + off.dx, K.STAT.y + off.dy, K.STAT.w, K.STAT.h)) mk[b] = 0; return mk; })());
   env.frame();
   const d2 = KL.diffDisp(KL.readDisp(m), K.toDisp(sim.screen()), L.pointerMask(m, S));
   env.frames_(1 + 2 * typed.length);                    // each typed code redraws the status line: the last frames finish them
@@ -533,8 +533,103 @@ function g8() {
 }
 
 // ===========================================================================================================================================
+// 10. The window dragged by its title bar to other cell positions (whole cells: x a multiple of 16, y of 8): the caps, radios and status line follow it (KC_DX / KC_DY / KC_MV)
+function g10() {
+  const env = mkKC(), { m, S } = env, sim = env.sim;
+  const sec = new Sec('10 the Key Caps window dragged by its title bar to (64, 32), (0, 8), (16, 16), (48, 8) and home (32, 24): the views and the screen against the model at each position, then keys (single, CAPS SHIFT, SYMBOL SHIFT, BREAK, several) and the radios at the moved position, the mode 1 redraw only inside the pressed fills and the status line');
+  const park = () => { L.moveTo(env, 500, 185); env.frames_(4); };
+  const grab = (nx, ny) => {                                                    // drag by (x + 200, y + 3) of the title bar to the new position's same point
+    const w = KL.kcViews(env).win, px = w.x + 200, py = w.y + 3;
+    L.moveTo(env, px, py); env.frames_(2);
+    m.mouse.buttons = L.MOUSE_LEFT; env.frames_(3);
+    L.moveTo(env, px + (nx - w.x), py + (ny - w.y)); env.frames_(3);
+    m.mouse.buttons = L.MOUSE_UP; env.frames_(30);
+    return KL.kcViews(env).win;
+  };
+  const clickAt = (x, y, what) => {
+    L.moveTo(env, x, y); env.frames_(2);
+    sim.point(K.E.DOWN, x, y); m.mouse.buttons = L.MOUSE_LEFT; env.frames_(4);
+    check(env, sec, `${what}: pressed`, { extra: [[x, y]] });
+    sim.point(K.E.UP, x, y); m.mouse.buttons = L.MOUSE_UP; env.frames_(SETTLE);
+    check(env, sec, `${what}: released`, { extra: [[x, y]] });
+    park();
+  };
+  const seen = [];
+  const at = (nx, ny) => {
+    const w = grab(nx, ny), dx = nx - 32, dy = ny - 24, tag = `window at (${nx}, ${ny})`;
+    seen.push(`(${w.x}, ${w.y})`);
+    if (!sec.ok(w.x === nx && w.y === ny, () => `${tag}: the drag put the window at (${w.x}, ${w.y})`)) return null;
+    park();
+    sim.moveBy(w.x - 32, w.y - 24);
+    const v = KL.kcViews(env);
+    sec.ok(v.kids.length === 5 && v.radios.every((r, i) => r.x === K.RADIOS[i].x + dx && r.y === K.RADIOS[i].y + dy && r.w === K.RADIOS[i].w && r.h === K.RADIOS[i].h) && v.kb.x === 40 + dx && v.kb.y === 54 + dy && v.kb.w === 432 && v.kb.h === 102 && v.lbl.x === 48 + dx && v.lbl.y === 162 + dy,
+      () => `${tag}: the views did not move with the window: ${JSON.stringify(v.kids.map((k) => [k.x, k.y, k.w, k.h]))}`);
+    sec.ok(rd16(m, S.KC_DX) === (dx & 0xFFFF) && m.ram[S.KC_DY] === (dy & 0xFF), () => `${tag}: KC_DX ${rd16(m, S.KC_DX)}, KC_DY ${m.ram[S.KC_DY]}, want ${dx & 0xFFFF}, ${dy & 0xFF} (16-bit and 8-bit two's complement)`);
+    sec.note(`${tag}: KC_MV ${m.ram[S.KC_MV]}`);
+    check(env, sec, `${tag}: after the drag`, {});
+    return { dx, dy, tag, off: { dx, dy } };
+  };
+  const usage = (p) => {
+    const { dx, dy, tag, off } = p, statBytes = KL.rectBytes(K.STAT.x + dx, K.STAT.y + dy, K.STAT.w, K.STAT.h);
+    // single keys alone (held / released: the screen after each) and the same keys in the two shifted planes
+    for (const nm of ['1', 'Q', 'A', 'ENTER', 'M', 'SPACE']) press(env, sec, `${tag}: ${nm}`, [keyOf(nm)]);
+    for (const nm of ['W', 'K', 'Z']) press(env, sec, `${tag}: CAPS SHIFT + ${nm}`, [K.KCS, keyOf(nm)]);
+    for (const nm of ['P', 'E', 'N']) press(env, sec, `${tag}: SYMBOL SHIFT + ${nm}`, [K.KSS, keyOf(nm)]);
+    press(env, sec, `${tag}: BREAK (CAPS SHIFT + SPACE)`, [K.KCS, K.KSPACE]);
+    press(env, sec, `${tag}: CAPS SHIFT alone`, [K.KCS]); press(env, sec, `${tag}: SYMBOL SHIFT alone`, [K.KSS]);
+    press(env, sec, `${tag}: Y + H + N`, ['Y', 'H', 'N'].map(keyOf));
+    // mode 1 (SPACE is left out: on the focused radio it checks it and redraws the radio): one key down and up, display writes only inside the changed caps' pressed fills (at the moved position) and the status line
+    for (const nm of ['Q', '1', 'P', 'Z', 'M', 'ENTER']) {
+      const ks = [keyOf(nm)];
+      for (const dir of ['down', 'up']) {
+        const r = keyChange(env, dir === 'down' ? ks : [], off), t = `${tag}: mode 1, ${nm} ${dir}`;
+        const allowed = new Set(statBytes);
+        for (const c of r.changed) { const f = K.fillRect(c); for (const b of KL.rectBytes(f.x + dx, f.y + dy, f.w, f.h)) allowed.add(b); }
+        const bad = [...r.wr].filter((b) => !allowed.has(b));
+        sec.ok(bad.length === 0, () => `${t}: ${bad.length} display byte(s) written outside the changed cap's fill and the status line, first (y ${bad[0] >> 6}, byte col ${bad[0] & 63})`);
+        let capBytes = 0; for (const c of r.changed) { const f = K.fillRect(c); for (const b of KL.rectBytes(f.x + dx, f.y + dy, f.w, f.h)) if (r.wr.has(b)) capBytes++; }
+        sec.ok(capBytes > 0, () => `${t}: no write inside the changed cap`);
+        sec.ok(r.d1 === null, () => `${t}: outside the status line, the screen after the first frame: ${r.d1}`);
+        sec.ok(r.d2 === null, () => `${t}: the screen after the second frame: ${r.d2}`);
+        sec.ok(r.dEnd === null, () => `${t}: the screen after the frames it takes: ${r.dEnd}`);
+        sec.ok(!!r.per && r.kbDraws.length === 1, () => `${t}: ${r.kbDraws.length} W_DRAWVIEW(s) of the keyboard`);
+        if (r.per && r.kbDraws.length === 1 && dir === 'down') sec.note(`${t}: ends ${r.kbDraws[0].t1 - r.per.t0} T after the interrupt (redraw ${r.kbDraws[0].t1 - r.kbDraws[0].t0} T)`);
+        // the bound is the home position's (KEYCAPS 8); a moved window pays the per-row offset (about +550 T): reported there (owner's decision pending, CLAUDE.md)
+        if (r.per && r.kbDraws.length === 1 && dx === 0 && dy === 0) sec.ok(r.kbDraws[0].t1 - r.per.t0 <= KEY_T, () => `${t}: the redraw ends ${r.kbDraws[0].t1 - r.per.t0} T after the interrupt (bound ${KEY_T})`);
+        else if (r.per && r.kbDraws.length === 1 && dir === 'down' && r.kbDraws[0].t1 - r.per.t0 > KEY_T) sec.note(`${t}: moved window: REPORTED ${r.kbDraws[0].t1 - r.per.t0} T after the interrupt, over the home bound ${KEY_T}`);
+        const w2 = KL.watchDisplay(m); env.frames_(6); const wr2 = w2.stop();
+        sec.ok(wr2.size === 0, () => `${t}: ${wr2.size} display bytes written in 6 idle frames`);
+      }
+    }
+    // the radios at the new place: a click on each (a plane change redraws the whole keyboard), then back to Plain
+    for (const r of [2, 1, 0]) clickAt(K.RADIOS[r].x + dx + 10, K.RADIOS[r].y + dy + 4, `${tag}: click on radio ${r}`);
+  };
+  // the opening position first (the model must hold with no move)
+  check(env, sec, 'home as opened', {});
+  for (const [nx, ny] of [[64, 32], [0, 8], [16, 16], [48, 8], [32, 24]]) {
+    const p = at(nx, ny);
+    if (p) usage(p);
+  }
+  // a plane change by the keys while moved, and the status line text after typed codes at the moved place
+  const p = at(16, 8);
+  if (p) {
+    const { dx, dy } = p;
+    for (const sh of [K.KCS, K.KSS]) {
+      sim.hold([sh, keyOf('E')]); L.setKeys(m, [sh, keyOf('E')]); env.frames_(SETTLE); check(env, sec, `${p.tag}: ${K.KEYNAMES[sh]} + E`, {});
+      sim.hold([]); L.setKeys(m, []); env.frames_(SETTLE); check(env, sec, `${p.tag}: released`, {});
+    }
+    // the focus keys: TAB moves the focus ring across the radios at their new places
+    for (let i = 0; i < 4; i++) press(env, sec, `${p.tag}: TAB ${i}`, L.keysFor(14));
+    press(env, sec, `${p.tag}: SPACE on the focused radio`, L.keysFor(32));
+  }
+  at(32, 24);
+  sec.end(`positions: ${seen.join(' ')}; stack ${env.stack.depth()} bytes`);
+  return env;
+}
+
+// ===========================================================================================================================================
 const envs = [];
-const run = { 1: g1, 2: g2, 3: g3, 4: g4, 5: g5, 6: g6, 7: g7 };
+const run = { 1: g1, 2: g2, 3: g3, 4: g4, 5: g5, 6: g6, 7: g7, 10: g10 };
 for (const g of ONLY) {
   if (g === 8) { g8(); continue; }
   const e = run[g]();
