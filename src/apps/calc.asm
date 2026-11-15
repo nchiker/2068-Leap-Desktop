@@ -194,7 +194,7 @@ C_BTNS:                         ; id, text: rows of 4 (section 4)
 ; ---------------------------------------------------------------------------------------------------------------------------
 ; cd_draw: CDisp's M_DRAW (section 4), IX = the display.  Every drawing call crosses into K.
 cd_draw:
-    call cd_rect
+    call w_gaview               ; GA = the view's rectangle (the kernel's, SIZE 9 D)
     ld a,1
     KFAR G_SETOP                ; CLR
     KFAR G_FILL
@@ -226,21 +226,6 @@ cd_draw:
     ld (GA_Y),hl                ; GA+4 / GA+6 still hold the string (G_TEXTW only reads them)
     KFAR G_TEXTP
     ret
-cd_rect:                        ; GA = the view's rectangle
-    ld l,(ix+View_x)
-    ld h,(ix+View_x+1)
-    ld (GA_X),hl
-    ld l,(ix+View_y)
-    ld h,0
-    ld (GA_Y),hl
-    ld l,(ix+View_w)
-    ld h,(ix+View_w+1)
-    ld (GA_W),hl
-    ld l,(ix+View_h)
-    ld h,0
-    ld (GA_H),hl
-    ret
-
 ; ---------------------------------------------------------------------------------------------------------------------------
 ; C_KEY (section 5): A = a key code -> the state changed, C_DSTR = what the display shows.  Preserves IX and IY.
 C_KEY:

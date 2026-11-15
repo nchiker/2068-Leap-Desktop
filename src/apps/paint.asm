@@ -260,15 +260,16 @@ pn_tdraw:
     ld hl,16
     ld (GA+6),hl
     ld a,(PN_T)
-    ld hl,TICON_MARQUEE
-    ld de,64
-.s:
-    or a
-    jr z,.sd
+    ld l,a
+    ld h,0
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl                       ; 64 t
+    ld de,TICON_MARQUEE
     add hl,de
-    dec a
-    jr .s
-.sd:
     ld (GA+8),hl
     KFAR G_ICON
     xor a
@@ -403,9 +404,7 @@ pn_tevent:
 .new:
     push af
     push hl
-    push ix
     call pn_seldrop                 ; the marquee's selection goes with the tool
-    pop ix
     pop hl
     pop af
     ld (hl),a
@@ -1734,24 +1733,8 @@ pn_stamp:
 ; pn_grow: HL = a screen x, A = a screen y: the stroke's box takes the point's byte column +- 1 and row +- 4, clamped to the picture.
 pn_grow:
     ld c,a
-    ld de,(PN_OX)
-    or a
-    sbc hl,de                       ; the picture's x (negative: 0)
-    bit 7,h
-    jr z,.p
-    ld hl,0
-.p:
-    ld b,3
-.s:
-    srl h
-    rr l
-    djnz .s
-    ld a,l
-    cp 40
-    jr c,.c
-    ld a,39
-.c:
-    ld b,a                          ; the byte column
+    call pn_colof                   ; A = the point's byte column in the picture, clamped
+    ld b,a
     ld hl,PN_PADC
     sub (hl)
     jr nc,.l
@@ -1775,16 +1758,8 @@ pn_grow:
     ld (hl),a
 .h2:
     ld a,c
-    ld hl,PN_OY
-    sub (hl)
-    jr nc,.r
-    xor a
-.r:
-    cp 144
-    jr c,.r2
-    ld a,143
-.r2:
-    ld b,a                          ; the row
+    call pn_rowof                   ; A = the row, clamped
+    ld b,a
     ld hl,PN_PADR
     sub (hl)
     jr nc,.rl
@@ -1863,60 +1838,13 @@ pn_selframe:
     KFAR G_FRAME
     ret
 
-; pn_selshow (the canvas' M_DRAW, after the bands): the outline drawn again inside the rectangle the bands restored (columns PN_K0 .. + PN_NC, rows PN_R .. PN_RE of the picture), so
-; no pixel of it is toggled that the restore did not clear.  The clip is kept.  Clobbers AF, BC, DE, HL.
+; pn_selshow (the canvas' M_DRAW, after the bands): the outline drawn again under the repaint clip.  The clip is made of 16 x 8 cells and the picture's origin is on the 16-pixel grid, so the bands
+; restored exactly the clip's pixels (their byte columns are not rounded) and the XOR toggles no pixel that was not cleared.  Clobbers AF, BC, DE, HL.
 pn_selshow:
     ld a,(PN_SELON)
     or a
     ret z
-    ld hl,(GCX0)
-    push hl
-    ld hl,(GCX1)
-    push hl
-    ld hl,(GCY0)
-    push hl
-    ld hl,(GCY1)
-    push hl
-    ld a,(PN_K0)
-    ld l,a
-    ld h,0
-    add hl,hl
-    add hl,hl
-    add hl,hl
-    ld de,(PN_OX)
-    add hl,de
-    ld (GCX0),hl
-    ld a,(PN_NC)
-    ld e,a
-    ld d,0
-    ex de,hl
-    add hl,hl
-    add hl,hl
-    add hl,hl
-    add hl,de
-    ld (GCX1),hl
-    ld a,(PN_OY)
-    ld hl,PN_R
-    add a,(hl)
-    ld l,a
-    ld h,0
-    ld (GCY0),hl
-    ld a,(PN_OY)
-    ld hl,PN_RE
-    add a,(hl)
-    ld l,a
-    ld h,0
-    ld (GCY1),hl
-    call pn_selframe
-    pop hl
-    ld (GCY1),hl
-    pop hl
-    ld (GCY0),hl
-    pop hl
-    ld (GCX1),hl
-    pop hl
-    ld (GCX0),hl
-    ret
+    jp pn_selframe
 
 ; pn_mdown: the marquee's press (the pointer is inside the picture): inside the selection the move starts (the outline erased, the box lifted, PN_MD 2), else the selection is dropped and a
 ; new one begins (PN_MD 1).  Clobbers AF, BC, DE, HL.
@@ -1941,9 +1869,7 @@ pn_mdown:
     cp (hl)
     jr c,.in
 .out:
-    push ix
     call pn_seldrop
-    pop ix
 .new:
     ld a,1
     ld (PN_MD),a
@@ -1951,14 +1877,11 @@ pn_mdown:
 .in:
     ld a,2
     ld (PN_MD),a
-    push ix
     call pn_shield
     call pn_selframe                ; the outline erased: the lift takes the picture's pixels only
     call pn_selga
     KFAR G_LIFT
-    call pn_unshield
-    pop ix
-    ret
+    jp pn_unshield
 
 ; pn_colof: HL = a screen x -> A = its byte column in the picture, 0 .. 39.  pn_rowof: A = a screen y -> A = its picture row, 0 .. 143.  Clobber F, DE, HL.
 pn_colof:
@@ -2092,26 +2015,16 @@ pn_mqup:
     ld hl,(PN_NX)
     call pn_colof
     ld c,a
-    call pn_order                   ; B = the lower, C = the higher
-    ld a,b
-    ld (PN_SC),a
-    ld a,c
-    sub b
-    inc a
-    ld (PN_SN),a
+    ld hl,PN_SC
+    call pn_span                    ; the selection's first column and columns
     ld a,(PN_AY)
     call pn_rowof
     ld b,a
     ld a,(PN_NY)
     call pn_rowof
     ld c,a
-    call pn_order
-    ld a,b
-    ld (PN_SY),a
-    ld a,c
-    sub b
-    inc a
-    ld (PN_SH),a
+    ld hl,PN_SY
+    call pn_span                    ; its first row and rows
     ld a,(PN_SN)                    ; columns x rows <= 2,048?
     ld e,a
     ld d,0
@@ -2142,13 +2055,20 @@ pn_mqend:
     scf
     ret
 
-; pn_order: B, C -> B = the lower, C = the higher.
-pn_order:
+; pn_span: B, C = two positions, HL -> two bytes: the lower of them, then how many positions they span.  Clobbers AF, BC, HL.
+pn_span:
     ld a,c
     cp b
-    ret nc
+    jr nc,.o
     ld c,b
     ld b,a
+.o:
+    ld (hl),b
+    inc hl
+    ld a,c
+    sub b
+    inc a
+    ld (hl),a
     ret
 
 ; pn_mqmove: the release of a move: the box dropped at the destination (inside the picture), the source erased unless CAPS SHIFT is held; the undo box the union; the selection the destination.
@@ -2245,7 +2165,7 @@ pn_key:
     ret z
     ld a,(K_EV+1)
     cp KC_ESC
-    jr z,pn_seldrop
+    jp z,pn_seldrop
     cp KC_DELETE
     ret nz
     call pn_shield
