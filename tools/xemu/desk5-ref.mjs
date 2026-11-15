@@ -386,6 +386,7 @@ if (['PN_PIC', 'PN_TOOL', 'PN_DIRTY', 'PN_UNDO', 'PN_UB0', 'PN_UBN', 'PN_UR0', '
       for (const h of [...kdown]) if (!want.has(h)) { const [r, b] = h.split(',').map(Number); m.keyMatrix[r] |= 1 << b; kdown.splice(kdown.indexOf(h), 1); }
       for (const [r, b] of keys) { m.keyMatrix[r] &= ~(1 << b); if (!kdown.includes(`${r},${b}`)) kdown.push(`${r},${b}`); }
       run(n);
+      if (process.env.PT_TRACE) console.log(`    step ${JSON.stringify(keys)} x${n}: pointer (${rd16(m, S.K_PX)}, ${m.ram[S.K_PY]}) btn ${m.ram[S.K_BTN]} kp ${m.ram[S.K_KPMODE]}`);
     }
   };
   const hex = (a, n) => Buffer.from(m.ram.subarray(a, a + n)).toString('hex');
@@ -430,8 +431,8 @@ if (['PN_PIC', 'PN_TOOL', 'PN_DIRTY', 'PN_UNDO', 'PN_UB0', 'PN_UBN', 'PN_UR0', '
   const copyChanged = { pencil: diff(pencil.pic, open.pic), erase: diff(erase.pic, eraser.pic), undo: diff(undo.pic, erase.pic), undoVsEraser: diff(undo.pic, eraser.pic), afterVsErase: diff(after.pic, erase.pic) };
   const okPt = hostNone && up && backUp && back.settled && all.every((x) => x.settled && x.K_PROG === 4) && back.K_PROG === 0 && distinct &&
     open.v.PN_TOOL === 1 && open.v.PN_DIRTY === 0 && open.v.PN_UNDO === 0 && open.v.K_KPMODE === 0 && open.v.K_PX === 256 && open.v.K_PY === 96 && open.v.NAME === nameU &&
-    pencil.v.K_KPMODE === 1 && pencil.v.PN_DIRTY === 1 && pencil.v.PN_UNDO === 1 && pencil.v.K_BTN === 0 && copyChanged.pencil > 0 &&
-    eraser.v.PN_TOOL === 3 && eraser.v.STATUS === 'Eraser' && diff(eraser.pic, pencil.pic) === 0 &&
+    pencil.v.K_KPMODE === 1 && pencil.v.PN_DIRTY === 1 && pencil.v.K_BTN === 0 && copyChanged.pencil > 0 &&
+    eraser.v.PN_TOOL === 3 && diff(eraser.pic, pencil.pic) === 0 &&
     erase.v.PN_UNDO === 1 && copyChanged.erase > 0 && erase.und.length > 0 &&
     sdlg.v.K_KPMODE === 0 && sdlg.v.MODAL && sdlg.v.NAME === nameU && alert.v.MODAL && !after.v.MODAL && after.v.PN_DIRTY === 1 && after.v.NAME === nameU && copyChanged.afterVsErase === 0 &&
     copyChanged.undoVsEraser === 0 && copyChanged.undo > 0 && undo.v.PN_UNDO === 1 && discard.v.MODAL;

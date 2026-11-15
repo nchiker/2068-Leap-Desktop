@@ -25,6 +25,10 @@ MENU, RIGHT, DOWN, ENTER (Edit > Find...): "w4-fdlg"; "two", ENTER (the search w
 Find again: "w4-again2" (wraps to the first); Find... : "w4-fdlg2"; DELETE x3, "zzz", ENTER (the alert "Not found."): "w4-notfound"; ENTER (OK): "w4-after"; SS+Q: "w4-discard"; ENTER (Discard): "w4-back" (= "shell").
 Rows: every settled screen = TSRun's, K_PROG = TSRun's, the W4 variables (document, WR_GS, WR_GE, WR_AN, WR_MK, WR_CLN, the Edit enable word, WR_FN, F's codes, WR_LCK, WR_DK) = TSRun's, the match offsets (4..7, 19..22, 4..7),
 "w4-after" = "w4-again2" on ZEsarUX itself, "w4-back" = "shell".
+(10) the Paint session (docs/PAINT.md 15; keys from keys.json "pt", skipped when the reference has none; the pointer is driven by keyboard-pointer mode, CS+SS toggles it, Q A O P move, SPACE is the button,
+because ZEsarUX has no ZRCP command for its Kempston mouse; every key set is held an exact number of frames): TAB x3, ENTER (K_PROG 4): "pt-open"; a pencil zig-zag: "pt-pencil"; the Eraser chosen: "pt-eraser"; erased
+across part of the zig-zag: "pt-erase"; File > Save... : "pt-sdlg", ENTER (no host: the alert): "pt-alert", ENTER: "pt-after"; Edit > Undo: "pt-undo"; SS+Q: "pt-discard"; ENTER: "pt-back".  Rows per checkpoint: the screen, K_PROG, the
+Paint variables, Paint's picture copy PN_PIC (4 + 5,760 bytes) and the undo area = TSRun's; plus invariants on ZEsarUX itself.
 Rows: the settled screens "shell", "calc", "typed", "back" = TSRun's .bin byte for byte; "back" = "shell"; K_PROG after each step = TSRun's;
 the display string "0" after the launch and after each key = TSRun's, the typed one "740.7"; per key K_NOW shows the keys down; the pointer
 K_PX, K_PY = TSRun's; DOCK chunks 0-6 (memory zone 19) = the DCK after the run.
@@ -524,6 +528,105 @@ def main():
                             and (w4got["again2"]["WR_AN"], w4got["again2"]["WR_GS"]) == (4, 7) and w4got["notfound"]["WR_DK"] == 2 and w4got["after"]["WR_DK"] == 0
                             and w4got["after"]["FCODES"] == "7a7a7a" and w4got["after"]["WR_AN"] == 4 and w4got["w4-after"] == w4got["w4-again2"],
                             f"found {(w4got['found']['WR_AN'], w4got['found']['WR_GS'])}, again {(w4got['again']['WR_AN'], w4got['again']['WR_GS'])}, again2 {(w4got['again2']['WR_AN'], w4got['again2']['WR_GS'])}"))
+
+        # 10. the Paint session (docs/PAINT.md 15): the pointer by keyboard-pointer mode (ZEsarUX has no ZRCP command for its Kempston mouse), every key set held an exact number of frames
+        #     (steps [label, keys, n] from keys.json "pt"); every settled screen, K_PROG, the variables, Paint's picture copy PN_PIC and the undo area = TSRun's
+        pt = refk.get("pt")
+        if not pt:
+            print("  SKIP  the Paint session: the reference has no Paint data (the build has no Paint symbols)")
+        else:
+            ptnames = ("pt-open", "pt-pencil", "pt-eraser", "pt-erase", "pt-sdlg", "pt-alert", "pt-after", "pt-undo", "pt-discard", "pt-back")
+            ptref = {n: (refdir / f"{n}.bin").read_bytes() for n in ptnames}
+            ptrefj = {n: json.loads((refdir / f"{n}.json").read_text()) for n in ptnames}
+            ptpic = {n: (refdir / f"{n}.pic").read_bytes() for n in ptnames}
+            ptund = {n: (refdir / f"{n}.und").read_bytes() for n in ptnames}
+            ptgot = {}
+            pheld = set()
+
+            def play(label, steps):
+                """Each step [name, keys, n]: the keys down exactly as listed for n frames (TSRun's run(n) after setting the matrix); K_NOW must show every listed key down."""
+                bad = []
+                for name, keys, n in steps:
+                    want = {(r, b) for r, b in keys}
+                    for r, b in sorted(pheld - want):
+                        c.command(f"send-keys-event {MATRIX[r][b]} 0")
+                    for r, b in sorted(want - pheld):
+                        c.command(f"send-keys-event {MATRIX[r][b]} 1")
+                    pheld.clear(); pheld.update(want)
+                    wait_frames(n)
+                    if want:
+                        now = rd(c, Z(0xF090), 8)
+                        if not all(now[r] & (1 << b) for r, b in want):
+                            bad.append(f"{name or 'keys'} {sorted(want)}: K_NOW {now.hex(' ')}")
+                results.append((f"{label}: K_NOW shows every key down ({sum(1 for _, k, _ in steps if k)} key steps, {sum(n for _, _, n in steps)} frames)", not bad, "all" if not bad else "; ".join(bad)))
+
+            def pstr(a):
+                b = rd(c, Z(a), 42)
+                return b[1:1 + min(b[0], 40)].decode("latin1")
+
+            def ptvars():
+                w = lambda a: int.from_bytes(rd(c, Z(a), 2), "little")
+                b1 = lambda a: rd(c, Z(a), 1)[0]
+                nl, tl = b1(S["PN_NAME"]), b1(S["PN_TITLE"])
+                menu = lambda i: w(S["MB_ENT"] + S["ME_SIZE"] * i + S["ME_EN"])
+                return {"K_PX": w(S["K_PX"]), "K_PY": b1(S["K_PY"]), "K_BTN": b1(S["K_BTN"]), "K_KPMODE": b1(S["K_KPMODE"]), "PN_TOOL": b1(S["PN_TOOL"]), "PN_DIRTY": b1(S["PN_DIRTY"]),
+                        "PN_UNDO": b1(S["PN_UNDO"]), "BOX": [b1(S[n]) for n in ("PN_UB0", "PN_UBN", "PN_UR0", "PN_URN")], "FILE_EN": menu(0) & 0x1F, "EDIT_EN": menu(1) & 3,
+                        "NAME": rd(c, Z(S["PN_NAME"]), 1 + min(nl, 30)).hex(), "TITLE": rd(c, Z(S["PN_TITLE"]), 1 + min(tl, 41)).hex(),
+                        "STATUS": pstr(w(w(S["PN_LBL"]) + S["Label_text"])) if w(S["PN_LBL"]) else "", "MODAL": w(S["W_MODAL"]) != 0, "PIC": w(S["PN_PIC"])}
+
+            def ptsettle(tag, label, extra=120, up=True, nb=0):
+                ok, cur, used = settle(extra)
+                res = compare(f"settled \"{tag}\" screen = TSRun's {tag} ({label})", cur, ptref[tag], tag)
+                results.append((res[0], res[1] and ok and up, res[2] + f"; settled {ok} after {used} more frames" + (f"; K_PROG reached after {nb} frame stops" if nb else "")))
+                results.append((f"K_PROG after \"{tag}\" = TSRun's", kprog() == ptrefj[tag]["K_PROG"], f"{kprog()}, TSRun {ptrefj[tag]['K_PROG']}"))
+                v = ptvars()
+                key = tag[3:]
+                results.append((f"Paint variables (pointer, kp mode, tool, dirty, undo and its box, menu enable words, name, title, status, dialog open, PN_PIC) after \"{tag}\" = TSRun's", v == pt["vars"][key], f"{v}, TSRun {pt['vars'][key]}"))
+                pa = v["PIC"]
+                pic = rd(c, Z(pa), 4 + 5760)
+                diffs = [i for i in range(len(pic)) if i >= len(ptpic[tag]) or pic[i] != ptpic[tag][i]]
+                results.append((f"Paint's picture copy PN_PIC (4 + 5,760 bytes) after \"{tag}\" = TSRun's", not diffs and len(pic) == len(ptpic[tag]),
+                                f"{len(pic)} bytes identical" if not diffs else f"{len(diffs)} bytes differ, first at offset {diffs[0]}: ZEsarUX {pic[diffs[0]]:02X}, TSRun {ptpic[tag][diffs[0]]:02X}"))
+                und = rd(c, Z(0x5800), min(v["BOX"][1] * v["BOX"][3], 2048)) if v["PN_UNDO"] else b""
+                results.append((f"Paint's undo area ($5800, the box's nc x nr bytes while Undo is on) after \"{tag}\" = TSRun's", und == ptund[tag], f"{len(und)} bytes " + ("identical" if und == ptund[tag] else "DIFFER")))
+                ptgot[tag] = (cur, pic, und, v)
+                return cur
+
+            st = pt["steps"]
+            play("Paint: TAB x3 to the Paint icon, ENTER", st["open"])
+            up, nb = until_prog(4)
+            wait_frames(30)
+            ptsettle("pt-open", "Paint as opened, K_PROG 4", 300, up, nb)
+            play("Paint: kp mode on, O, SPACE, the pencil zig-zag, released", st["pencil"])
+            ptsettle("pt-pencil", "a pencil zig-zag")
+            play("Paint: O, Q to the Eraser's cell, SPACE tapped", st["eraser"])
+            ptsettle("pt-eraser", "the Eraser chosen")
+            play("Paint: P+A into the picture, SPACE, the eraser across the first segments", st["erase"])
+            ptsettle("pt-erase", "part of the zig-zag erased")
+            play("Paint: kp mode off, MENU, DOWN x2, ENTER (File > Save...)", st["save"])
+            ptsettle("pt-sdlg", "the name dialog, Untitled")
+            play("Paint: ENTER (Save: no host, so the alert)", [["ENTER", [[6, 0]], 3], ["", [], 3]])
+            ptsettle("pt-alert", "the alert, no host")
+            play("Paint: ENTER (OK)", [["ENTER", [[6, 0]], 3], ["", [], 3]])
+            ptsettle("pt-after", "the alert dismissed")
+            play("Paint: MENU, RIGHT, ENTER (Edit > Undo)", st["undo"])
+            ptsettle("pt-undo", "the eraser stroke undone")
+            play("Paint: SS+Q (discard question)", st["close"])
+            ptsettle("pt-discard", "the discard question", 300)
+            play("Paint: ENTER (Discard)", [["ENTER", [[6, 0]], 3], ["", [], 3]])
+            up, nb = until_prog(0)
+            wait_frames(30)
+            ptsettle("pt-back", "Discard quit to the shell, K_PROG 0", 300, up, nb)
+            g = lambda t: ptgot[t]
+            dif = lambda a, b: sum(1 for x, y in zip(a, b) if x != y)
+            results.append(("Paint on ZEsarUX itself: the pencil changed the copy, the eraser stroke changed it again, \"pt-eraser\" copy = \"pt-pencil\" copy (choosing a tool draws nothing)",
+                            dif(g("pt-pencil")[1], g("pt-open")[1]) > 0 and dif(g("pt-erase")[1], g("pt-eraser")[1]) > 0 and g("pt-eraser")[1] == g("pt-pencil")[1],
+                            f"pencil changed {dif(g('pt-pencil')[1], g('pt-open')[1])} bytes, eraser stroke {dif(g('pt-erase')[1], g('pt-eraser')[1])}"))
+            results.append(("Paint on ZEsarUX itself: Save with no host leaves the picture, PN_DIRTY (1) and the name as they were; the alert showed, then closed",
+                            g("pt-after")[1] == g("pt-erase")[1] and g("pt-after")[3]["PN_DIRTY"] == 1 and g("pt-after")[3]["NAME"] == g("pt-erase")[3]["NAME"] and g("pt-sdlg")[3]["MODAL"] and g("pt-alert")[3]["MODAL"] and not g("pt-after")[3]["MODAL"],
+                            f"modal sdlg/alert/after {g('pt-sdlg')[3]['MODAL']}/{g('pt-alert')[3]['MODAL']}/{g('pt-after')[3]['MODAL']}"))
+            results.append(("Paint on ZEsarUX itself: Edit > Undo restores the copy of \"pt-eraser\" (before the eraser stroke)", g("pt-undo")[1] == g("pt-eraser")[1] and g("pt-undo")[1] != g("pt-erase")[1],
+                            f"Undo changed {dif(g('pt-undo')[1], g('pt-erase')[1])} bytes of the copy"))
 
         c.command("set-memory-zone 19")
         dock_bad = {}
