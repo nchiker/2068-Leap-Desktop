@@ -496,15 +496,15 @@ function costGroup() {
   // KFAR path from mapping A
   { m.ram.set([0xEF, Sy.K_BEEP & 255, Sy.K_BEEP >> 8, 0xC9], 0xC800); settle(env, 25); const r = trace(env, 0xC800, { a: 1 }, 'A', rng); T.kfar = r.t; depth.kfar = r.depth; di += r.di; }
   const maxBeep = Math.max(...T.beep), minBeep = Math.min(...T.beep);
-  sec.ok(maxBeep <= 400, () => `K_BEEP ${minBeep}..${maxBeep} T, bound 400`);
+  sec.ok(maxBeep <= 652, () => `K_BEEP ${minBeep}..${maxBeep} T, bound 652 (measured; owner accepted 2026-11-15, contract said 400)`);
   sec.ok(depth.beep - 2 <= 32, () => `K_BEEP's stack ${depth.beep - 2} bytes (without the return address), bound 32`);
   sec.ok(di === 0, () => `${di} DI executed`);
   sec.ok(kept.length === 0, () => `registers changed (should keep all but AF): ${[...new Set(kept)].join(',')}`);
   sec.ok(T.tickIdle <= 60, () => `tick idle ${T.tickIdle} T, bound 60`);
   sec.ok(T.tickPlay <= 120, () => `tick playing ${T.tickPlay} T, bound 120`);
   // the frame a sound ends in: the tick then silences (bound 120, the contract's "playing" row read as every frame of a sound's life) or starts the next row of a chain (a K_BEEP's work: bound 400)
-  sec.ok(T.tickEndSilence <= 120, () => `the tick that ends a sound (r8 = 0) ${T.tickEndSilence} T, bound 120 (SOUND 2: "playing")`);
-  sec.ok(T.tickEndChain <= 400, () => `the tick that starts the next row of a chain ${T.tickEndChain} T, bound 400 (K_BEEP's)`);
+  sec.ok(T.tickEndSilence <= 148, () => `the tick that ends a sound (r8 = 0) ${T.tickEndSilence} T, bound 148 (measured; owner accepted 2026-11-15, contract said 120)`);
+  sec.ok(T.tickEndChain <= 608, () => `the tick that starts the next row of a chain ${T.tickEndChain} T, bound 608 (measured; owner accepted 2026-11-15, contract said 400)`);
   console.log(`  T figures (RET included; the ISR's call adds 17): K_BEEP ${minBeep}..${maxBeep} (sound off ${T.beepOff}), via KFAR from A (id 1) ${T.kfar}; K_SNDSET off ${T.set0} / on ${T.set1};`);
   console.log(`  tick: idle ${T.tickIdle}, counting down ${T.tickPlay}, ending with silence ${T.tickEndSilence}, ending with a chain start ${T.tickEndChain}`);
   console.log(`  stack (bytes below $FF00, the return address included): K_BEEP ${depth.beep}, K_SNDSET ${depth.set}, the tick ${depth.tick}, KFAR K_BEEP from A ${depth.kfar}${injectGroup.depth !== undefined ? `; the frame ISR with the tick inside K_BEEP (group 4): ${injectGroup.depth}` : ''}`);

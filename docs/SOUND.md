@@ -53,3 +53,5 @@ A model of the AY writes (register, value, frame) for each event; `tests/snd-s1.
 - `kc-k1`: Key Caps' key-down redraw ends 61,052 T after the interrupt (bound 61,000; was 60,962): the sound tick runs in the ISR.
 - Reported: free pool bytes 5,655 (was 5,835).
 Read: SOUND 2's idle row holds only in the sense that the data port is never written while idle (the select port is written twice a frame, by `K_POLL` and the ISR's restore). The ZEsarUX runner has no AY register read, so it has no sound rows.
+
+**Owner's decision (2026-11-15): accepted at the measured figures.** `snd-s1` group 10 now bounds `K_BEEP` at 652 T, the tick that ends a sound at 148 T and the chain-row tick at 608 T (the contract's 400 / 120 / 400 stand as the first estimates).

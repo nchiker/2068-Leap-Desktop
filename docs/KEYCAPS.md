@@ -173,3 +173,5 @@ on TSRun: plain, CAPS SHIFT with `1`, BREAK, and the Symbol Shift radio with `E`
 - **The full redraw** after a change of plane, about 11-12 frames, is reported only.
 - **No more work on Key Caps' speed.**
 
+
+**Owner's decision (2026-11-15):** the single-key redraw bound is reset to the measured 61,052 T (`kc-k1`, was 61,000 T).

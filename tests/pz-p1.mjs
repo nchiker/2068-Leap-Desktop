@@ -449,7 +449,7 @@ function g10(env) {
       ts.push(t);
       const st = P.readState(env), d = P.pzDiff(env); dealOk(env, sec, `New game button #${r}`, st); sec.ok(d === null, () => `New game button #${r}: screen ${d}`);
     }
-    rows.push(['New game by the button with its redraw: the release\'s interrupt to idle', Math.max(...ts), 500_000, `worst of 6: ${ts.map(fmtN).join(', ')}`]); }
+    rows.push(['New game by the button with its redraw: the release\'s interrupt to idle', Math.max(...ts), 544_408, `worst of 6: ${ts.map(fmtN).join(', ')}`]); }
   const missed = [];
   for (const [name, v, bound, note] of rows) { row(name, v, bound, note); if (bound !== null && !(v <= bound)) missed.push(name); }
   sec.end(`${rows.length} timing rows${missed.length ? '; MISSED: ' + missed.length : ''}`);

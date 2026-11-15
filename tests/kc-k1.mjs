@@ -20,7 +20,7 @@ const VERBOSE = argv.includes('--verbose');
 const rng = L.makeRng(SEED);
 const C = checks('kc-k1');
 const FRAME_T = 58688;
-const KEY_T = 61000;   // KEYCAPS 8 (owner, 2026-11-14): a single key's redraw ends within about one frame; several keys at once are reported
+const KEY_T = 61052;   // KEYCAPS 8 (owner, 2026-11-14): a single key's redraw ends within about one frame; several keys at once are reported. 61,000 until the owner accepted the measured 61,052 (2026-11-15)
 const SETTLE = 24;                                          // frames after an input before the screen is compared (a plane change redraws the 42 caps over about 12 frames, KEYCAPS 7; SPACE on a focused radio adds the radio and the status line)
 console.log(`seed ${SEED} (rerun with --seed ${SEED}); random keys ${NKEYS}, random radio actions ${NRADIO}`);
 
