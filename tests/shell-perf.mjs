@@ -30,7 +30,7 @@ H.needSyms(S, H.SHELL_NEEDED);
 // ---- bytes (SHELL 7) ---------------------------------------------------------------------------------------------------------------------------
 {
   const code = S.K_PROGS - S.K_LAUNCH;                                  // K_LAUNCH, K_QUIT; K_PROGS is the cartridge's table that follows
-  const nprog = 3, table = 2 * nprog;                                   // a word per program: the shell, Calculator, Key Caps
+  const nprog = 5, table = 2 * nprog;                                   // a word per program: the shell, Calculator, Key Caps, Notepad, Paint
   row('the launcher\'s bytes in the pool (K_PROGS - K_LAUNCH: K_LAUNCH and K_QUIT; EST 90)', code, 150, `K_LAUNCH ${hex(S.K_LAUNCH)}, K_QUIT ${hex(S.K_QUIT)}, K_PROGS ${hex(S.K_PROGS)}; with the ${nprog}-word program table ${code + table}`);
   // SIZE 2: the pool's FREE bytes (the always-mapped chunks), read from the build, replace step 5's growth bound (BANKING 6.1: 3,400). The reserve is for step 6.
   const c01 = 0x4000 - S.TK2_END;                                       // chunks 0-1: from TK2_END to $4000
