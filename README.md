@@ -36,6 +36,20 @@ node tests/hello.mjs --pgm        # headless test; --pgm writes build/hello.pgm
 python3 -m http.server 8080       # then open http://localhost:8080/web/?cart=hello
 ```
 
+## Credits
+
+Leap Desktop stands on other people's and other projects' work:
+
+- **[TSRun](https://github.com/josef-jelinek/TSRun) by Josef Jelinek** is the TS2068 emulator that every test here runs on and that runs the live page. This repo pins a [fork](https://github.com/nchiker/TSRun) (`tsrun/`, a submodule) with a Kempston mouse and a host file bridge added; the emulator itself, and the idea of testing a TS2068 program headless under Node, are his.
+- **[2068-Leap](https://github.com/nchiker/2068-Leap) (Leap V2, MIT)**: the font table, the kernel conventions and the technology this desktop is built from. **[2068-Leap-IDE](https://github.com/nchiker/2068-Leap-IDE)** and Leap Arcade supplied the DOCK cartridge builder (`tools/mkdck.mjs`), the fast-boot test helper and the proof of TSRun's silent-AY speed-up. Each copied file is listed in [`docs/PROVENANCE.md`](docs/PROVENANCE.md).
+- **[2068-TSPico-Study](https://github.com/nchiker/2068-TSPico-Study)**: the shape of the file interface (open, read, write, close by name) follows TS-Pico's channel calls.
+- **[zxdesk](https://github.com/mindbox77/zxdesk) by Damian Cooper (MIT)**, a desktop for the 48K Spectrum: read for ideas (timing method, relocatable programs, interrupt-safe fills). No code was copied.
+- **[ZEsarUX](https://github.com/chernandezba/zesarux)** and **[Fuse](https://fuse-emulator.sourceforge.net/)** (the Free Unix Spectrum Emulator) for the cross-emulator checks, **[sjasmplus](https://github.com/z00m128/sjasmplus)** for the assembler, and **[marked](https://github.com/markedjs/marked)** (MIT) for rendering the technical document on the site.
+- **The TS2068 Technical Manual** (Timex) is the hardware reference; it is not distributed here.
+- The look is inspired by the original Macintosh's, and Paint by MacPaint; GEOS is the older inspiration for a desktop on an 8-bit machine. All bitmaps here are drawn for this project.
+
+Leap Desktop's own code and documents are under the [MIT License](LICENSE). The submodule and the vendored ROMs keep their own terms: TSRun carries no licence file of its own, and its ROM files are described in `tsrun/roms/README.md` (the TS2068 ROMs are free for non-commercial use or abandonware; the Leap ROMs are MIT). This is an independent community project, not affiliated with Timex, Sinclair, Amstrad, Apple, Fuse or ZEsarUX.
+
 ## Reused code
 
 Code copied from the other Leap projects is listed, with source commits, in [`docs/PROVENANCE.md`](docs/PROVENANCE.md). Leap V2

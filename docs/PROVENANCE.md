@@ -18,5 +18,5 @@ changed. Leap V2 (`~/2068-Leap`) is frozen.
 |---|---|---|---|
 | `tsrun/` | https://github.com/nchiker/TSRun (fork of josef-jelinek/TSRun) | `6ccf56e` | Leap-IDE's pin (`9893b46`) plus two local commits for Leap Desktop: the Kempston mouse (`d9302b8`, step 4) and the host bridge on ports `$6D` / `$6F` (`b4dc564`, `docs/FILES.md` 4.1). Both are off by default (`m.mouse.attached`, `m.host`), so Leap-IDE's behaviour is unchanged. Pushed to the fork (2026-11-13). Moved on to `6ccf56e` (2026-11-14, TESTSPEED S3): the fork's main, `b4dc564` plus Arcade's closed-form silent AY (`ay.js` only) |
 
-TSRun's own code has no licence file in the fork. Its ROM licences are in `tsrun/roms/README.md` (TS2068 ROMs: free for
+TSRun was written by Josef Jelinek (https://github.com/josef-jelinek/TSRun); `nchiker/TSRun` is a fork of it (credited in the README, "Credits"). TSRun's own code has no licence file in the fork or upstream. Its ROM licences are in `tsrun/roms/README.md` (TS2068 ROMs: free for
 non-commercial use / abandonware). This repo uses TSRun as a submodule and does not copy it.

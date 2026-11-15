@@ -1,6 +1,7 @@
 {
   "name": "leap-desktop",
   "private": true,
+  "license": "MIT",
   "description": "Leap Desktop: only the site generator's dependency (tools/pages-prep.mjs); the emulator tests have none",
   "devDependencies": {
     "marked": "15.0.12"
