@@ -124,10 +124,14 @@ G_ICON:
     ld de,(GA+2)
     or a
     sbc hl,de                       ; the clipped-off rows
+    ld a,h
+    or l
+    jr z,.nr                        ; none (the common case): no multiplication
     ld a,(GI_S)
     ld e,a
     ld d,0
     call mul16                      ; HL = rows x stride
+.nr:
     ld a,(GI_OFF)
     ld e,a
     ld d,0
@@ -135,6 +139,80 @@ G_ICON:
     ld de,(GA+8)
     add hl,de
     ld (GI_BP),hl                   ; the first drawn row's first drawn byte
+    ld a,(PF_ML)                    ; the fast path: whole bytes at both ends, no column cut off the bitmap's rows (the common case: an icon inside the clip)
+    ld hl,PF_MR
+    and (hl)
+    inc a
+    jr nz,.row
+    ld a,(GI_OFF)
+    or a
+    jr nz,.row
+    ld a,(PF_N)
+    ld hl,GI_S
+    cp (hl)
+    jr nz,.row
+    ld hl,(GI_BP)                   ; HL walks the bitmap: every row is N bytes, packed
+.fr:
+    push hl
+    ld a,(PF_Y)
+    ld l,a
+    ld h,ROWTAB>>9
+    add hl,hl
+    ld a,(hl)
+    inc l
+    ld h,(hl)
+    ld l,a                          ; HL = the row's base (file 1)
+    ld a,(PF_C0)
+    ld d,h
+    ld e,l
+    srl a
+    jr nc,.g1
+    set 5,d
+.g1:
+    or e
+    ld e,a                          ; DE = the first screen byte
+    pop hl
+    ld a,(PF_N)
+    ld b,a
+    bit 5,d
+    jr z,.ev
+    ld a,(hl)                       ; an odd first column (file 2): one byte, then pairs from an even column
+    ld (de),a
+    inc hl
+    res 5,d
+    inc e
+    dec b
+    jr z,.fd
+.ev:
+    ld c,b
+    srl b
+    jr z,.np
+.pr:
+    ld a,(hl)                       ; a pair: an even column (file 1), the odd one after it (file 2, the same offset)
+    ld (de),a
+    inc hl
+    set 5,d
+    ld a,(hl)
+    ld (de),a
+    inc hl
+    res 5,d
+    inc e
+    djnz .pr
+.np:
+    bit 0,c
+    jr z,.fd
+    ld a,(hl)
+    ld (de),a
+    inc hl
+.fd:
+    ld a,(PF_Y)
+    inc a
+    ld (PF_Y),a
+    ld c,a
+    ld a,(PF_YE)
+    cp c
+    jp nz,.fr
+    ret
 .row:
     ld a,(PF_Y)
     ld l,a
