@@ -337,4 +337,30 @@ choice of a tool or the next stroke whose box fits the undo area (`PN_MSG`).
 **Measured (TSRun, 2026-11-14, `tests/pt-p1.mjs` group 9):** the pencil step 18,596 T from the frame ISR to the HALT (bound 58,000), `pn_seg` 11,327; the commit 115,653 (4 x 9 box), 168,035 (32 x 64), 144,123 (too big)
 (bound 260,000); **Undo of a 2,016-byte box 263,667 T (bound 150,000: MISSED by 113,667)**; **a fully exposed canvas 582,978 T (bound 330,000: MISSED by 252,978; the kernel's cell repaint also redraws the
 tool box and the label, about 100-170 k of it)**; Save 947,157 T and Open 1,054,422 T (EST 400 k / 450 k); the question closing over the canvas 337,015; stack at most 86 bytes; 0 frames lost; Paint's
-variables end at `$C246`, 378 bytes below `AL_RAM`. Awaiting the owner's decision on the two missed bounds (section 16 of the report to the owner: accept the measured figures, or speed up).
+variables end at `$C246`, 378 bytes below `AL_RAM`. Awaiting the owner's decision on the two missed bounds (accept the measured figures, or speed up).
+
+
+## 16. As built: P2a, patterns, brushes and the spray (2026-11-15; the reference for the tests)
+
+**`G_PATFILL`** (`src/gfx6/patfill.asm`, DOCK 6, mapping R; with `PATTAB`): GA = x, y, w, h and GA+8 = a pointer to 8 pattern bytes in DOCK 6, `GOP`: **0 SET** (ink where the pattern bit is 1:
+`dst OR bits`), **1 CLR** (`dst AND NOT bits`), **2 XOR**, **3 REPLACE** (`dst = (dst AND NOT mask) OR bits`, the pattern's ink and paper). The rectangle is clipped to the clip (GCLIP) and the
+screen; an empty or negative w / h draws nothing. The pattern is anchored to the screen: the pixel (x, y) takes bit 7 - (x AND 7) of byte (y AND 7). GA is kept; it clobbers `$E050-$E057` (the moved
+routines' scratch). Pool bytes: 0. `PATTAB`: 16 patterns of 8 bytes, in the order of the mock-up (solid, 75 %, 50 % checker, 25 %, 12 %, horizontal lines, vertical lines, diagonal, dots, bricks,
+cross-hatch, large dots, weave, 2 x 2 checker, back diagonal, white); see `tools/paint-mock.mjs` `PATS` for the bytes.
+
+**The palettes** (class `Palette`, by the view's id): the **patterns** (id 2, (55, 112, 66, 50)): swatch p (0-15, row-major, 4 columns) at (56 + 16 (p AND 3), 113 + 12 (p >> 2)), 16 x 12: a
+`G_PATFILL` REPLACE of pattern p; then `G_FRAME` (x - 1, y - 1, 17, 13) in SET; the chosen pattern (`PN_PAT`, 0 at start) also gets `G_FRAME` (x, y, 16, 12). A press chooses it. The **brushes**
+(id 3, (55, 164, 66, 18)): cell b (0-3) at (56 + 16 b, 165), 16 x 16: the brush's rectangles drawn in SET about the centre (x + 8, y + 8), `G_FRAME` (x - 1, y - 1, 17, 17), the chosen brush
+(`PN_BRUSH`, 1 at start) inverted (XOR fill (x, y, 16, 16)). A press chooses it. The window's children are now: tool box (1), patterns (2), brushes (3), canvas (4), status label (5).
+
+**The brushes** (`PN_B0`-`PN_B3`, rectangles (dx, dy, w, h) about the stamp's centre): 0 round small (-2, -1, 5, 3), (-1, -2, 3, 5); 1 round large (-4, -2, 9, 5), (-3, -3, 7, 7), (-2, -4, 5, 9);
+2 square (-3, -3, 6, 6); 3 diagonal (-4, 2, 3, 2), (-2, 0, 3, 2), (0, -2, 3, 2), (2, -4, 3, 2).
+
+**The tools now drawing:** Pencil (1), **Brush (2)**, Eraser (3), **Spray (4)**; the others say "Not built yet".
+- **Brush:** the walk of section 15 with a stamp after every **2nd** step (the step count AND 1 = 0; the eraser's: AND 3 = 0) and at the end; a stamp is each rectangle of the chosen brush, `G_PATFILL` REPLACE
+  with the chosen pattern (the rectangles in the table's order; every rectangle at (x + dx, y + dy)).
+- **Spray:** a burst at the pointer on the press, on every `E_MOVE` and on every frame without an event while the button is held (`pn_idle`, at the last point): 12 candidates; each draws two random
+  numbers dx = (r1 AND $1F) - 16 and dy = (r2 AND $0F) - 8 (`pn_rnd`: a 16-bit Galois LFSR, mask $B400, 8 shifts a byte, the byte being the low byte of the state after them; the state starts at $ACE1 at
+  launch); the candidate is drawn when |dx| <= SPT[|dy|] with SPT = 16, 15, 15, 14, 13, 12, 10, 7, 0 (|dy| 0..8), as a 1 x 1 `G_PATFILL` in SET at (x + dx, y + dy) with the chosen pattern (so
+  only the pattern's ink shows). The random numbers are drawn for every candidate, accepted or not.
+- **The stroke's box margin** (byte columns, rows): pencil 0, 0; brush and eraser 1, 4; spray 2, 8 (`PN_PADC`, `PN_PADR`); each point of the stroke (every walk stamp point, the spray's centre) grows the box by that margin, clamped.

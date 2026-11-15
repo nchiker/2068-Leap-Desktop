@@ -25,6 +25,18 @@
 //      holding "Untitled"); DELETE x8, "t1": "w3-name"; ENTER (Save: FS_OPEN fails): "w3-alert" (the alert "The file could not be saved."); ENTER (OK): "w3-after" (the document, its name "Untitled" and WR_CHG unchanged: the screen
 //      is reported against "w3-typed"); SYMBOL SHIFT + Q: "w3-discard" (the discard dialog); ENTER (Discard): "w3-back" (K_PROG 0, = "shell").  Extra data per checkpoint: the document's codes (hex), WR_NAME (length byte and codes, hex),
 //      WR_TITLE (hex), WR_CHG, WR_DK (the dialog open: 0 none, 1 Save, 2 the alert), whether WR_SDLG / WR_ADLG are made (non-zero), and the document counters of 6.
+//   10. (docs/PAINT.md 15; only when the build has the Paint symbols PN_PIC, PN_TOOL, PN_DIRTY, PN_UNDO, PN_UB0, PN_NAME, PN_TITLE, PN_LBL) the Paint session.  No mouse is attached (the Kempston ports read $FF, as in the
+//      other sessions and on ZEsarUX, which has no ZRCP command for its Kempston mouse), so the POINTER IS DRIVEN BY THE KEYBOARD: keyboard-pointer mode (CAPS SHIFT + SYMBOL SHIFT toggles it; Q / A / O / P move the
+//      pointer, SPACE is the button; OBJECTS_EVENTS 14.3).  Every key set is held for an exact number of frames (a step [label, keys, n]: the keys down exactly as listed, n frames), so the pointer's acceleration
+//      and the strokes are the same on any emulator that polls the keys once a frame.  From the shell: TAB x3 (CS + 1; the fourth icon), ENTER (K_PROG 4, the pointer at (256, 96), inside the picture, the Pencil
+//      chosen): "pt-open"; kp mode on, O 14 frames, SPACE 2, then four 8-frame segments with SPACE + P + A / Q alternating (a pencil zig-zag), SPACE released: "pt-pencil" (PN_DIRTY 1, Undo enabled); O 40 frames,
+//      Q 12 frames (the pointer on the Eraser's cell), SPACE tapped 3 frames: "pt-eraser" (PN_TOOL 3, the status reads "Eraser"); P + A 20 frames (back into the picture), SPACE down, two 8-frame segments with
+//      SPACE + P + A / Q (the eraser across the first segments), released: "pt-erase" (the copy has changed, Undo box = the stroke's); kp mode off, MENU (CS + 9), DOWN x2, ENTER (File > Save...): "pt-sdlg" (the name dialog,
+//      "Untitled"); ENTER (Save: no host attached, so the alert "Cannot save the picture."): "pt-alert"; ENTER (OK): "pt-after" (the picture and PN_DIRTY unchanged; no file reached any host: m.host is unset);
+//      MENU, RIGHT, ENTER (Edit > Undo): "pt-undo" (the copy equals "pt-eraser"'s again); SYMBOL SHIFT + Q (the picture is dirty: the discard question): "pt-discard"; ENTER (Discard): "pt-back" (K_PROG 0; NOT equal to
+//      "shell": the pointer has moved).  Extra files per checkpoint: NAME.pic (Paint's picture copy PN_PIC: 4 header + 5,760 bytes; the address is read from the variable PN_PIC) and NAME.und (the undo area from $5800,
+//      the box's nc x nr bytes when PN_UNDO is 1, else empty); extra data: the pointer (K_PX, K_PY, K_BTN, K_KPMODE), PN_TOOL, PN_DIRTY, PN_UNDO, the box, the File / Edit enable words, PN_NAME, PN_TITLE (hex),
+//      the status line text, whether a dialog is modal.
 // Per checkpoint NAME: NAME.bin (display RAM: $4000-$57FF then $6000-$77FF, 12,288 bytes), NAME.pbm (rendered 512x192, P4, 1 = ink),
 // NAME.json (display string, K_PROG, V_FRAMES, K_PX, K_PY, frame counts).  Also keys.json (the typed keys, display string after each key,
 // K_PROG after each step) for the other runners.
@@ -352,10 +364,87 @@ if (['WR_FN', 'WR_FCODES', 'WR_LCK', 'WR_DK', 'WR_AN', 'WR_MK', 'WR_CLN', 'WR_BU
     kprog: { open: open.K_PROG, typed: typed.K_PROG, fdlg: fdlg.K_PROG, found: found.K_PROG, again: again.K_PROG, again2: again2.K_PROG, fdlg2: fdlg2.K_PROG, notfound: notfound.K_PROG, after: after.K_PROG, discard: disc.K_PROG, back: back.K_PROG },
     backEqShell: backEq, afterEqAgain2 };
 } else console.log('w4 session: skipped (the build has no Write W4 symbols)');
+// 10. the Paint session (docs/PAINT.md 15): the pointer by keyboard-pointer mode, every key set held for an exact number of frames (see the header)
+let pt = null;
+if (['PN_PIC', 'PN_TOOL', 'PN_DIRTY', 'PN_UNDO', 'PN_UB0', 'PN_UBN', 'PN_UR0', 'PN_URN', 'PN_NAME', 'PN_TITLE', 'PN_LBL', 'Label_text', 'W_MODAL', 'MB_ENT', 'ME_SIZE', 'ME_EN', 'K_KPMODE', 'K_BTN'].every((n) => S[n] !== undefined)) {
+  const MENUK = keymap.get(16) ?? [CS, [4, 1]], RIGHTK = keymap.get(9) ?? [CS, [4, 2]];
+  const KA = [1, 0], KO = [5, 1];
+  const chord = (label, keys) => [[label, keys, 3], ['', [], 3]];             // a key (chord) held 3 frames, released 3 frames, as `press`
+  const T_OPEN = [...chord('TAB', TAB), ...chord('TAB', TAB), ...chord('TAB', TAB)];
+  const T_ENTER = chord('ENTER', [ENTER]);
+  const T_PENCIL = [...chord('kp on (CS+SS)', [CS, SS]), ['left', [KO], 14], ['', [], 2], ['press', [KSPACE], 2],
+    ['zig0', [KSPACE, KP, KA], 8], ['zig1', [KSPACE, KP, KQQ], 8], ['zig2', [KSPACE, KP, KA], 8], ['zig3', [KSPACE, KP, KQQ], 8], ['release', [], 3]];
+  const T_ERASER = [['to the Eraser x', [KO], 40], ['', [], 2], ['to the Eraser y', [KQQ], 12], ['', [], 2], ['tap', [KSPACE], 3], ['', [], 4]];
+  const T_ERASE = [['into the picture', [KP, KA], 20], ['', [], 2], ['press', [KSPACE], 2], ['erase0', [KSPACE, KP, KA], 8], ['erase1', [KSPACE, KP, KQQ], 8], ['release', [], 4]];
+  const T_SAVE = [...chord('kp off (CS+SS)', [CS, SS]), ...chord('MENU', MENUK), ...chord('DOWN', DOWN), ...chord('DOWN', DOWN), ...chord('ENTER', [ENTER])];
+  const T_UNDO = [...chord('MENU', MENUK), ...chord('RIGHT', RIGHTK), ...chord('ENTER', [ENTER])];
+  const T_CLOSE = chord('SS+Q', CLOSEKEYS);
+  const kdown = [];                                                            // the keys held now, as 'r,b' strings
+  const playSteps = (steps) => {
+    for (const [, keys, n] of steps) {
+      const want = new Set(keys.map((k) => k.join()));
+      for (const h of [...kdown]) if (!want.has(h)) { const [r, b] = h.split(',').map(Number); m.keyMatrix[r] |= 1 << b; kdown.splice(kdown.indexOf(h), 1); }
+      for (const [r, b] of keys) { m.keyMatrix[r] &= ~(1 << b); if (!kdown.includes(`${r},${b}`)) kdown.push(`${r},${b}`); }
+      run(n);
+    }
+  };
+  const hex = (a, n) => Buffer.from(m.ram.subarray(a, a + n)).toString('hex');
+  const str = (a) => (a ? String.fromCharCode(...m.ram.subarray(a + 1, a + 1 + Math.min(m.ram[a], 40))) : '');
+  const menuWord = (i) => rd16(m, S.MB_ENT + S.ME_SIZE * i + S.ME_EN);
+  const ptvars = () => ({ K_PX: rd16(m, S.K_PX), K_PY: m.ram[S.K_PY], K_BTN: m.ram[S.K_BTN], K_KPMODE: m.ram[S.K_KPMODE], PN_TOOL: m.ram[S.PN_TOOL], PN_DIRTY: m.ram[S.PN_DIRTY], PN_UNDO: m.ram[S.PN_UNDO],
+    BOX: [m.ram[S.PN_UB0], m.ram[S.PN_UBN], m.ram[S.PN_UR0], m.ram[S.PN_URN]], FILE_EN: menuWord(0) & 0x1F, EDIT_EN: menuWord(1) & 3, NAME: hex(S.PN_NAME, 1 + Math.min(m.ram[S.PN_NAME], 30)),
+    TITLE: hex(S.PN_TITLE, 1 + Math.min(m.ram[S.PN_TITLE], 41)), STATUS: str(rd16(m, rd16(m, S.PN_LBL) + S.Label_text)), MODAL: rd16(m, S.W_MODAL) !== 0, PIC: rd16(m, S.PN_PIC) });
+  const picOf = () => { const a = rd16(m, S.PN_PIC); return Buffer.from(m.ram.subarray(a, a + 4 + 5760)); };
+  const undoOf = () => (m.ram[S.PN_UNDO] ? Buffer.from(m.ram.subarray(0x5800, 0x5800 + Math.min(m.ram[S.PN_UBN] * m.ram[S.PN_URN], 2048))) : Buffer.alloc(0));
+  const ptDump = (name, extra, maxSettle = 120) => {
+    const settled = settle(maxSettle);
+    const d = dump(name, settled);
+    const v = ptvars();
+    const pic = picOf(), und = undoOf();
+    writeFileSync(join(outDir, `${name}.pic`), pic);
+    writeFileSync(join(outDir, `${name}.und`), und);
+    console.log(`  ${name}: pointer (${v.K_PX}, ${v.K_PY}) button ${v.K_BTN} kp ${v.K_KPMODE}; tool ${v.PN_TOOL}, dirty ${v.PN_DIRTY}, undo ${v.PN_UNDO} box ${v.BOX}, status "${v.STATUS}", modal ${v.MODAL}; copy ${pic.length} bytes, undo area ${und.length} bytes`);
+    return { ...d, v, pic, und, settled, ...extra };
+  };
+  const hostNone = m.host === null || m.host === undefined;
+  const steps = { open: [...T_OPEN, ...T_ENTER], pencil: T_PENCIL, eraser: T_ERASER, erase: T_ERASE, save: T_SAVE, undo: T_UNDO, close: T_CLOSE };
+  playSteps(T_OPEN); playSteps(T_ENTER);
+  const up = untilProg(4);
+  run(30);
+  const open = ptDump('pt-open', {}, 300);
+  playSteps(T_PENCIL); const pencil = ptDump('pt-pencil');
+  playSteps(T_ERASER); const eraser = ptDump('pt-eraser');
+  playSteps(T_ERASE); const erase = ptDump('pt-erase');
+  playSteps(T_SAVE); const sdlg = ptDump('pt-sdlg');
+  playSteps(chord('ENTER', [ENTER])); const alert = ptDump('pt-alert');
+  playSteps(chord('ENTER', [ENTER])); const after = ptDump('pt-after');
+  playSteps(T_UNDO); const undo = ptDump('pt-undo');
+  playSteps(T_CLOSE); const discard = ptDump('pt-discard', {}, 300);
+  playSteps(chord('ENTER', [ENTER])); const backUp = untilProg(0); run(30); const back = ptDump('pt-back', {}, 300);
+  const backEqShell = same(rd_('pt-back'), rd_('shell'));
+  const all = [open, pencil, eraser, erase, sdlg, alert, after, undo, discard];
+  const names = ['pt-open', 'pt-pencil', 'pt-eraser', 'pt-erase', 'pt-sdlg', 'pt-alert', 'pt-after', 'pt-undo', 'pt-discard'];
+  const distinct = names.every((n, i) => i === 0 || !same(rd_(n), rd_(names[i - 1])));
+  const diff = (a, b) => { let n = 0; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) n++; return a.length === b.length ? n : -1; };
+  const nameU = Buffer.from('\x08Untitled', 'latin1').toString('hex');
+  const copyChanged = { pencil: diff(pencil.pic, open.pic), erase: diff(erase.pic, eraser.pic), undo: diff(undo.pic, erase.pic), undoVsEraser: diff(undo.pic, eraser.pic), afterVsErase: diff(after.pic, erase.pic) };
+  const okPt = hostNone && up && backUp && back.settled && all.every((x) => x.settled && x.K_PROG === 4) && back.K_PROG === 0 && distinct &&
+    open.v.PN_TOOL === 1 && open.v.PN_DIRTY === 0 && open.v.PN_UNDO === 0 && open.v.K_KPMODE === 0 && open.v.K_PX === 256 && open.v.K_PY === 96 && open.v.NAME === nameU &&
+    pencil.v.K_KPMODE === 1 && pencil.v.PN_DIRTY === 1 && pencil.v.PN_UNDO === 1 && pencil.v.K_BTN === 0 && copyChanged.pencil > 0 &&
+    eraser.v.PN_TOOL === 3 && eraser.v.STATUS === 'Eraser' && diff(eraser.pic, pencil.pic) === 0 &&
+    erase.v.PN_UNDO === 1 && copyChanged.erase > 0 && erase.und.length > 0 &&
+    sdlg.v.K_KPMODE === 0 && sdlg.v.MODAL && sdlg.v.NAME === nameU && alert.v.MODAL && !after.v.MODAL && after.v.PN_DIRTY === 1 && after.v.NAME === nameU && copyChanged.afterVsErase === 0 &&
+    copyChanged.undoVsEraser === 0 && copyChanged.undo > 0 && undo.v.PN_UNDO === 1 && discard.v.MODAL;
+  console.log(`paint session (m.host unset: ${hostNone}): kp mode and pointer after the pencil ${pencil.v.K_KPMODE}/(${pencil.v.K_PX}, ${pencil.v.K_PY}); copy bytes changed: pencil ${copyChanged.pencil}, eraser stroke ${copyChanged.erase}, ` +
+    `Undo vs "pt-erase" ${copyChanged.undo}, Undo vs "pt-eraser" ${copyChanged.undoVsEraser}, "pt-after" vs "pt-erase" ${copyChanged.afterVsErase}; pt-back equals shell ${backEqShell} (the pointer has moved, so it is not required)`);
+  pt = { ok: okPt, steps, vars: Object.fromEntries(['open', 'pencil', 'eraser', 'erase', 'sdlg', 'alert', 'after', 'undo', 'discard', 'back'].map((k, i) => [k, [open, pencil, eraser, erase, sdlg, alert, after, undo, discard, back][i].v])),
+    kprog: Object.fromEntries(['open', 'pencil', 'eraser', 'erase', 'sdlg', 'alert', 'after', 'undo', 'discard', 'back'].map((k, i) => [k, [open, pencil, eraser, erase, sdlg, alert, after, undo, discard, back][i].K_PROG])),
+    copyChanged, backEqShell };
+} else console.log('paint session: skipped (the build has no Paint symbols)');
 const kcKeys = { tabIcon: KC_OPEN[0][1], enter: KC_OPEN[1][1], q: KC_Q, ss: KC_SS, radio: KC_RADIO, close: CLOSEKEYS };
 
 writeFileSync(join(outDir, 'keys.json'), JSON.stringify({ seq: SEQ.map((s) => s[0]), afterKey, expect: EXPECT, kprog, kc: kcKeys, kcKprog: { kc: kc.K_PROG, q: kcq.K_PROG, ss: kcss.K_PROG, radio: kcr.K_PROG, back2: back2.K_PROG }, back2EqShell,
-  wr: { open: WR_OPEN, typed: WR_TYPED, edit: WR_EDIT, close: CLOSEKEYS, enter: [ENTER], text: WR_PARA, vars: { open: wrOpenV, typed: wrTypedV, edit: wrEditV }, kprog: { open: wrOpen.K_PROG, typed: wrTyped.K_PROG, edit: wrEdit.K_PROG, dialog: wrDlg.K_PROG, back: wrBack.K_PROG }, backEqShell: wrBackEqShell }, w2, w3, w4 }) + '\n');
+  wr: { open: WR_OPEN, typed: WR_TYPED, edit: WR_EDIT, close: CLOSEKEYS, enter: [ENTER], text: WR_PARA, vars: { open: wrOpenV, typed: wrTypedV, edit: wrEditV }, kprog: { open: wrOpen.K_PROG, typed: wrTyped.K_PROG, edit: wrEdit.K_PROG, dialog: wrDlg.K_PROG, back: wrBack.K_PROG }, backEqShell: wrBackEqShell }, w2, w3, w4, pt }) + '\n');
 console.log('display after each key: ' + afterKey.map(([k, s]) => `${k}:"${s}"`).join(' '));
 const backEqShell = same(rd_('back'), rd_('shell'));
 console.log(`back screen equals shell screen byte for byte: ${backEqShell}`);
@@ -364,7 +453,7 @@ const ok = shellUp && shellSettled && shell.K_PROG === 0 && calcUp && calcSettle
   !same(rd_('shell'), rd_('calc')) && !same(rd_('calc'), rd_('typed')) &&
   kcUp && kcSettled && kc.K_PROG === 2 && kcqSettled && kcq.K_PROG === 2 && kcssSettled && kcss.K_PROG === 2 && kcrSettled && kcr.K_PROG === 2 &&
   back2Up && back2Settled && back2.K_PROG === 0 &&
-  ['kc', 'kc-q', 'kc-ss', 'kc-radio'].every((n, i, a) => i === 0 || !same(rd_(n), rd_(a[i - 1]))) && wrOk && (w2 === null || w2.ok) && (w3 === null || w3.ok) && (w4 === null || w4.ok);
+  ['kc', 'kc-q', 'kc-ss', 'kc-radio'].every((n, i, a) => i === 0 || !same(rd_(n), rd_(a[i - 1]))) && wrOk && (w2 === null || w2.ok) && (w3 === null || w3.ok) && (w4 === null || w4.ok) && (pt === null || pt.ok);
 console.log(`key caps session: kc/kc-q/kc-ss/kc-radio K_PROG ${kc.K_PROG}/${kcq.K_PROG}/${kcss.K_PROG}/${kcr.K_PROG}, back2 K_PROG ${back2.K_PROG}, back2 equals shell ${back2EqShell}`);
 console.log(`${ok ? 'PASS' : 'FAIL'}: desk5 reference: shell up after ${framesToShell} frames (settled ${shellSettled}), calc "${calc.display}" K_PROG ${calc.K_PROG}, typed "${typed.display}" (expected "${EXPECT}") K_PROG ${typed.K_PROG}, ` +
   `back K_PROG ${back.K_PROG} = shell ${backEqShell}, rendered-vs-RAM mismatches ${mismatch}; written to ${outDir}`);

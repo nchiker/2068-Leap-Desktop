@@ -46,6 +46,8 @@ PN_START:
     call pn_nm                      ; "Untitled" and the title
     pop hl
     call AL_VIEW                    ; the tool box
+    call AL_VIEW                    ; the patterns
+    call AL_VIEW                    ; the brushes
     call AL_VIEW                    ; the canvas
     ld (PN_CV),de
     push hl                         ; (the next table entry)
@@ -61,11 +63,15 @@ PN_START:
     KFAR K_MSET
     ld a,1
     ld (PN_TOOL),a                  ; the pencil
+    ld (PN_BRUSH),a                 ; the large round brush
+    ld hl,$ACE1
+    ld (PN_RND),hl                  ; the spray's random numbers (never 0)
     call pn_status
 pn_loop:
     call K_GETEV
     jr nc,.ev
     halt
+    call pn_idle
     jr pn_loop
 .ev:
     cp E_MENU
@@ -199,8 +205,23 @@ pn_say:
 ; View_y + 1 + 16 (t >> 1)); a cell is the tool's 16 x 16 icon in the middle, a frame 1 pixel outside (neighbours share it), and the chosen
 ; tool's cell inverted.
 
-; pn_pdraw: Palette's M_DRAW (IX = the view).
+; pn_pdraw / pn_pevent: Palette's M_DRAW and M_EVENT (IX = the view): by its id, 1 the tool box, 2 the patterns, 3 the brushes.
 pn_pdraw:
+    ld a,(ix+View_id)
+    dec a
+    jr z,pn_tdraw
+    dec a
+    jp z,pn_patdraw
+    jp pn_brdraw
+pn_pevent:
+    ld a,(ix+View_id)
+    dec a
+    jp z,pn_tevent
+    dec a
+    jp z,pn_patevent
+    jp pn_brevent
+
+pn_tdraw:
     KFAR w_clear
     xor a
     ld (PN_T),a
@@ -290,8 +311,8 @@ pn_cellxy:
     ld (PN_CY),hl
     ret
 
-; pn_pevent: Palette's M_EVENT (DE = K_EV; carry = consumed).  A press on a cell chooses that tool.
-pn_pevent:
+; pn_tevent: the tool box's events (DE = K_EV; carry = consumed).  A press on a cell chooses that tool.
+pn_tevent:
     ex de,hl
     ld a,(hl)
     inc hl
@@ -356,6 +377,351 @@ pn_pevent:
     call pn_status
     pop ix
     scf
+    ret
+
+
+; pn_xy: DE = K_EV: the pointer into PN_NX (x), PN_NY (y); A = the type.  Clobbers F, B, C, D, E, HL.
+pn_xy:
+    ex de,hl
+    ld b,(hl)
+    inc hl
+    ld c,(hl)
+    inc hl
+    ld d,(hl)
+    inc hl
+    ld a,(hl)
+    and 1
+    ld h,a
+    ld l,c
+    ld (PN_NX),hl
+    ld a,d
+    ld (PN_NY),a
+    ld a,b
+    ret
+
+; pn_cell: A = the cell's width in bits (shift: 4 = 16, 5 = 32), IX = a Palette: for a press (PN_NX, PN_NY) the cell offsets: B = the column, C = the row
+; offset (the pixels below the cells' top); NC when the press is left of or above the cells or past 64 pixels.  Clobbers AF, DE, HL.
+pn_cell:
+    ld hl,(PN_NX)
+    ld e,(ix+View_x)
+    ld d,(ix+View_x+1)
+    inc de
+    or a
+    sbc hl,de
+    ret c
+    ld a,h
+    or a
+    jr nz,.no
+    ld a,l
+    cp 64
+    jr nc,.no
+    rrca
+    rrca
+    rrca
+    rrca
+    and $0F                         ; the 16-pixel column
+    ld b,a
+    ld a,(ix+View_y)
+    inc a
+    ld c,a
+    ld a,(PN_NY)
+    sub c
+    ld c,a                          ; the row offset (carry: above)
+    ret
+.no:
+    scf
+    ret
+
+; The pattern palette (PAINT 7): 4 x 4 swatches of 16 x 12 at (56 + 16 c, 113 + 12 r), pattern 4 r + c, each a G_PATFILL (REPLACE) of its pattern in
+; a frame 1 pixel outside (neighbours share it); the chosen swatch has a second frame just inside.  A press chooses a pattern.
+pn_patdraw:
+    KFAR w_clear
+    xor a
+    ld (PN_T),a
+.s:
+    ld a,(PN_T)
+    ld c,a
+    and 3
+    add a,a
+    add a,a
+    add a,a
+    add a,a                         ; 16 c
+    ld e,a
+    ld d,0
+    ld l,(ix+View_x)
+    ld h,(ix+View_x+1)
+    inc hl
+    add hl,de
+    ld (PN_CX),hl
+    ld a,c
+    and $0C                         ; 4 r
+    ld e,a
+    add a,a
+    add a,e                         ; 12 r
+    add a,(ix+View_y)
+    inc a
+    ld l,a
+    ld h,0
+    ld (PN_CY),hl
+    ld hl,(PN_CX)                   ; the pattern: (x, y, 16, 12), REPLACE
+    ld (GA),hl
+    ld hl,(PN_CY)
+    ld (GA+2),hl
+    ld hl,16
+    ld (GA+4),hl
+    ld hl,12
+    ld (GA+6),hl
+    ld a,3
+    ld (GOP),a
+    ld a,(PN_T)
+    call pn_patptr
+    ld (GA+8),hl
+    KFAR G_PATFILL
+    xor a
+    ld (GOP),a
+    ld hl,(PN_CX)                   ; the frame (x - 1, y - 1, 17, 13)
+    dec hl
+    ld (GA),hl
+    ld hl,(PN_CY)
+    dec hl
+    ld (GA+2),hl
+    ld hl,17
+    ld (GA+4),hl
+    ld hl,13
+    ld (GA+6),hl
+    KFAR G_FRAME
+    ld a,(PN_PAT)
+    ld hl,PN_T
+    cp (hl)
+    jr nz,.n
+    ld hl,(PN_CX)                   ; the chosen one: a second frame (x, y, 16, 12)
+    ld (GA),hl
+    ld hl,(PN_CY)
+    ld (GA+2),hl
+    ld hl,16
+    ld (GA+4),hl
+    ld hl,12
+    ld (GA+6),hl
+    KFAR G_FRAME
+.n:
+    ld hl,PN_T
+    inc (hl)
+    ld a,(hl)
+    cp 16
+    jp c,.s
+    ret
+
+; pn_patptr: A = a pattern (0-15) -> HL = its 8 bytes in DOCK 6 (PATTAB).  Clobbers AF, DE.
+pn_patptr:
+    ld l,a
+    ld h,0
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    ld de,PATTAB
+    add hl,de
+    ret
+
+; pn_patevent: a press on a swatch chooses that pattern (DE = K_EV; carry = consumed).
+pn_patevent:
+    call pn_xy
+    cp E_DOWN
+    jr nz,.up
+    call pn_cell
+    jr c,.c
+    ld a,c
+    cp 48
+    jr nc,.c
+    ld c,0
+.r:
+    cp 12
+    jr c,.rd
+    sub 12
+    inc c
+    jr .r
+.rd:
+    ld a,c
+    add a,a
+    add a,a
+    add a,b                         ; 4 r + c
+    ld hl,PN_PAT
+    cp (hl)
+    jr z,.c
+    ld (hl),a
+    KFAR W_DRAWVIEW
+.c:
+    scf
+    ret
+.up:
+    cp E_UP
+    scf
+    ret z
+    or a
+    ret
+
+; The brush palette (PAINT 7): 4 cells of 16 x 16 at (56 + 16 c, 165): the brush's stamp (PN_BRTAB: rectangles about the centre (8, 8)), the frame, the
+; chosen cell inverted.  A press chooses a brush.
+pn_brdraw:
+    KFAR w_clear
+    xor a
+    ld (PN_T),a
+.b:
+    ld a,(PN_T)
+    add a,a
+    add a,a
+    add a,a
+    add a,a
+    ld e,a
+    ld d,0
+    ld l,(ix+View_x)
+    ld h,(ix+View_x+1)
+    inc hl
+    add hl,de
+    ld (PN_CX),hl
+    ld a,(ix+View_y)
+    inc a
+    ld l,a
+    ld h,0
+    ld (PN_CY),hl
+    xor a
+    ld (GOP),a
+    ld hl,(PN_CX)                   ; the stamp about the cell's centre
+    ld de,8
+    add hl,de
+    ld (PN_CX),hl
+    ld hl,(PN_CY)
+    add hl,de
+    ld (PN_CY),hl
+    ld a,(PN_T)
+    call pn_brptr
+    xor a
+    call pn_brrects                 ; G_FILL (SET)
+    ld hl,(PN_CX)                   ; the cell's top left again: the frame (x - 1, y - 1, 17, 17)
+    ld de,-9
+    add hl,de
+    ld (GA),hl
+    ld hl,(PN_CY)
+    add hl,de
+    ld (GA+2),hl
+    ld hl,17
+    ld (GA+4),hl
+    ld (GA+6),hl
+    KFAR G_FRAME
+    ld a,(PN_BRUSH)
+    ld hl,PN_T
+    cp (hl)
+    jr nz,.n
+    ld hl,(PN_CX)                   ; inverted: (x, y, 16, 16)
+    ld de,-8
+    add hl,de
+    ld (GA),hl
+    ld hl,(PN_CY)
+    add hl,de
+    ld (GA+2),hl
+    ld hl,16
+    ld (GA+4),hl
+    ld (GA+6),hl
+    ld a,2
+    ld (GOP),a
+    KFAR G_FILL
+.n:
+    ld hl,PN_T
+    inc (hl)
+    ld a,(hl)
+    cp 4
+    jp c,.b
+    ret
+
+pn_brevent:
+    call pn_xy
+    cp E_DOWN
+    jr nz,.up
+    call pn_cell
+    jr c,.c
+    ld a,c
+    cp 16
+    jr nc,.c
+    ld a,b
+    ld hl,PN_BRUSH
+    cp (hl)
+    jr z,.c
+    ld (hl),a
+    KFAR W_DRAWVIEW
+.c:
+    scf
+    ret
+.up:
+    cp E_UP
+    scf
+    ret z
+    or a
+    ret
+
+; pn_brptr: A = a brush (0-3) -> HL = its rectangles (a count, then dx, dy (signed), w, h each).  Clobbers AF, DE.
+pn_brptr:
+    add a,a
+    ld e,a
+    ld d,0
+    ld hl,PN_BRPT
+    add hl,de
+    ld a,(hl)
+    inc hl
+    ld h,(hl)
+    ld l,a
+    ret
+
+; pn_brrects: HL = a brush's rectangles, (PN_CX, PN_CY) = the centre, A = 0 G_FILL (the op and nothing else set by the caller) or 1 G_PATFILL (GA+8 and GOP
+; set by the caller): each rectangle drawn.  Clobbers AF, BC, DE, HL.
+pn_brrects:
+    ld (PN_BRM),a
+    ld b,(hl)
+    inc hl
+.r:
+    push bc
+    ld a,(hl)
+    inc hl
+    ld c,a
+    add a,a
+    sbc a,a
+    ld b,a                          ; BC = dx
+    push hl
+    ld hl,(PN_CX)
+    add hl,bc
+    ld (GA),hl
+    pop hl
+    ld a,(hl)
+    inc hl
+    ld c,a
+    add a,a
+    sbc a,a
+    ld b,a                          ; BC = dy
+    push hl
+    ld hl,(PN_CY)
+    add hl,bc
+    ld (GA+2),hl
+    pop hl
+    ld a,(hl)
+    inc hl
+    ld (GA+4),a
+    xor a
+    ld (GA+5),a
+    ld a,(hl)
+    inc hl
+    ld (GA+6),a
+    xor a
+    ld (GA+7),a
+    push hl
+    ld a,(PN_BRM)
+    or a
+    jr nz,.p
+    KFAR G_FILL
+    jr .n
+.p:
+    KFAR G_PATFILL
+.n:
+    pop hl
+    pop bc
+    djnz .r
     ret
 
 ; ---------------------------------------------------------------------------------------------------------------------------
@@ -622,17 +988,29 @@ pn_cevent:
     jr c,.no
     cp 144
     jr nc,.no
-    ld a,(PN_TOOL)
-    cp 1
-    jr z,.go
-    cp 3
-    jr z,.go
+    ld a,(PN_TOOL)                  ; the pencil, the brush, the eraser and the spray draw
+    dec a
+    cp 4
+    jr c,.go
     ld hl,PN_MNYET                  ; the other tools are not built yet
     push ix
     call pn_msg
     pop ix
     jr .no
 .go:
+    ld a,(PN_TOOL)                  ; the stroke's box margin: byte columns and rows (the pencil 0, 0; the spray 2, 8; the others 1, 4)
+    ld bc,$0000
+    cp 1
+    jr z,.pd
+    ld bc,$0208
+    cp 4
+    jr z,.pd
+    ld bc,$0104
+.pd:
+    ld a,b
+    ld (PN_PADC),a
+    ld a,c
+    ld (PN_PADR),a
     ld a,1
     ld (PN_DRAW),a
     ld hl,(PN_NX)                   ; the first point is both ends of the first segment
@@ -669,6 +1047,110 @@ pn_org:
     add a,2
     ld (PN_OY),a
     ret
+
+
+; pn_idle: every frame without an event: a held spray keeps spraying at the last point (the pointer may not move).
+pn_idle:
+    ld a,(PN_DRAW)
+    or a
+    ret z
+    ld a,(PN_TOOL)
+    cp 4
+    ret nz
+    call pn_shield
+    ld hl,(PN_LX)
+    ld (PN_NX),hl
+    ld a,(PN_LY)
+    ld (PN_NY),a
+    call pn_spray
+    ld hl,(PN_NX)
+    ld a,(PN_NY)
+    call pn_grow
+    jp pn_unshield
+
+; pn_spray: a burst of dots about (PN_NX, PN_NY): up to 12 random points inside an ellipse of 16 x 8 pixels (round on mode 6's 1 : 2 pixels), each a 1 x 1
+; G_PATFILL (SET) of the chosen pattern (the pattern's ink only).  The clip and the shield are the caller's.  Clobbers AF, BC, DE, HL.
+pn_spray:
+    xor a
+    ld (GOP),a
+    ld a,(PN_PAT)
+    call pn_patptr
+    ld (GA+8),hl
+    ld hl,1
+    ld (GA+4),hl
+    ld (GA+6),hl
+    ld b,12
+.d:
+    push bc
+    call pn_rnd
+    and $1F
+    sub 16                          ; dx in -16 .. 15
+    ld c,a
+    call pn_rnd
+    and $0F
+    sub 8                           ; dy in -8 .. 7
+    ld b,a
+    ld a,c                          ; accepted when |dx| <= PN_SPT[|dy|]
+    or a
+    jp p,.p1
+    neg
+.p1:
+    ld d,a                          ; |dx|
+    ld a,b
+    or a
+    jp p,.p2
+    neg
+.p2:
+    ld e,a
+    ld a,d
+    ld hl,PN_SPT
+    ld d,0
+    add hl,de
+    cp (hl)
+    jr z,.ok
+    jr nc,.no
+.ok:
+    ld a,c                          ; the dot at (x + dx, y + dy)
+    ld l,a
+    add a,a
+    sbc a,a
+    ld h,a
+    ld de,(PN_NX)
+    add hl,de
+    ld (GA),hl
+    ld a,b
+    ld l,a
+    add a,a
+    sbc a,a
+    ld h,a
+    ld a,(PN_NY)
+    ld e,a
+    ld d,0
+    add hl,de
+    ld (GA+2),hl
+    KFAR G_PATFILL
+.no:
+    pop bc
+    djnz .d
+    ret
+
+; pn_rnd: A = a random byte (a 16-bit Galois LFSR, 8 steps a byte).  Clobbers F, B, HL.
+pn_rnd:
+    ld hl,(PN_RND)
+    ld b,8
+.l:
+    srl h
+    rr l
+    jr nc,.n
+    ld a,h
+    xor $B4
+    ld h,a
+.n:
+    djnz .l
+    ld (PN_RND),hl
+    ld a,l
+    ret
+PN_SPT:     DB 16, 15, 15, 14, 13, 12, 10, 7, 0     ; the spray's |dx| limit for |dy| = 0 .. 8
 
 ; pn_shield: the pointer shielded from the picture, the clip the picture; pn_unshield: the clip the whole screen, the shield off.  GA is
 ; left as the picture's rectangle after pn_shield (P_SHIELD keeps it).  Clobber AF, BC, DE, HL.
@@ -709,8 +1191,10 @@ pn_unshield:
 pn_seg:
     call pn_shield
     ld a,(PN_TOOL)
-    cp 3
-    jr z,.er
+    cp 4
+    jr z,.sp
+    cp 1
+    jr nz,.er
     xor a
     ld (GOP),a                      ; SET
     ld hl,(PN_LX)
@@ -733,10 +1217,24 @@ pn_seg:
     ld a,(PN_NY)
     call pn_grow
     jr .done
+.sp:
+    call pn_spray                   ; the spray: a burst at the pointer
+    jr .gr
 .er:
-    ld a,1
-    ld (GOP),a                      ; CLR
+    ld a,(PN_TOOL)
+    ld c,3                          ; the eraser stamps every 4th step, the brush every 2nd
+    cp 3
+    jr z,.wm
+    ld c,1
+.wm:
+    ld a,c
+    ld (PN_WM),a
     call pn_walk
+    jr .done
+.gr:
+    ld hl,(PN_NX)
+    ld a,(PN_NY)
+    call pn_grow
 .done:
     call pn_unshield
     ld hl,(PN_NX)
@@ -819,8 +1317,8 @@ pn_walk:
 .st:
     ld hl,PN_WC
     inc (hl)
-    ld a,(hl)
-    and 3
+    ld a,(PN_WM)
+    and (hl)
     call z,pn_stamp
     ld hl,(PN_WN)
     dec hl
@@ -873,8 +1371,31 @@ pn_wacc:
     scf
     ret
 
-; pn_stamp: the eraser's stamp at the walk's point (PN_WX, PN_WY): paper over (x - 8, y - 4, 16, 8) (a square on mode 6's 1 : 2 pixels).
+; pn_stamp: the stamp at the walk's point (PN_WX, PN_WY): the brush's rectangles in the chosen pattern (REPLACE), or the eraser's paper over (x - 8, y - 4, 16, 8)
+; (a square on mode 6's 1 : 2 pixels).
 pn_stamp:
+    ld a,(PN_TOOL)
+    cp 3
+    jr z,.er
+    ld hl,(PN_WX)                   ; the brush
+    ld (PN_CX),hl
+    ld a,(PN_WY)
+    ld l,a
+    ld h,0
+    ld (PN_CY),hl
+    ld a,3
+    ld (GOP),a
+    ld a,(PN_PAT)
+    call pn_patptr
+    ld (GA+8),hl
+    ld a,(PN_BRUSH)
+    call pn_brptr
+    ld a,1
+    call pn_brrects
+    jr .gr
+.er:
+    ld a,1
+    ld (GOP),a                      ; CLR
     ld hl,(PN_WX)
     ld de,8
     or a
@@ -892,6 +1413,7 @@ pn_stamp:
     ld hl,8
     ld (GA+6),hl
     KFAR G_FILL
+.gr:
     ld hl,(PN_WX)
     ld a,(PN_WY)
 ; pn_grow: HL = a screen x, A = a screen y: the stroke's box takes the point's byte column +- 1 and row +- 4, clamped to the picture.
@@ -915,7 +1437,8 @@ pn_grow:
     ld a,39
 .c:
     ld b,a                          ; the byte column
-    sub 1
+    ld hl,PN_PADC
+    sub (hl)
     jr nc,.l
     xor a
 .l:
@@ -925,7 +1448,7 @@ pn_grow:
     ld (hl),a
 .l2:
     ld a,b
-    inc a
+    add a,(hl)
     cp 40
     jr c,.h
     ld a,39
@@ -946,7 +1469,8 @@ pn_grow:
     ld a,143
 .r2:
     ld b,a                          ; the row
-    sub 4
+    ld hl,PN_PADR
+    sub (hl)
     jr nc,.rl
     xor a
 .rl:
@@ -956,7 +1480,7 @@ pn_grow:
     ld (hl),a
 .rl2:
     ld a,b
-    add a,4
+    add a,(hl)
     cp 144
     jr c,.rh
     ld a,143
@@ -1361,6 +1885,22 @@ pn_rowput:
     inc de
     djnz .o
     ret
+; The brushes (PAINT 7): a count, then each rectangle (dx, dy (signed), w, h) about the stamp's centre.
+PN_BRPT:    DW PN_B0, PN_B1, PN_B2, PN_B3
+PN_B0:      DB 2
+            DB -2, -1, 5, 3
+            DB -1, -2, 3, 5
+PN_B1:      DB 3
+            DB -4, -2, 9, 5
+            DB -3, -3, 7, 7
+            DB -2, -4, 5, 9
+PN_B2:      DB 1
+            DB -3, -3, 6, 6
+PN_B3:      DB 4
+            DB -4, 2, 3, 2
+            DB -2, 0, 3, 2
+            DB 0, -2, 3, 2
+            DB 2, -4, 3, 2
 PN_HDR:     DB "P4", 10, "320 144", 10  ; the PBM header (11 bytes)
 
 ; ---------------------------------------------------------------------------------------------------------------------------
@@ -1375,6 +1915,16 @@ PN_TWIN:
     DB 28
     DW 66
     DB 82, 0, 1, 0
+    DW 0
+    DW CL_Palette, 55
+    DB 112
+    DW 66
+    DB 50, 0, 2, 0
+    DW 0
+    DW CL_Palette, 55
+    DB 164
+    DW 66
+    DB 18, 0, 3, 0
     DW 0
     DW CL_Canvas, 126
     DB 30
@@ -1503,7 +2053,14 @@ PN_OX       EQU PN_PNAME + 32       ; the picture's origin (screen x, y) and its
 PN_OY       EQU PN_OX + 2
 PN_OXC      EQU PN_OY + 1
 PN_MSG      EQU PN_OXC + 1          ; 1 when the status line shows a message, not the tool's name
-PN_VARS_END EQU PN_MSG + 1
+PN_PAT      EQU PN_MSG + 1          ; the chosen pattern (0-15) and brush (0-3)
+PN_BRUSH    EQU PN_PAT + 1
+PN_BRM      EQU PN_BRUSH + 1        ; pn_brrects: 0 G_FILL, 1 G_PATFILL
+PN_RND      EQU PN_BRM + 1          ; the spray's random state (a word)
+PN_PADC     EQU PN_RND + 2          ; the stroke's box margin: byte columns and rows
+PN_PADR     EQU PN_PADC + 1
+PN_WM       EQU PN_PADR + 1         ; the walk stamps when its step count AND this is 0 (3: every 4th, 1: every 2nd)
+PN_VARS_END EQU PN_WM + 1
 PN_VARS_LEN EQU PN_VARS_END - PN_VARS
     ASSERT PN_VARS_END <= AL_RAM && PN_IMG_LEN <= 1024
     ASSERT (CL_Canvas >> 8) == ((CL_Canvas + 11) >> 8) && (CL_Palette >> 8) == ((CL_Palette + 11) >> 8)
