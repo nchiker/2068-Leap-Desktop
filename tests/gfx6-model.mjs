@@ -131,6 +131,77 @@ export class Gfx6Model {
       }
     }
   }
+  /**
+   * G_FLOOD (PAINT 21): the region = the 4-connected set of pixels equal to the seed's pixel inside the clip; the region's pixels are replaced by the pattern (REPLACE: pixel (x, y) = bit 7 - (x AND 7) of
+   * pat8[y AND 7]); everything else is unchanged.  A seed outside the clip changes nothing.  Returns { inClip, spans, fast, overflow, box, n, target, mask }:
+   *   spans    = the number of maximal horizontal runs of the region (each row, each maximal run of region pixels is one span);
+   *   fast     = every byte of the pattern is the colour opposite to the target (all $FF over paper, all $00 over ink): the one-pass path;
+   *   overflow = spans > 204 and not fast (the machine's carry); the screen is then left UNCHANGED here (the machine's is partly changed: the caller must not compare it);
+   *   box      = { x0, x1, y0, y1 } the first and last x and y of the region (inclusive), on a complete fill;
+   *   pushBound = an upper bound on the seed pushes whatever the scan order (a seed per run of target pixels above and below each span): the machine's 256-entry seed stack cannot overflow below it.
+   * (The machine's seed stack, 256 entries, is not modelled: a fast fill that overflows it is reported by the caller.)
+   */
+  floodFill(x, y, pat8) {
+    x = s16(x); y = s16(y);
+    const c = this.clip, r = { inClip: false, spans: 0, fast: false, overflow: false, box: null, n: 0, target: 0, mask: null };
+    if (x < c.x0 || x >= c.x1 || y < c.y0 || y >= c.y1) return r;
+    r.inClip = true;
+    const px = this.px, target = px[y * SCR_W + x]; r.target = target;
+    const mask = new Uint8Array(SCR_W * SCR_H); r.mask = mask;
+    const stack = [y * SCR_W + x];
+    let n = 0;
+    while (stack.length) {
+      const i = stack.pop();
+      if (mask[i] || px[i] !== target) continue;
+      const yy = (i / SCR_W) | 0, row = yy * SCR_W;
+      let a = i - row, b = a;
+      while (a - 1 >= c.x0 && !mask[row + a - 1] && px[row + a - 1] === target) a--;
+      while (b + 1 < c.x1 && !mask[row + b + 1] && px[row + b + 1] === target) b++;
+      for (let k = a; k <= b; k++) mask[row + k] = 1;
+      n += b - a + 1;
+      for (const ny of [yy - 1, yy + 1]) {
+        if (ny < c.y0 || ny >= c.y1) continue;
+        const nr = ny * SCR_W;
+        for (let k = a; k <= b; k++) if (!mask[nr + k] && px[nr + k] === target) stack.push(nr + k);
+      }
+    }
+    r.n = n;
+    let x0 = 1e9, x1 = -1, y0 = 1e9, y1 = -1, spans = 0;
+    for (let yy = c.y0; yy < c.y1; yy++) {
+      const row = yy * SCR_W; let inRun = false;
+      for (let xx = c.x0; xx < c.x1; xx++) {
+        if (mask[row + xx]) {
+          if (!inRun) { spans++; inRun = true; }
+          if (xx < x0) x0 = xx; if (xx > x1) x1 = xx; if (yy < y0) y0 = yy; if (yy > y1) y1 = yy;
+        } else inRun = false;
+      }
+    }
+    r.spans = spans; r.box = { x0, x1, y0, y1 };
+    // an upper bound on the seed pushes of ANY scanline order (PAINT 21: a seed for each run of target pixels above and below each filled span): the seed stack (256 entries) can only overflow when it exceeds 256
+    let pushes = 0;
+    for (let yy = y0; yy <= y1; yy++) {
+      const row = yy * SCR_W;
+      for (let xx = c.x0; xx < c.x1; xx++) {
+        if (!mask[row + xx] || (xx > c.x0 && mask[row + xx - 1])) continue;
+        let b = xx; while (b + 1 < c.x1 && mask[row + b + 1]) b++;
+        for (const ny of [yy - 1, yy + 1]) {
+          if (ny < c.y0 || ny >= c.y1) continue;
+          const nr = ny * SCR_W; let inRun = false;
+          for (let k = xx; k <= b; k++) { const t = px[nr + k] === target; if (t && !inRun) pushes++; inRun = t; }
+        }
+      }
+    }
+    r.pushBound = pushes;
+    const opp = target ? 0x00 : 0xFF;
+    r.fast = pat8.every((v) => v === opp);
+    r.overflow = spans > 204 && !r.fast;
+    if (r.overflow) return r;
+    for (let yy = y0; yy <= y1; yy++) {
+      const row = yy * SCR_W, pb = pat8[yy & 7];
+      for (let xx = c.x0; xx < c.x1; xx++) if (mask[row + xx]) px[row + xx] = (pb >> (7 - (xx & 7))) & 1;
+    }
+    return r;
+  }
   hline(x, y, w) { this.fill(x, y, w, 1); }
   vline(x, y, h) { this.fill(x, y, 1, h); }
 

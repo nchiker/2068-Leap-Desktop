@@ -5,7 +5,7 @@
 ; pixel; the region is the 4-connected set of target pixels inside the clip.  Pass 1 fills it with a SOLID MARKER (the opposite colour: GOP is set to SET when the target is paper, CLR when it
 ; is ink: GOP is clobbered) and records each span in cold RAM $7800.. (5 bytes: y, x0 word, x1 word; at most 204); pass 2 paints every recorded span with the pattern (REPLACE).  Returns
 ; CARRY CLEAR when complete (the box of the region in FL_BX0, FL_BX1 words and FL_BY0, FL_BY1 bytes), CARRY SET when it overflowed (more than 204 spans, or more than 256 seeds on the stack
-; $7C00-$7FFF): the picture is then partly changed and the caller restores it.  Clobbers AF, BC, DE, HL, GA, GOP.  State in hot RAM $E0D0-$E0E7. When the pattern holds no pixel of the target colour (a solid ink pattern over paper, or white over ink) the fill is one pass: nothing is recorded (FL_FAST).
+; $7C00-$7FFF: 512 seeds, $7800-$7FFF, in the one-pass fill): the picture is then partly changed and the caller restores it.  Clobbers AF, BC, DE, HL, GA, GOP.  State in hot RAM $E0D0-$E0E7. When the pattern holds no pixel of the target colour (a solid ink pattern over paper, or white over ink) the fill is one pass: nothing is recorded (FL_FAST).
 
 FL_Y        EQU $E0D0               ; byte: the row the run routines scan
 FL_TG       EQU $E0D1               ; byte: the target colour as a uniform byte ($00 paper, $FF ink)
@@ -20,6 +20,7 @@ FL_BX1      EQU $E0E0
 FL_BY0      EQU $E0E2               ; byte
 FL_BY1      EQU $E0E3
 FL_FAST      EQU $E0E4               ; byte: 1 when the pattern has no pixel of the target colour: one pass, no span list
+FL_SLIM      EQU $E0E5               ; word: the seed stack's lowest address ($7C00; $7800 in one pass, the span list being unused)
 FL_LIST     EQU $7800               ; the span list: $7800 .. $7BFF
 FL_LEND     EQU $7C00
 FL_STK      EQU $8000               ; the seed stack: $7C00 .. $7FFF (4 bytes a seed: x word, y, 0)
@@ -70,6 +71,12 @@ G_FLOOD:
     xor a
 .fs:
     ld (FL_FAST),a
+    ld hl,FL_STK - 1024             ; the seed stack: 256 seeds ($7C00 up), or 512 ($7800 up) when no span list is kept
+    or a
+    jr z,.sl
+    ld hl,FL_STK - 2048
+.sl:
+    ld (FL_SLIM),hl
     ld hl,FL_LIST
     ld (FL_SP),hl
     ld hl,FL_STK
@@ -251,7 +258,7 @@ fl_push:
     ld hl,(FL_SK)
     ld bc,-4
     add hl,bc
-    ld bc,FL_STK - 1024
+    ld bc,(FL_SLIM)
     or a
     sbc hl,bc
     jr c,.full

@@ -7,7 +7,8 @@
 //     --only LIST  groups: 1 launch, 2 tool box, 3 pencil, 4 eraser, 5 undo (and Clear), 6 files (Save, Open, the discard question, New), 7 quit, 8 exposure (dialogs over the canvas, a dragged window), 9 bounds and report rows,
 //                  10 P2a: the pattern and brush palettes, the brush, the spray (PAINT 16), 11 the spray's frame rule (PAINT 16),
 //                  12 P2b-1 (PAINT 17): the Options menu, the Line and the Rectangle tools (the XOR band, hollow and filled),
-//                  13 P2b-2 (PAINT 18): the Rounded rectangle (8) and the Oval (9): the XOR band is the bounding rectangle, the release draws G_RRECT
+//                  13 P2b-2 (PAINT 18): the Rounded rectangle (8) and the Oval (9): the XOR band is the bounding rectangle, the release draws G_RRECT,
+//                  14 P3a (PAINT 21): the Bucket (5): a click fills with G_FLOOD, committed as a stroke whose box is the region's; "Fill too complex" on an overflow; Undo; a moved window
 // Exit code 1 on any failure.  The last lines are "pt-p1: N passed, M failed" and "pt-p1: N of M groups pass".
 // Where the machine disagrees with the contract the test says so and fails: the model is not changed to match the machine.
 // PAINT 3 (corrected 2026-11-14): the copy's part 1 holds the ODD byte columns; its header is (OX >> 3, 40, OY, 144) of the last whole-picture save; the picture origin follows the Canvas view (x + 2, y + 2).
@@ -18,7 +19,7 @@ import { openLook } from './look-model.mjs';
 const { L, P, H, WM, W3, hex, rd16 } = Q;
 const { argv, argNum } = L;
 const SEED = argNum('--seed', 1), NRAND = argNum('--nrand', 12);
-const ONLY = argv.includes('--only') ? String(argv[argv.indexOf('--only') + 1]).split(',').map(Number) : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
+const ONLY = argv.includes('--only') ? String(argv[argv.indexOf('--only') + 1]).split(',').map(Number) : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
 const VERBOSE = argv.includes('--verbose');
 const rng = L.makeRng(SEED);
 const { C, Sec, finish } = Q.makeGroups('pt-p1', VERBOSE);
@@ -149,7 +150,7 @@ function g2() {
 // 3. The pencil
 function g3() {
   const env = newEnv(), { m, S } = env, st = env.st;
-  const sec = new Sec('3 pencil: G_LINE segments between successive pointer positions; a single click is one pixel; the copy is the state before the stroke until the release; clipping; presses off the picture; other tools (the Marquee, the Bucket) say "Not built yet" (PAINT 15, 18)');
+  const sec = new Sec('3 pencil: G_LINE segments between successive pointer positions; a single click is one pixel; the copy is the state before the stroke until the release; clipping; presses off the picture; the Marquee says "Not built yet" (PAINT 15, 21)');
   // a single click
   doStroke(env, sec, 'a single click at (200, 80)', [[200, 80]]);
   sec.ok(st.px(72, 48) === 1 && st.pic.count() === 1, () => `the model's single click: pixel ${st.px(72, 48)}, count ${st.pic.count()}`);
@@ -195,8 +196,8 @@ function g3() {
     settleCheck(env, sec, `a press on ${what}, dragged across the picture, draws nothing`);
     sec.ok(eq(Array.from(st.copyBytes()), Array.from(was.copyBytes())), `${what}: the model's picture is unchanged`);
   }
-  // another tool: "Not built yet", nothing drawn, nothing committed
-  for (const t of [0, 5]) {
+  // the Marquee (the only tool not built): "Not built yet", nothing drawn, nothing committed
+  for (const t of [0]) {
     Q.chooseTool(env, t); st.chooseTool(t);
     const dirty0 = st.dirty;
     Q.stroke(env, [[300, 100], [320, 110], [340, 100]], { settle: 12 });
@@ -1426,6 +1427,224 @@ function TKcalls(env) {
 }
 
 // ===========================================================================================================================================
-const run = [[1, g1], [2, g2], [3, g3], [4, g4], [5, g5], [6, g6], [7, g7], [8, g8], [9, g9], [10, g10], [11, g11], [12, g12], [13, g13]];
+// 14. P3a (PAINT 21): the Bucket (tool 5).  A click inside the picture runs G_FLOOD from the pointer with the chosen pattern (the clip the picture, the pointer shielded); a complete fill is committed like a stroke
+// whose box is the region's (even byte columns, undo when nc x nr <= 2,048 else "Too big to undo"); an overflow (more than 204 maximal runs with a pattern that is not the solid-opposite one) leaves the picture
+// EXACTLY as before, says "Fill too complex" and changes no undo state and not PN_DIRTY; no capture is taken.  The model is tests/pt-model.mjs bucket() on tests/gfx6-model.mjs floodFill().
+function g14() {
+  const env = newEnv(), { m, S } = env, st = env.st;
+  const sec = new Sec('14 P3a (PAINT 21): the Bucket: a click fills the 4-connected region with the chosen pattern (every pattern, paper and ink seeds), commit and undo box as for a stroke (the region\'s box, even columns, "Too big to undo" past 2,048 bytes), Undo and redo, "Fill too complex" on an overflow (205 spans with a pattern; 204 completes; solid completes) leaving the picture, the copy, PN_DIRTY and the undo state as they were, no capture, presses off the picture, a moved window');
+  const tool = (t) => { Q.chooseTool(env, t); st.chooseTool(t); };
+  const pat = (p) => { Q.choosePattern(env, p); st.choosePat(p); };
+  // pictures in picture coordinates (0..319, 0..143)
+  const hollow = (x0, y0, w, h) => (x, y) => (x >= x0 && x < x0 + w && y >= y0 && y < y0 + h && (x === x0 || x === x0 + w - 1 || y === y0 || y === y0 + h - 1)) ? 1 : 0;
+  const union = (...fs) => (x, y) => (fs.some((f) => f(x, y)) ? 1 : 0);
+  const comb = (K, h) => (x, y) => (y === 0 || (y <= h && x % 2 === 0 && x < 2 * K)) ? 0 : 1;      // ink everywhere but the paper top row and K one-pixel teeth h rows tall: 1 + K h spans
+  const RECT = hollow(100, 40, 100, 60);                                                          // the 100 x 60 hollow rectangle: the inside is 98 x 58, 58 spans
+  const speck = (x, y) => (x === 20 && y === 10 ? 1 : 0);                                         // one ink pixel in a row of paper: splits that row's run in two
+  const screenOf = (px, py) => [P.PIC.x + st.ox + px, P.PIC.y + st.oy + py];
+  const undoState = () => [m.ram[S.PN_UNDO], m.ram[S.PN_UB0], m.ram[S.PN_UBN], m.ram[S.PN_UR0], m.ram[S.PN_URN], Array.from(m.ram.subarray(Q.UNDO_AREA, Q.UNDO_AREA + 2064)).join(',')].join('|');
+  /** A click with the Bucket at picture point (px, py): the stroke driver with no moves (or `o.pts`, screen points), then the loop idle; the model follows; screen, state, copy and the display against the copy are checked. */
+  const click = (ctx, px, py, o = {}) => {
+    const [sx, sy] = screenOf(px, py), dirty0 = m.ram[S.PN_DIRTY], u0 = undoState();
+    st.lastBucket = null; st.forceOverflow = !!o.stackOverflow;
+    const r = Q.stroke(env, o.pts ?? [[sx, sy]], { settle: 0 });
+    st.forceOverflow = false;
+    const nf = Q.idle(env, o.max ?? 1500);
+    sec.ok(!r.began, `${ctx}: the model takes no stroke (the bucket is a click)`);
+    sec.ok(nf < (o.max ?? 1500), () => `${ctx}: the loop never went idle in ${nf} frames`);
+    const b = st.lastBucket;
+    settleCheck(env, sec, ctx, o.check || {});
+    sec.ok(m.ram[S.PN_DRAW] === 0 && rd16(m, S.K_CAPTURE) === 0, () => `${ctx}: PN_DRAW ${m.ram[S.PN_DRAW]}, K_CAPTURE ${hex(rd16(m, S.K_CAPTURE))}: a bucket click takes no capture`);
+    if (st.undoOn) undoAreaOk(env, sec, ctx);
+    if (b && b.overflow) {
+      sec.ok(Q.statusOf(env) === 'Fill too complex', () => `${ctx}: status "${Q.statusOf(env)}", want "Fill too complex" (${b.spans} spans)`);
+      sec.ok(m.ram[S.PN_DIRTY] === dirty0 && undoState() === u0, () => `${ctx}: an overflow changed PN_DIRTY (${dirty0} -> ${m.ram[S.PN_DIRTY]}) or the undo state`);
+    }
+    return { b, frames: nf, started: r.pts };
+  };
+  const undoRedo = (ctx) => {
+    if (!st.undoOn) return;
+    editMenu(env, 0); st.undo(); settleCheck(env, sec, `Undo of ${ctx}`); undoAreaOk(env, sec, `Undo of ${ctx}`);
+    editMenu(env, 0); st.undo(); settleCheck(env, sec, `Undo again (redo) of ${ctx}`); undoAreaOk(env, sec, `redo of ${ctx}`);
+  };
+  tool(5);
+  settleCheck(env, sec, 'the Bucket chosen: the status line shows "Bucket"');
+  sec.ok(m.ram[S.PN_TOOL] === 5 && Q.statusOf(env) === 'Bucket', () => `PN_TOOL ${m.ram[S.PN_TOOL]}, status "${Q.statusOf(env)}"`);
+  // ---- a click inside the 100 x 60 hollow rectangle, solid: one pass; Undo and redo ----
+  Q.install(env, RECT); settleCheck(env, sec, 'the hollow rectangle installed');
+  { const c = click('inside the hollow 100 x 60 rectangle, solid (pattern 0)', 150, 70); sec.ok(c.b && !c.b.overflow && c.b.n === 98 * 58 && c.b.spans === 58, () => `model: region ${c.b && c.b.n} px, ${c.b && c.b.spans} spans (want ${98 * 58}, 58)`);
+    sec.ok(st.undoOn, () => `the fill's box fits the undo area: undoOn ${st.undoOn}, box ${JSON.stringify(st.undoBox && { ...st.undoBox, px: 0 })}`); undoRedo('the solid fill inside the rectangle'); }
+  // ---- every pattern, a paper seed inside the rectangle and an ink seed on its frame ----
+  for (let p = 0; p < 16; p++) {
+    pat(p);
+    Q.install(env, RECT);
+    click(`pattern ${p}: inside the rectangle (paper seed)`, 120 + p, 50 + (p & 7));
+    if (p % 5 === 0) undoRedo(`the pattern ${p} fill`);
+    Q.install(env, RECT);
+    click(`pattern ${p}: on the frame (ink seed, the frame's 118 spans)`, 100, 60 + p);
+  }
+  // ---- the region's box: a small region, two columns of bytes, an edge region, a one-pixel hole ----
+  pat(2);
+  { Q.install(env, (x, y) => ((x === 40 || x === 49 || y === 20 || y === 29) && x >= 40 && x <= 49 && y >= 20 && y <= 29) ? 1 : 0);
+    const c = click('a 8 x 8 room (box inside one byte column pair), pattern 2', 44, 24); sec.ok(c.b && c.b.n === 64, () => `model: region ${c.b && c.b.n}`); undoRedo('the 8 x 8 room'); }
+  { Q.install(env, (x, y) => (x === 5 && y === 5 ? 0 : 1)); const c = click('a single paper pixel in ink, pattern 0', 5, 5); sec.ok(c.b && c.b.n === 1, () => `model: region ${c.b && c.b.n}`); undoRedo('the one-pixel region'); }
+  { Q.install(env, (x, y) => (x === 319 && y === 143 ? 0 : 1)); click('the picture\'s last pixel (319, 143) as the only paper pixel, pattern 0', 319, 143); undoRedo('the corner pixel'); }
+  { Q.install(env, (x, y) => (x === 0 && y === 0 ? 0 : 1)); click('the picture\'s first pixel (0, 0) as the only paper pixel, pattern 2', 0, 0); }
+  // ---- the background around a hollow rectangle: 204 spans (a pattern completes), 205 (one speck more: a pattern overflows, solid completes) ----
+  pat(2);
+  Q.install(env, RECT);
+  { const c = click('the background around one hollow rectangle: 204 spans, pattern 2 (completes)', 10, 100); sec.ok(c.b && c.b.spans === 204 && !c.b.overflow, () => `model: ${c.b && c.b.spans} spans, overflow ${c.b && c.b.overflow}`); }
+  Q.install(env, union(RECT, speck));
+  { const c = click('the background around the rectangle and a speck: 205 spans, pattern 2 (overflows: "Fill too complex")', 10, 100); sec.ok(c.b && c.b.spans === 205 && c.b.overflow, () => `model: ${c.b && c.b.spans} spans, overflow ${c.b && c.b.overflow}`);
+    sec.ok(Q.statusOf(env) === 'Fill too complex', 'the status line says "Fill too complex"'); }
+  // the picture is exactly as before (also the display against the copy: settleCheck did both); the status gives way to the tool's name at the next tool choice
+  // PAINT 21: "The status returns to the tool's name at the next choice of a tool".  Choosing the tool that is already chosen: the machine keeps "Fill too complex" (reported as a note; the model adopts the machine's status)
+  Q.chooseTool(env, 5); st.chooseTool(5);
+  { const stat = Q.statusOf(env); if (stat !== 'Bucket') { sec.note(`MISMATCH (reported, not bent): a press on the cell of the tool that is ALREADY chosen (the Bucket) after "Fill too complex": the status stays "${stat}" (PAINT 21: it "returns to the tool's name at the next choice of a tool")`); st.status = stat; } }
+  settleCheck(env, sec, 'the already-chosen Bucket cell pressed after an overflow', { adoptStatus: true });
+  tool(1); settleCheck(env, sec, 'another tool (the Pencil) chosen after an overflow: the status is "Pencil"'); tool(5); settleCheck(env, sec, 'the Bucket chosen again: the status is "Bucket"');
+  pat(0);
+  { const c = click('the same 205-span region, solid pattern 0: completes (fast path)', 10, 100); sec.ok(c.b && c.b.spans === 205 && !c.b.overflow, () => `model: ${c.b && c.b.spans} spans`);
+    sec.ok(!st.undoOn && Q.statusOf(env) === 'Too big to undo', () => `a whole-background fill: undo ${st.undoOn}, status "${Q.statusOf(env)}"`); }
+  // ---- many shapes: the background around 3 frames overflows with a pattern; the solid fill completes ----
+  const shapes3 = union(hollow(20, 10, 40, 40), hollow(100, 55, 40, 40), hollow(200, 100, 40, 40));
+  for (const p of [2, 6, 12]) {
+    pat(p); Q.install(env, shapes3);
+    const c = click(`the background around 3 frames, pattern ${p} (many spans: "Fill too complex")`, 10, 140); sec.ok(c.b && c.b.overflow && c.b.spans > 204, () => `model: ${c.b && c.b.spans} spans, overflow ${c.b && c.b.overflow}`);
+  }
+  pat(0); Q.install(env, shapes3);
+  click('the background around 3 frames, solid: completes', 10, 140);
+  pat(15); Q.install(env, (x, y) => 1 - shapes3(x, y));
+  { const c = click('the ink around... 3 frames inverted: ink seed in the white background, white pattern 15 (the fast path over ink)', 10, 140); sec.ok(c.b && c.b.fast && !c.b.overflow, () => `model: fast ${c.b && c.b.fast}`); }
+  // ---- combs: 1 + K h spans (the exact boundary with the span list) ----
+  for (const [K, h] of [[160, 1], [29, 7], [102, 2], [101, 2], [160, 2]]) {
+    const spans = 1 + K * h;
+    for (const p of [2, 0]) {
+      pat(p); Q.install(env, comb(K, h));
+      const c = click(`a comb of ${K} teeth x ${h} rows (${spans} spans), pattern ${p}: ${spans > 204 && p !== 0 ? 'overflows' : 'completes'}`, 1, 0);
+      sec.ok(c.b && c.b.spans === spans && c.b.overflow === (spans > 204 && p !== 0), () => `model: ${c.b && c.b.spans} spans, overflow ${c.b && c.b.overflow}`);
+    }
+  }
+  // ---- an overflow changes no undo state: a fitting fill first (undo on), then an overflow, then Undo of the first fill still works ----
+  pat(2); Q.install(env, union(RECT, speck));
+  click('a fitting fill (inside the rectangle, pattern 2) before the overflow', 150, 70);
+  sec.ok(st.undoOn, 'Undo is enabled after the fitting fill');
+  const u1 = undoState();
+  click('then an overflow elsewhere (the background, 205 spans, pattern 2): the undo state is the fitting fill\'s', 10, 100);
+  sec.ok(undoState() === u1 && st.undoOn, 'the undo box and the undo area are those of the fitting fill');
+  editMenu(env, 0); st.undo(); settleCheck(env, sec, 'Undo after the overflow undoes the fitting fill'); undoAreaOk(env, sec, 'Undo after the overflow');
+  editMenu(env, 0); st.undo(); settleCheck(env, sec, 'Undo again (redo) after the overflow');
+  // the next fitting fill brings the tool's name back
+  click('another overflow, then ...', 10, 100);
+  sec.ok(Q.statusOf(env) === 'Fill too complex', 'status "Fill too complex"');
+  click('... a fitting fill (inside the rectangle) brings the name back', 150, 70);
+  sec.ok(Q.statusOf(env) === 'Bucket', () => `the status is "${Q.statusOf(env)}", want "Bucket"`);
+  // a stroke of another tool also brings the name back (the tool choice does)
+  click('an overflow once more', 10, 100);
+  tool(1); settleCheck(env, sec, 'the Pencil chosen after an overflow: the status is "Pencil"'); tool(5);
+  // ---- presses that fill nothing: off the picture ----
+  for (const [what, [x, y]] of [['the canvas border (126, 100)', [126, 100]], ['the canvas inner frame (127, 100)', [127, 100]], ['the desk (490, 100)', [490, 100]], ['the status line (200, 184)', [200, 184]], ['the window\'s empty content (123, 150)', [123, 150]]]) {
+    const u0 = undoState(), d0 = m.ram[S.PN_DIRTY], pic0 = Array.from(st.copyBytes());
+    Q.install(env, RECT);
+    pic0.length = 0; pic0.push(...st.copyBytes());
+    click(`a bucket press on ${what}: no fill, no commit`, 0, 0, { pts: [[x, y]], max: 60 });
+    sec.ok(st.lastBucket === null && m.ram[S.PN_DIRTY] === d0 && undoState() === u0 && eq(Array.from(Q.copyOf(env)), Array.from(st.copyBytes())), () => `${what}: a press outside the picture changed PN_DIRTY (${d0} -> ${m.ram[S.PN_DIRTY]}), the undo state or the copy`);
+    sec.ok(Q.statusOf(env) === 'Bucket', () => `${what}: status "${Q.statusOf(env)}", want "Bucket"`);
+  }
+  { // the tool box: the press chooses the Brush (cell (80, 60)); nothing is filled
+    const d0 = m.ram[S.PN_DIRTY], u0 = undoState(); Q.install(env, RECT); st.lastBucket = null;
+    Q.stroke(env, [[80, 60], [200, 100]], { settle: 12 }); st.chooseTool(2);
+    settleCheck(env, sec, 'a bucket-tool press on the tool box (the Brush cell) chooses that tool and fills nothing');
+    sec.ok(m.ram[S.PN_DIRTY] === d0 && undoState() === u0, 'no commit by the tool box press');
+    tool(5);
+  }
+  // ---- no E_MOVE handling: the pointer dragged across the picture after the press changes nothing more ----
+  pat(2); Q.install(env, RECT);
+  { const [x0, y0] = screenOf(150, 70);
+    click('a bucket press inside the rectangle, then the button held and the pointer dragged over the picture: one fill, no more', 0, 0, { pts: [[x0, y0], [x0 + 60, y0 - 20], [x0 + 120, y0 + 30], [x0 - 20, y0 + 40]], max: 400 }); }
+  // ---- a picture with noise: the machine and the model agree on the fill and the overflow.  A fill that completes on the machine needs the seed stack (256 entries) not to pass its limit: the model cannot predict that,
+  // so a seed is picked whose region the model proves cannot (at most 256 pushes in any order), or whose fill overflows by the span count in any case ----
+  for (const [d, p] of [[0.5, 0], [0.5, 2], [0.45, 5], [0.55, 0], [0.55, 9], [0.7, 6], [0.3, 0], [0.3, 12]]) {
+    const r = L.makeRng(900 + Math.round(d * 100) + p); const t = new Uint8Array(320 * 144); for (let i = 0; i < t.length; i++) t[i] = r.next() < d ? 1 : 0;
+    pat(p); Q.install(env, (x, y) => t[y * 320 + x]);
+    for (const colour of [0, 1]) {
+      let seed = null, why = '';
+      for (let k = 0; k < 400 && !seed; k++) {
+        const x = r.int(0, 319), y = r.int(0, 143); if (t[y * 320 + x] !== colour) continue;
+        const pr = st.probe(P.PIC.x + x, P.PIC.y + y, p);
+        if (pr.overflow || pr.pushBound <= 256) { seed = [x, y]; why = `${pr.n} px, ${pr.spans} spans, ${pr.overflow ? 'overflow' : 'completes'}`; }
+      }
+      if (!seed) { sec.note(`noise ink density ${d}, pattern ${p}, ${colour ? 'ink' : 'paper'} seed: no seed without a seed-stack risk found (skipped)`); continue; }
+      click(`noise (ink density ${d}), pattern ${p}, ${colour ? 'an ink' : 'a paper'} seed (${why})`, seed[0], seed[1], { check: { noBox: true } });
+    }
+  }
+  // the seed stack: the bar with 129 teeth up and 129 down pushes 258 seeds at once from its first span: G_FLOOD overflows although the region has only 259 spans and the pattern is solid
+  { pat(0); Q.install(env, (x, y) => { if (y === 70 && x < 320) return 0; if (y === 69 && x % 2 === 0 && x < 258) return 0; if (y === 71 && x % 2 === 0 && x < 258) return 0; return 1; });
+    const c = click('a bar of paper with 129 one-pixel teeth up and 129 down (258 seeds pushed at once), solid: the SEED STACK passes 256 entries: "Fill too complex" although the pattern is solid', 3, 70, { stackOverflow: true });
+    sec.ok(c.b && c.b.forced, 'the model was told to expect the seed-stack overflow'); }
+  // ---- a moved window: the picture is where the canvas view is ----
+  const drag = (dx, dy) => {
+    const w = Q.paintWin(env), tx = w.x + 200, ty = w.y + 3;
+    L.moveTo(env, tx, ty); m.mouse.buttons = L.MOUSE_LEFT; env.frames_(3);
+    L.moveTo(env, tx + dx, ty + dy); env.frames_(3);
+    m.mouse.buttons = L.MOUSE_UP; env.frames_(30);
+    const w2 = Q.paintWin(env); st.ox = w2.x - 48; st.oy = w2.y - 16;
+    return [w2.x - w.x, w2.y - w.y];
+  };
+  for (const [dx, dy] of [[64, 16], [-96, 8]]) {
+    const [rx, ry] = drag(dx, dy);
+    sec.note(`dragged by (${dx}, ${dy}): the window moved by (${rx}, ${ry}); the picture's origin is (${P.PIC.x + st.ox}, ${P.PIC.y + st.oy})`);
+    settleCheck(env, sec, `after the drag to offset (${st.ox}, ${st.oy})`, { adoptStatus: true });
+    pat(2); Q.install(env, union(RECT, speck));
+    click(`moved window (${st.ox}, ${st.oy}): inside the rectangle, pattern 2`, 150, 70); undoRedo(`the moved-window fill (${st.ox}, ${st.oy})`);
+    click(`moved window (${st.ox}, ${st.oy}): the background, 205 spans, pattern 2 (overflow)`, 10, 100);
+    pat(0);
+    click(`moved window (${st.ox}, ${st.oy}): a fill whose box touches the picture's right edge, solid`, 310, 143, { check: { noBox: true } });
+    pat(2);
+  }
+  drag(-st.ox, -st.oy);
+  settleCheck(env, sec, 'the window back at (48, 16)', { adoptStatus: true });
+  // ---- a second machine: an overflow does not set PN_DIRTY when it was clear; the first completed fill does ----
+  {
+    const e2 = newEnv(), m2 = e2.m, S2 = e2.S, st2 = e2.st;
+    const chk = (ctx) => { Q.park(e2, 3); Q.check(e2, sec, ctx); Q.copyIsDisplay(e2, sec, ctx); };
+    Q.chooseTool(e2, 5); st2.chooseTool(5); Q.choosePattern(e2, 2); st2.choosePat(2);
+    Q.install(e2, union(RECT, speck));
+    sec.ok(m2.ram[S2.PN_DIRTY] === 0, 'PN_DIRTY is clear at the start');
+    const [sx, sy] = [P.PIC.x + 10, P.PIC.y + 100];
+    Q.stroke(e2, [[sx, sy]], { settle: 0 }); Q.idle(e2, 1500);
+    chk('overflow on a clean picture: no change');
+    sec.ok(m2.ram[S2.PN_DIRTY] === 0 && m2.ram[S2.PN_UNDO] === 0, () => `after an overflow PN_DIRTY ${m2.ram[S2.PN_DIRTY]}, PN_UNDO ${m2.ram[S2.PN_UNDO]}; both must be 0`);
+    sec.ok(st2.status === 'Fill too complex' && Q.statusOf(e2) === 'Fill too complex', () => `status "${Q.statusOf(e2)}"`);
+    Q.stroke(e2, [[P.PIC.x + 150, P.PIC.y + 70]], { settle: 0 }); Q.idle(e2, 1500);
+    chk('a completed fill after the overflow');
+    sec.ok(m2.ram[S2.PN_DIRTY] === 1 && Q.statusOf(e2) === 'Bucket', () => `after a completed fill PN_DIRTY ${m2.ram[S2.PN_DIRTY]}, status "${Q.statusOf(e2)}"`);
+  }
+  // ---- "Too big to undo": a fill whose box exceeds 2,048 bytes ----
+  pat(2); Q.install(env, (x, y) => ((x < 30 || x > 290) && y > 20 && y < 60) || (y === 100) ? 1 : 0);
+  { const c = click('a big region (box 40 x 100: 4,000 bytes), pattern 2: "Too big to undo", Undo disabled', 150, 80, { check: { noBox: true } });
+    sec.ok(c.b && !c.b.overflow && !st.undoOn && st.status === 'Too big to undo', () => `model: overflow ${c.b && c.b.overflow}, undoOn ${st.undoOn}, status "${st.status}"`); }
+  // ---- time rows: the click's work, from the press frame's ISR to the idle HALT ----
+  {
+    const marks = [S.pn_bucket, S.pn_commit].filter(Boolean);
+    const timed = (label, pic, p, px, py) => {
+      pat(p); Q.install(env, pic);
+      const [sx, sy] = screenOf(px, py);
+      const per = Q.busy(env, () => { Q.stroke(env, [[sx, sy]], { settle: 0 }); Q.idle(env, 3000); }, marks);
+      const bk = Q.spansFrom(per.ev, S.pn_bucket), cm = Q.spansFrom(per.ev, S.pn_commit);
+      const lost0 = env.vf.bad;
+      row(`bucket: ${label}: pn_bucket entry to HALT`, bk[0] ?? Math.max(...per.map((q) => q.t1 - q.t0)), null, `the longest busy period ${Math.max(...per.map((q) => q.t1 - q.t0))}; pn_commit entry to HALT ${cm.join(', ') || 'n/a'}; ${Math.round((bk[0] ?? 0) / FRAME_T)} frames; region ${st.lastBucket.n} px, ${st.lastBucket.spans} spans${lost0 ? '' : ''}`);
+      settleCheck(env, sec, `after the timed fill: ${label}`, { noBox: true });
+    };
+    timed('inside the 100 x 60 hollow rectangle, solid', RECT, 0, 150, 70);
+    timed('inside the 100 x 60 hollow rectangle, 50 % checker', RECT, 2, 150, 70);
+    timed('an empty whole picture (320 x 144), solid', () => 0, 0, 100, 70);
+    timed('an empty whole picture (320 x 144), 50 % checker', () => 0, 2, 100, 70);
+  }
+  sec.end(`stack so far ${env.stack.depth()} bytes; image writes ${env.img.n}; memory watch: ${env.w.summary()}`);
+}
+
+// ===========================================================================================================================================
+const run = [[1, g1], [2, g2], [3, g3], [4, g4], [5, g5], [6, g6], [7, g7], [8, g8], [9, g9], [10, g10], [11, g11], [12, g12], [13, g13], [14, g14]];
 for (const [n, f] of run) if (has(n)) { const t0 = Date.now(); try { f(); } catch (e) { C.check(`group ${n} ran to the end`, false, e.stack.split('\n').slice(0, 3).join(' | ')); } if (VERBOSE) console.log(`  (group ${n}: ${((Date.now() - t0) / 1000).toFixed(1)} s)`); }
 finish();

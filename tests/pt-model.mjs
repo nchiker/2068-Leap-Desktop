@@ -54,7 +54,7 @@ export function rndStep(st) { for (let i = 0; i < 8; i++) { const lsb = st & 1; 
 /** The stroke box's margin (byte columns, rows) by tool (PN_PADC, PN_PADR). */
 export const PADS = { 1: [0, 0], 2: [1, 4], 3: [1, 4], 4: [2, 8], 6: [0, 0], 7: [0, 0], 8: [0, 0], 9: [0, 0] };
 export const SHAPES = [6, 7, 8, 9];             // the Line, the Rectangle, the Rounded rectangle and the Oval (PAINT 17, 18): an XOR band while the button is held (a line, or the bounding rectangle)
-export const DRAWING = [1, 2, 3, 4, 6, 7, 8, 9];   // all but the Marquee (0) and the Bucket (5)
+export const DRAWING = [1, 2, 3, 4, 6, 7, 8, 9];   // the tools that take a capture and draw a stroke: all but the Marquee (0, not built) and the Bucket (5, a click: PAINT 21)
 /** G_RRECT's radii by tool (PAINT 18): the Rounded rectangle 8 x 4, the Oval 255 x 100 (cut to w / 2, h / 2). */
 export const RADII = { 8: [8, 4], 9: [255, 100] };
 export const inPic = (x, y) => x >= PIC.x && x < PIC.x + PIC.w && y >= PIC.y && y < PIC.y + PIC.h;
@@ -114,11 +114,29 @@ export class PaintModel {
   press(x, y) {
     x -= this.ox; y -= this.oy;               // screen to the window's home position: the picture's pixels are kept at (128, 32)
     if (!inPic(x, y)) return false;
+    if (this.tool === 5) { this.bucket(x, y); return false; }       // PAINT 21: a click fills; no capture, so no stroke (the caller's moves and release are ignored)
     if (!DRAWING.includes(this.tool)) { this.status = 'Not built yet'; return false; }
     this.stroke = { last: [x, y], pts: [[x, y]], anchor: [x, y], before: this.clone() };
     if (!SHAPES.includes(this.tool)) this.segment(x, y, x, y);     // a shape's press draws nothing (PAINT 17)
     return true;
   }
+  /**
+   * The Bucket (PAINT 21) at the picture-coordinate screen point (x, y) (the window's home position): G_FLOOD on the picture (clip = the picture) with the chosen pattern.  A complete fill is committed like a
+   * stroke whose box is the region's (the box widened to even byte columns, pad 0); an overflow ("Fill too complex") leaves the picture and every undo state as they were and only changes the status.
+   * Returns the model's flood result ({ spans, overflow, box, n, fast, ... }) and keeps it in `lastBucket`.
+   */
+  bucket(x, y) {
+    const before = this.clone();
+    const r = this.pic.floodFill(x, y, PATS[this.pat]);
+    this.lastBucket = r;
+    if (this.forceOverflow) { r.overflow = true; r.forced = true; this.pic.px.set(before.pic.px); }   // a seed-stack overflow (PAINT 21: more than 256 seeds): the model cannot predict it; the test says so
+    if (r.overflow) { this.status = 'Fill too complex'; return r; }
+    const box = strokeBox([[r.box.x0, r.box.y0], [r.box.x1, r.box.y1]], 0, 0);
+    this.commit(box, before);
+    return r;
+  }
+  /** A copy of the picture's model for a probe: `probe(x, y, p)` = G_FLOOD's model result for a seed (picture-home screen coordinates) and pattern p, the picture untouched (a complete fill happens on the copy). */
+  probe(x, y, p) { const g = new Gfx6Model(); g.px.set(this.pic.px); g.setClip(PIC.x, PIC.y, PIC.w, PIC.h); return g.floodFill(x, y, PATS[p]); }
   /** An E_MOVE to (x, y) while the stroke is held. */
   move(x, y) {
     x -= this.ox; y -= this.oy;
@@ -167,7 +185,7 @@ export class PaintModel {
     if (box.nc * box.nr <= UNDO_MAX) {
       // the undo area holds the box's pixels from BEFORE the stroke (the copy still held that state)
       this.undoBox = { ...box, px: boxPixels(before, box) }; this.undoOn = true;
-      if (this.status === 'Too big to undo' || this.status === 'Not built yet') this.status = TOOLNAMES[this.tool];   // PAINT 15: a message gives way to the tool's name at the next fitting commit
+      if (this.status === 'Too big to undo' || this.status === 'Not built yet' || this.status === 'Fill too complex') this.status = TOOLNAMES[this.tool];   // PAINT 15: a message gives way to the tool's name at the next fitting commit
     } else { this.undoBox = null; this.undoOn = false; this.status = 'Too big to undo'; }
   }
   segment(lx, ly, nx, ny) {

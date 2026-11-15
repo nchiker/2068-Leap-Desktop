@@ -303,6 +303,16 @@ export function alertOk(env, how = 'enter') {
 /** Type text into the focused name Field (the Field model follows). */
 export function fieldType(env, f, s) { for (const c of (typeof s === 'string' ? WM.codesOf(s) : s)) { L.typeCode(env, c, 3, 3); W3.fieldTyped(f, c); } }
 export const fieldDelete = (env, f, n) => { for (let i = 0; i < n; i++) { L.typeCode(env, 12, 3, 3); W3.fieldTyped(f, 12); } };
+/**
+ * Run frames until the program's loop is idle or `max` frames; returns the frames run (a long fill keeps the CPU busy for many frames).  A TSRun frame ends with the frame interrupt just accepted (PC = $38), so the
+ * return address on the stack says where the program was: idle = the address after the `halt` of Paint's main loop (pn_loop .. pn_loop + 12), at the end of two frames in a row.
+ */
+export function idle(env, max = 900) {
+  const { m, S } = env, cpu = m.cpu; let n = 0, k = 0;
+  const at = () => { const ret = m.ram[cpu.sp] | (m.ram[cpu.sp + 1] << 8); return cpu.pc === 0x38 && ret >= S.pn_loop && ret < S.pn_loop + 12; };
+  while (n < max) { env.frame(); n++; if (at()) { if (++k >= 2) break; } else k = 0; }
+  return n;
+}
 /** Run frames until `f()` or `max` frames; returns whether it held. */
 export function until(env, f, max = 120) { for (let i = 0; i <= max; i++) { if (f()) return true; if (i < max) env.frame(); } return false; }
 

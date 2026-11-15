@@ -388,7 +388,15 @@ pn_tevent:
     add a,d                         ; the tool
     ld hl,PN_TOOL
     cp (hl)
+    jr nz,.new
+    ld a,(PN_MSG)                   ; the same tool again: a message gives way to its name
+    or a
     jr z,.cons
+    push ix
+    call pn_status
+    pop ix
+    jr .cons
+.new:
     ld (hl),a
     KFAR W_DRAWVIEW                 ; the box again (IX is still the view)
     push ix

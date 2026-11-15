@@ -418,7 +418,7 @@ therefore (1) fills the region **with a solid marker** (the colour opposite to t
 
 **`G_FLOOD`** (`src/gfx6/flood.asm`, DOCK 6, mapping R): GA = x, y (the seed, screen pixels), GA+8 = the pattern pointer (as `G_PATFILL`). The fill is clipped to GCLIP (the seed outside it: nothing). The target colour is the seed's pixel; the
 region is the 4-connected set of target pixels inside the clip. **Returns carry clear** when the fill is complete, **carry set when it overflowed**: the picture is then partly changed and the caller restores it. The filled
-region's box is left in hot RAM for the caller: `FL_BX0`, `FL_BX1` (words: the first and last x), `FL_BY0`, `FL_BY1` (bytes: the first and last y), valid after a complete fill. Clobbers AF, BC, DE, HL; the state is in hot RAM
+region's box is left in hot RAM for the caller: `FL_BX0`, `FL_BX1` (words: the first and last x), `FL_BY0`, `FL_BY1` (bytes: the first and last y), valid after a complete fill. Clobbers AF, BC, DE, HL and GOP (the marker's op); the state is in hot RAM
 `$E0D0-$E0FF` and cold RAM `$7800-$7FFF` (the span list from `$7800` up, to `$7BFF`: **204 spans** of 5 bytes (y, x0 word, x1 word); the seed stack from `$7FFF` down, to `$7C00`: **256 seeds** of 4 bytes (x word, y, one spare)).
 **A fill overflows** when the region has more than 204 maximal horizontal runs (spans), or when the seed stack passes 256 entries. The undo area at `$5800` is not touched, so the undo box of a completed fill is saved from the copy as for any stroke.
 **Algorithm:** scanline: pop a seed; if its pixel is not the target, skip it; extend the run left and right (a whole byte of the target colour is skipped 8 pixels at a time); fill the span with the marker (`G_FILL`, op SET when the target is paper, CLR
@@ -432,3 +432,7 @@ overflows on the span list**; a patterned fill of a region with more than 204 ma
 The region's box is read by `pn_bucket` from `FL_BX0`, `FL_BX1`, `FL_BY0`, `FL_BY1` (`$E0DE-$E0E3`); a press with the bucket takes no capture (the press is not consumed). A whole-picture fill takes many frames (it is not bounded here; the owner's decision is
 to report it, `tests/g6-flood.mjs` measures it).
 **Space after P3a (2026-11-15):** DOCK 2-3 has about 289 bytes free (`PN_END` `$7EDF` of `$8000`), DOCK 6 about 900 (`G6_END` `$DC74` of `$E000`), the pool about 5,800. The marquee (P3b) and FatBits (P4) will not fit in DOCK 2-3 as it is: see the owner question in `CLAUDE.md`.
+
+**Revised after the tests (2026-11-15):** a solid fill of a noisy region can overflow a 256-seed stack (20 of 485 test calls did), so **in the one-pass fill the seed stack is 512 seeds** (`$7800-$7FFF`, the span list being unused; `FL_SLIM` `$E0E5` is the stack's lowest address); a patterned fill keeps 204 spans and 256 seeds. So "a solid fill never overflows on the span list" stays true, but a very noisy
+region can still overflow the stack ("Fill too complex"). **`G_FLOOD` clobbers GOP.** Pressing the already-chosen tool's cell brings the tool's name back after a message (as choosing another tool does). The speed: a whole-picture solid fill takes about 9.2 M T (160 frames: about 64 k T a row, the run scans call `G_ADDR` per byte): reported, an optimisation (a row pointer stepped
+byte to byte) is left for later.
