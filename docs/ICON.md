@@ -25,3 +25,9 @@ The shell's `ic_draw` (`KFAR G_BLIT`, copy 0 at x + 16: now `G_ICON` with w = 32
 
 ## 5. Tests (Sonnet)
 `tests/g6-icon.mjs` against a model (`Gfx6Model.icon`): random sizes (w = 8 .. 512 in steps of 8, h = 1 .. 192), random x (multiples of 8, also off screen), random y, random bitmaps in DOCK 6 (a table in the cartridge) and in cold RAM, random clips (empty, 1 pixel, edges inside a byte), the whole screen compared after every call; mapping R, no write to `$C000-$DFFF`, the stack, no DI. Then the whole regression: the screens of the shell and Paint are the proof.
+
+## 6. The tool icons are redrawn (owner, 2026-11-15: "review the icons used in paint, some of them are hard to make out")
+**Why they are hard to read:** mode 6's pixels are twice as tall as wide, so a 16 x 16 icon is physically a tall 1 : 2 rectangle, and a 1-pixel vertical stroke is half as heavy as a 1-row horizontal one (the old icons used 1-pixel strokes both ways, so
+they look thin, uneven and cramped).
+**The new tool icons are 32 x 16 pixels** (the whole cell, physically square) drawn for the pixel shape: horizontal strokes 1 row, vertical strokes 2 columns, diagonals 2 columns wide, round shapes twice as wide as tall, the outer column and row left blank (the cell's frame is drawn over them). The data is 64 bytes an icon
+(640 for ten: 320 more than 16-wide icons, 320 less than today's pairs); `G_ICON` is called with w = 32. The source stays `src/apps/ticons.txt` (32 characters a row, 16 rows; `tools/gen-icons.mjs` and `tests/pt-model.mjs` parse it: both follow the width); the mock-up PNG of the new set is `docs/paint/icons-new.png`.
