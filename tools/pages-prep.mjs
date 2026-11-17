@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = resolve(process.argv[2] ?? `${ROOT}/_site`);
-for (const need of ['pages/desk5.dck', 'pages/index.template.html', 'docs/TECHNICAL.md', 'node_modules/marked/package.json', 'web/main.js', 'tsrun/machine.js', 'tsrun/roms/ts2068-0.rom'])
+for (const need of ['pages/desk5.dck', 'pages/index.template.html', 'pages/leap-desktop.html', 'pages/img', 'docs/TECHNICAL.md', 'node_modules/marked/package.json', 'web/main.js', 'tsrun/machine.js', 'tsrun/roms/ts2068-0.rom'])
   if (!existsSync(`${ROOT}/${need}`)) { console.error(`missing ${need} (git submodule update --init? npm install?)`); process.exit(1); }
 
 rmSync(OUT, { recursive: true, force: true });
@@ -21,6 +21,10 @@ cpSync(`${ROOT}/web`, `${OUT}/web`, { recursive: true });
 // TSRun: the modules, shaders and the stock ROM the page loads (the other ROM sets and the Go server are not needed)
 cpSync(`${ROOT}/tsrun`, `${OUT}/tsrun`, { recursive: true, filter: (s) => !/[\\/](\.git|server\.go|leap[a-z]*-[01]\.rom)$/.test(s) });
 cpSync(`${ROOT}/pages/desk5.dck`, `${OUT}/build/desk5.dck`);
+// The user-facing landing page (a static page like Leap-IDE's leap-ide.html): pages/leap-desktop.html and its pictures in pages/img/
+// (made by tools/site-capture.mjs and tools/site-gifs.py from the real desktop). The technical document stays the front page (index.html).
+cpSync(`${ROOT}/pages/leap-desktop.html`, `${OUT}/leap-desktop.html`);
+cpSync(`${ROOT}/pages/img`, `${OUT}/img`, { recursive: true });
 // The landing page: the technical document rendered, with a table of contents from its headings.
 const { marked } = await import('marked');
 const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

@@ -5,14 +5,16 @@ DOCK cartridge, uses the 512x192 64-column video mode, and is tested on emulator
 
 **Status:** `desk5`, a 56 KB DOCK cartridge, boots into a desktop with overlapping windows, menus, a Kempston mouse and sound, and six programs: the shell, Calculator, Key Caps, Notepad, Paint and a 15-tile Puzzle. It is tested on TSRun (headless and in the browser), ZEsarUX 13.0 and Fuse 1.9.1; the design and the plan are in [`docs/FEASIBILITY.md`](docs/FEASIBILITY.md), and `CLAUDE.md` holds the working notes.
 
-| ▶ [**Try it in your browser**](https://nchiker.github.io/2068-Leap-Desktop/web/?cart=desk5) | 📖 [**Technical document**](https://nchiker.github.io/2068-Leap-Desktop/) | ⬇ [**desk5.dck**](pages/desk5.dck) | 🗂 [**Design docs**](docs/) |
-|:---:|:---:|:---:|:---:|
+| 🧭 [**Getting started**](https://nchiker.github.io/2068-Leap-Desktop/leap-desktop.html) | ▶ [**Try it in your browser**](https://nchiker.github.io/2068-Leap-Desktop/web/?cart=desk5) | 📖 [**Technical document**](https://nchiker.github.io/2068-Leap-Desktop/) | ⬇ [**desk5.dck**](pages/desk5.dck) | 🗂 [**Design docs**](docs/) |
+|:---:|:---:|:---:|:---:|:---:|
 
 ![The Leap Desktop window with five program icons](docs/screens/desktop.png)
 
 The live page runs the cartridge on [TSRun](https://github.com/nchiker/TSRun), a TS2068 emulator in the browser; click the screen to give it the keyboard.
 [`docs/TECHNICAL.md`](docs/TECHNICAL.md) explains how it works (the same text is the front page of the live site). The page serves the prebuilt
 `pages/desk5.dck`; refresh it with `node tools/build.mjs desk5 && cp build/desk5.dck pages/desk5.dck`. Emulator-qualified, not yet tried on a real TS2068.
+
+Part of the Leap family: [Leap IDE](https://nchiker.github.io/2068-Leap-IDE/leap-ide.html) (write Leap V2 BASIC, Leap-Forth and Leap-C programs) and [Leap Arcade](https://nchiker.github.io/2068-Leap-IDE/arcade.html) (a game-building studio). Full credits: [`CREDITS.md`](CREDITS.md).
 
 ## Layout
 
